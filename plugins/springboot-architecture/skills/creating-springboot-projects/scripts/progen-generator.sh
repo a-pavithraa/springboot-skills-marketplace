@@ -106,11 +106,21 @@ if command -v progen &> /dev/null; then
 else
     echo -e "${YELLOW}progen not installed${NC}"
     echo ""
-    echo "Install from: https://github.com/sivaprasadreddy/progen"
+    echo "Install from: https://github.com/sivaprasadreddy/progen/releases"
     echo ""
-    echo "Quick install (Linux/Mac):"
-    echo "curl -sL https://github.com/sivaprasadreddy/progen/releases/latest/download/progen-linux-amd64 -o progen"
-    echo "chmod +x progen && sudo mv progen /usr/local/bin/"
+    echo "Quick install:"
+    echo ""
+    echo "Linux:"
+    echo "  curl -sL https://github.com/sivaprasadreddy/progen/releases/download/v1.0.0/progen-linux-amd64 -o progen"
+    echo "  chmod +x progen && sudo mv progen /usr/local/bin/"
+    echo ""
+    echo "macOS:"
+    echo "  curl -sL https://github.com/sivaprasadreddy/progen/releases/download/v1.0.0/progen-darwin-amd64 -o progen"
+    echo "  chmod +x progen && sudo mv progen /usr/local/bin/"
+    echo ""
+    echo "Windows:"
+    echo "  Download: https://github.com/sivaprasadreddy/progen/releases/download/v1.0.0/progen-windows-amd64.exe"
+    echo "  Rename to progen.exe and add to PATH"
 fi
 
 # Show post-generation steps

@@ -95,8 +95,10 @@ if ($ProgenExists) {
 } else {
     Write-Host "progen not installed" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Install from: https://github.com/sivaprasadreddy/progen"
-    Write-Host "Download progen-windows-amd64.exe and add to PATH"
+    Write-Host "Download from: https://github.com/sivaprasadreddy/progen/releases/download/v1.0.0/progen-windows-amd64.exe"
+    Write-Host "Rename to progen.exe and add to PATH"
+    Write-Host ""
+    Write-Host "Or visit: https://github.com/sivaprasadreddy/progen/releases"
 }
 
 # Show post-generation steps
