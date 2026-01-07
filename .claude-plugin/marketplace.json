@@ -1,31 +1,29 @@
 {
   "name": "springboot-skills-marketplace",
-  "version": "1.0.0",
-  "description": "A collection of Claude Code skills for creating Spring Boot applications with proper architecture patterns",
-  "author": {
-    "name": "Pavithra"    
+  "owner": {
+    "name": "Pavithra"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/a-pavithraa/springboot-skills-marketplace"
+  "metadata": {
+    "description": "A collection of Claude Code skills for creating Spring Boot applications with proper architecture patterns",
+    "version": "1.0.0",
+    "pluginRoot": "./plugins"
   },
   "plugins": [
     {
-      "id": "springboot-architecture",
-      "name": "Spring Boot Architecture",
+      "name": "springboot-architecture",
+      "source": "./plugins/springboot-architecture",
       "description": "Skills for creating Spring Boot projects with architecture patterns (Layered to DDD+Hexagonal)",
       "version": "1.0.0",
-      "skills": [
-        {
-          "name": "creating-springboot-projects",
-          "description": "Use when creating new Spring Boot projects - assess complexity first, choose appropriate architecture (Layered to DDD+Hexagonal), then generate with progen",
-          "path": "plugins/springboot-architecture/skills/creating-springboot-projects"
-        }
+      "author": {
+        "name": "Pavithra"
+      },
+      "repository": "https://github.com/a-pavithraa/springboot-skills-marketplace",
+      "category": "spring-boot",
+      "tags": ["spring-boot", "java", "architecture", "ddd", "hexagonal"],
+      "strict": false,
+      "agents": [
+        "./skills/creating-springboot-projects/SKILL.md"
       ]
     }
-  ],
-  "references": {
-    "architecture_patterns": "https://github.com/sivaprasadreddy/spring-boot-application-architecture-patterns",
-    "progen": "https://github.com/sivaprasadreddy/progen"
-  }
+  ]
 }
