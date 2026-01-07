@@ -1,6 +1,6 @@
 ---
 name: creating-springboot-projects
-description: Use when creating new Spring Boot projects - assess complexity first, choose appropriate architecture (Layered to DDD+Hexagonal), then generate with progen
+description: Use when creating new Spring Boot projects - assess complexity first, choose appropriate architecture (Layered to DDD+Hexagonal), then implement using templates
 ---
 
 # Creating Spring Boot Projects
@@ -8,22 +8,6 @@ description: Use when creating new Spring Boot projects - assess complexity firs
 ## Critical Rule
 
 **NEVER jump to implementation. ALWAYS assess complexity first.**
-
-**NEVER create structure manually. ALWAYS use progen-generator scripts.**
-
-## Quick Start
-
-```bash
-# 1. Run the generator with --help first
-./scripts/progen-generator.sh --help
-
-# 2. Generate project for your architecture
-./scripts/progen-generator.sh tomato order-service com.example.orders postgresql
-
-# Windows:
-.\scripts\progen-generator.ps1 -Help
-.\scripts\progen-generator.ps1 -Architecture tomato -ProjectName order-service -Package com.example.orders
-```
 
 ## Step 1: Assess Complexity
 
@@ -53,40 +37,37 @@ Ask user:
 | Type Safety | Low | Low | Low | High | High |
 | Learning Curve | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ |
 
-## Step 3: Generate Project
+## Step 3: Create Project Structure
 
-**Always run scripts with `--help` first:**
+**Create Spring Boot project using Spring Initializr:**
 
-```bash
-# Linux/Mac
-./scripts/progen-generator.sh --help
-
-# Windows
-.\scripts\progen-generator.ps1 -Help
 ```
+Visit: https://start.spring.io
 
-**Then generate:**
+Configure:
+- Project: Maven
+- Language: Java
+- Spring Boot: 3.3.x (latest stable)
+- Packaging: Jar
+- Java: 21
 
-```bash
-# Linux/Mac
-./scripts/progen-generator.sh <architecture> <project-name> <package> [database]
+Add Dependencies:
+- Spring Web
+- Spring Data JPA
+- Validation
+- Flyway Migration
+- PostgreSQL/MySQL Driver
+- Testcontainers
+- Docker Compose Support
+- Springdoc OpenAPI (swagger)
+- Spring Boot Actuator
 
-# Examples:
-./scripts/progen-generator.sh layered product-api com.example.products
-./scripts/progen-generator.sh tomato order-service com.example.orders postgresql
+Additional for Modular Monolith/Tomato:
+- Spring Modulith
 
-# Windows
-.\scripts\progen-generator.ps1 -Architecture <arch> -ProjectName <name> -Package <pkg>
-
-# Example:
-.\scripts\progen-generator.ps1 -Architecture tomato -ProjectName order-service -Package com.example.orders
+Additional for DDD+Hexagonal:
+- ArchUnit
 ```
-
-**What the scripts do:**
-1. Generate correct progen command with architecture-specific features
-2. Check if progen is installed (show install instructions if not)
-3. Offer to execute the command
-4. Show next steps for your architecture
 
 ## Step 4: Implement Pattern
 
@@ -160,7 +141,7 @@ Templates in `templates/` directory have `{{PLACEHOLDER}}` markers:
 - Flyway/Liquibase migrations (template: `flyway-migration.sql`)
 - Testcontainers (template: `testcontainers-test.java`)
 - Docker Compose (template: `docker-compose.yml`)
-- Swagger/OpenAPI (auto-included by progen)
+- Swagger/OpenAPI (Springdoc)
 - ProblemDetail errors (template: `exception-handler.java`)
 
 **Tomato/DDD add:**
@@ -174,7 +155,6 @@ Templates in `templates/` directory have `{{PLACEHOLDER}}` markers:
 | Don't | Do |
 |-------|-----|
 | Jump to implementation | Ask assessment questions first |
-| Create structure manually | Use progen-generator scripts |
 | Use DDD for simple CRUD | Use Layered or Package-by-Module |
 | Use Layered for complex domain | Use Tomato or DDD+Hexagonal |
 | Skip infrastructure | Always include Flyway, Testcontainers, Docker |

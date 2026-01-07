@@ -51,8 +51,7 @@ The skills help you choose between five progressive patterns:
 **Key Features**:
 - **Assessment-First Approach**: Evaluates project complexity before choosing architecture
 - **5 Progressive Patterns**: From simple Layered to full DDD+Hexagonal
-- **Cross-Platform Scripts**: Both Linux/Mac (Bash) and Windows (PowerShell) support
-- **Integration with progen**: Uses [progen](https://github.com/sivaprasadreddy/progen) CLI for project generation
+- **Spring Initializr Integration**: Uses Spring Initializr for project scaffolding
 - **13 Ready-to-Use Templates**: Value Objects, Rich Entities, CQRS Services, Spring Converters, etc.
 
 **Assessment Questions**:
@@ -86,8 +85,8 @@ Claude: I'll use the creating-springboot-projects skill to set this up.
 Based on your answers (simple CRUD, small team, short lifespan),
 I recommend the Layered architecture.
 
-[Runs progen-generator script]
-./scripts/progen-generator.sh layered product-api com.example.products postgresql
+[Creates project via Spring Initializr]
+[Sets up standard layered structure with templates]
 ```
 
 **Result**: Clean Spring Boot project with standard layered structure.
@@ -105,10 +104,9 @@ Claude: I'll use the creating-springboot-projects skill to set this up.
 Based on your answers (complex domain, medium team, long lifespan,
 type safety needed), I recommend the Tomato architecture.
 
-[Runs progen-generator script]
-./scripts/progen-generator.sh tomato order-service com.example.orders postgresql
+[Creates project via Spring Initializr with Modulith support]
 
-[Creates Value Objects]
+[Creates Value Objects using templates]
 - OrderId (TSID-based)
 - OrderStatus (enum with state machine)
 - Money (type-safe currency)
@@ -150,10 +148,8 @@ All patterns come with ready-to-use templates:
 ## Prerequisites
 
 - **Claude Code CLI** installed
-- **progen** installed (optional, scripts will show install instructions if missing)
-  - Download from: https://github.com/sivaprasadreddy/progen
-  - Linux/Mac: `curl -sL https://github.com/sivaprasadreddy/progen/releases/latest/download/progen-linux-amd64 -o progen && chmod +x progen && sudo mv progen /usr/local/bin/`
-  - Windows: Download `progen-windows-amd64.exe`, rename to `progen.exe`, add to PATH
+- **Java 21+** installed
+- **Maven** or **Gradle** for building projects
 
 ## Architecture Decision Guide
 
@@ -220,7 +216,6 @@ This repository contains 5 complete implementations of the same event management
 ## Credits
 
 - **Architecture Patterns Reference**: [Siva Prasad Reddy](https://github.com/sivaprasadreddy)
-- **Project Generation Tool**: [progen by Siva Prasad Reddy](https://github.com/sivaprasadreddy/progen)
 - **Marketplace Inspiration**: [sivalabs-marketplace](https://github.com/sivaprasadreddy/sivalabs-marketplace)
 
 
