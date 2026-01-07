@@ -47,9 +47,9 @@ Visit: https://start.spring.io
 Configure:
 - Project: Maven
 - Language: Java
-- Spring Boot: 3.3.x (latest stable)
+- Spring Boot: 4.0.x (latest stable)
 - Packaging: Jar
-- Java: 21
+- Java: 25
 
 Add Dependencies:
 - Spring Web
@@ -58,16 +58,23 @@ Add Dependencies:
 - Flyway Migration
 - PostgreSQL/MySQL Driver
 - Testcontainers
-- Docker Compose Support
-- Springdoc OpenAPI (swagger)
+- Docker Compose Support (for local dev environment)
+- Springdoc OpenAPI (v3.0.0 for Spring Boot 4)
 - Spring Boot Actuator
 
 Additional for Modular Monolith/Tomato:
-- Spring Modulith
+- Spring Modulith (v2.0.1)
 
 Additional for DDD+Hexagonal:
-- ArchUnit
+- ArchUnit (v1.2.1)
 ```
+
+**Spring Boot 4 New Features:**
+- **TestRestClient** - Modern REST testing API (replaces TestRestTemplate)
+- **Native Resiliency** - Built-in circuit breakers, retries without external libs
+- **HTTP Service Client** - Simplified @HttpExchange for external APIs
+- **Spring Data AOT** - Faster startup with GraalVM native images
+- **jSpecify NullSafety** - Better compile-time null checking
 
 ## Step 4: Implement Pattern
 

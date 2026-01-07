@@ -5,12 +5,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestConfiguration;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,29 +20,21 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Integration test with Testcontainers.
  *
  * Uses real PostgreSQL container for realistic testing.
+ * Spring Boot 4 pattern with @TestConfiguration and @ServiceConnection.
+ *
+ * Note: TestRestTemplate is used here for compatibility, but Spring Boot 4
+ * recommends TestRestClient for new code (more modern API with fluent interface).
  */
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import({{NAME}}IntegrationTest.TestcontainersConfig.class)
 class {{NAME}}IntegrationTest {
-
-    // Option 1: @ServiceConnection (Spring Boot 3.1+, simpler)
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    // Option 2: @DynamicPropertySource (older approach, more control)
-    // @Container
-    // static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
-    //
-    // @DynamicPropertySource
-    // static void configureProperties(DynamicPropertyRegistry registry) {
-    //     registry.add("spring.datasource.url", postgres::getJdbcUrl);
-    //     registry.add("spring.datasource.username", postgres::getUsername);
-    //     registry.add("spring.datasource.password", postgres::getPassword);
-    // }
 
     @Autowired
     TestRestTemplate restTemplate;
+
+    // Alternative: Use TestRestClient (Spring Boot 4 recommended approach)
+    // @Autowired
+    // TestRestClient restClient;
 
     @Test
     void contextLoads() {
@@ -54,20 +48,47 @@ class {{NAME}}IntegrationTest {
         assertThat(response.getBody()).contains("UP");
     }
 
+    // Example using TestRestClient (Spring Boot 4 recommended)
+    // @Test
+    // void healthEndpointReturnsUpUsingRestClient() {
+    //     String health = restClient.get()
+    //         .uri("/actuator/health")
+    //         .exchange((request, response) -> {
+    //             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    //             return response.bodyTo(String.class);
+    //         });
+    //     assertThat(health).contains("UP");
+    // }
+
     // Add more integration tests here
+
+    /**
+     * Testcontainers configuration for integration tests.
+     * Spring Boot 4 pattern: Use @TestConfiguration with @Bean methods.
+     */
+    @TestConfiguration(proxyBeanMethods = false)
+    @Testcontainers
+    static class TestcontainersConfig {
+
+        @Container
+        static PostgreSQLContainer<?> postgres =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:18-alpine"));
+
+        @Bean
+        @ServiceConnection
+        PostgreSQLContainer<?> postgresContainer() {
+            return postgres;
+        }
+    }
 }
 
 // ============================================================
 // EXAMPLE: ProductController Integration Test
 // ============================================================
 
-// @Testcontainers
 // @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// @Import(ProductControllerIntegrationTest.TestcontainersConfig.class)
 // class ProductControllerIntegrationTest {
-//
-//     @Container
-//     @ServiceConnection
-//     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
 //
 //     @Autowired
 //     TestRestTemplate restTemplate;
@@ -105,6 +126,20 @@ class {{NAME}}IntegrationTest {
 //
 //         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 //     }
+//
+//     @TestConfiguration(proxyBeanMethods = false)
+//     @Testcontainers
+//     static class TestcontainersConfig {
+//         @Container
+//         static PostgreSQLContainer<?> postgres =
+//             new PostgreSQLContainer<>(DockerImageName.parse("postgres:18-alpine"));
+//
+//         @Bean
+//         @ServiceConnection
+//         PostgreSQLContainer<?> postgresContainer() {
+//             return postgres;
+//         }
+//     }
 // }
 
 // ============================================================
@@ -112,13 +147,9 @@ class {{NAME}}IntegrationTest {
 // ============================================================
 
 // @DataJpaTest
-// @Testcontainers
 // @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+// @Import(ProductRepositoryTest.TestcontainersConfig.class)
 // class ProductRepositoryTest {
-//
-//     @Container
-//     @ServiceConnection
-//     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
 //
 //     @Autowired
 //     ProductRepository repository;
@@ -137,5 +168,19 @@ class {{NAME}}IntegrationTest {
 //
 //         assertThat(found).isPresent();
 //         assertThat(found.get().getSku().code()).isEqualTo("TEST-001");
+//     }
+//
+//     @TestConfiguration(proxyBeanMethods = false)
+//     @Testcontainers
+//     static class TestcontainersConfig {
+//         @Container
+//         static PostgreSQLContainer<?> postgres =
+//             new PostgreSQLContainer<>(DockerImageName.parse("postgres:18-alpine"));
+//
+//         @Bean
+//         @ServiceConnection
+//         PostgreSQLContainer<?> postgresContainer() {
+//             return postgres;
+//         }
 //     }
 // }

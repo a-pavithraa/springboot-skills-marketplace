@@ -49,7 +49,7 @@ public class TSIDUtil {
         <dependency>
             <groupId>org.springframework.modulith</groupId>
             <artifactId>spring-modulith-bom</artifactId>
-            <version>1.2.0</version>
+            <version>2.0.1</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -113,7 +113,45 @@ void shouldVerifyHexagonalArchitecture(String moduleName) {
 <dependency>
     <groupId>org.springdoc</groupId>
     <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-    <version>2.3.0</version>
+    <version>3.0.0</version>
 </dependency>
 
 <!-- Access at: http://localhost:8080/swagger-ui.html -->
+
+
+<!-- ============================================================ -->
+<!-- Spring Boot 4 Features & Improvements                       -->
+<!-- ============================================================ -->
+
+<!--
+Spring Boot 4 Notable Changes:
+
+1. TestRestClient - New testing utility (replaces TestRestTemplate)
+   - Included in spring-boot-starter-webmvc-test
+   - More modern, fluent API for REST testing
+   - Example: restClient.get().uri("/api").exchange(...)
+
+2. Native Resiliency Features - Built-in fault tolerance
+   - Circuit breakers, retries, timeouts without external libraries
+   - More lightweight than Spring Cloud Circuit Breaker
+
+3. HTTP Service Client Simplification
+   - Simplified HTTP client interfaces using @HttpExchange
+   - Less boilerplate for external API integrations
+
+4. Spring Data AOT - Ahead-of-time compilation support
+   - Faster startup times with GraalVM native images
+   - Better performance for cloud deployments
+
+5. jSpecify NullSafety - Enhanced null checking
+   - Better IDE support for null safety
+   - Compile-time null pointer prevention
+
+6. Spring Modulith 2.0 - Enhanced modularity support
+   - Better integration with Spring Boot 4
+   - Improved event publishing and module boundaries
+
+Resources:
+- https://github.com/sivaprasadreddy/spring-boot-4-features
+- https://github.com/sivaprasadreddy/spring-modular-monolith
+-->

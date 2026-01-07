@@ -148,8 +148,9 @@ All patterns come with ready-to-use templates:
 ## Prerequisites
 
 - **Claude Code CLI** installed
-- **Java 21+** installed
+- **Java 25** installed
 - **Maven** or **Gradle** for building projects
+- **Spring Boot 4.0+** knowledge (includes TestRestClient, native resiliency, AOT support)
 
 ## Architecture Decision Guide
 
@@ -216,6 +217,8 @@ This repository contains 5 complete implementations of the same event management
 ## Credits
 
 - **Architecture Patterns Reference**: [Siva Prasad Reddy](https://github.com/sivaprasadreddy)
+- **Spring Boot 4 Features**: [spring-boot-4-features](https://github.com/sivaprasadreddy/spring-boot-4-features)
+- **Modular Monolith Reference**: [spring-modular-monolith](https://github.com/sivaprasadreddy/spring-modular-monolith)
 - **Marketplace Inspiration**: [sivalabs-marketplace](https://github.com/sivaprasadreddy/sivalabs-marketplace)
 
 
