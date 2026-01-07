@@ -1,0 +1,192 @@
+---
+name: creating-springboot-projects
+description: Use when creating new Spring Boot projects - assess complexity first, choose appropriate architecture (Layered to DDD+Hexagonal), then generate with progen
+---
+
+# Creating Spring Boot Projects
+
+## Critical Rule
+
+**NEVER jump to implementation. ALWAYS assess complexity first.**
+
+**NEVER create structure manually. ALWAYS use progen-generator scripts.**
+
+## Quick Start
+
+```bash
+# 1. Run the generator with --help first
+./scripts/progen-generator.sh --help
+
+# 2. Generate project for your architecture
+./scripts/progen-generator.sh tomato order-service com.example.orders postgresql
+
+# Windows:
+.\scripts\progen-generator.ps1 -Help
+.\scripts\progen-generator.ps1 -Architecture tomato -ProjectName order-service -Package com.example.orders
+```
+
+## Step 1: Assess Complexity
+
+Ask user:
+1. **Domain Complexity** - Simple CRUD or complex business rules?
+2. **Team Size** - 1-3, 3-10, or 10+?
+3. **Lifespan** - Months, 1-2 years, or 5+ years?
+4. **Type Safety** - Basic validation or strong typing needed (financial/healthcare)?
+5. **Bounded Contexts** - Single domain or multiple subdomains?
+
+## Step 2: Choose Architecture
+
+| Pattern | When | Complexity |
+|---------|------|-----------|
+| **layered** | Simple CRUD, prototypes, MVPs | ⭐ |
+| **package-by-module** | 3-5 distinct features, medium apps | ⭐⭐ |
+| **modular-monolith** | Need module boundaries, Spring Modulith | ⭐⭐ |
+| **tomato** | Rich domain, Value Objects, type safety | ⭐⭐⭐ |
+| **ddd-hexagonal** | Complex domains, CQRS, infrastructure independence | ⭐⭐⭐⭐ |
+
+**Decision criteria:**
+
+| Criteria | Layered | Package-by-Module | Modulith | Tomato | DDD+Hex |
+|----------|---------|-------------------|----------|--------|---------|
+| Team Size | 1-3 | 3-10 | 5-15 | 5-15 | 10+ |
+| Lifespan | Months | 1-2 yrs | 2-5 yrs | 3-5 yrs | 5+ yrs |
+| Type Safety | Low | Low | Low | High | High |
+| Learning Curve | ⭐ | ⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ |
+
+## Step 3: Generate Project
+
+**Always run scripts with `--help` first:**
+
+```bash
+# Linux/Mac
+./scripts/progen-generator.sh --help
+
+# Windows
+.\scripts\progen-generator.ps1 -Help
+```
+
+**Then generate:**
+
+```bash
+# Linux/Mac
+./scripts/progen-generator.sh <architecture> <project-name> <package> [database]
+
+# Examples:
+./scripts/progen-generator.sh layered product-api com.example.products
+./scripts/progen-generator.sh tomato order-service com.example.orders postgresql
+
+# Windows
+.\scripts\progen-generator.ps1 -Architecture <arch> -ProjectName <name> -Package <pkg>
+
+# Example:
+.\scripts\progen-generator.ps1 -Architecture tomato -ProjectName order-service -Package com.example.orders
+```
+
+**What the scripts do:**
+1. Generate correct progen command with architecture-specific features
+2. Check if progen is installed (show install instructions if not)
+3. Offer to execute the command
+4. Show next steps for your architecture
+
+## Step 4: Implement Pattern
+
+### Package Structures
+
+**Layered:** `controller/` `service/` `repository/` `domain/`
+
+**Package-by-Module:**
+```
+products/domain/  products/rest/
+orders/domain/    orders/rest/
+shared/
+```
+
+**Tomato** (adds Value Objects to Package-by-Module):
+```
+products/
+  domain/
+    vo/             ← ProductSKU, Price, Quantity
+    ProductEntity.java
+    ProductService.java
+    ProductQueryService.java
+  rest/
+    converters/     ← StringToProductSKUConverter
+```
+
+**DDD+Hexagonal:**
+```
+products/
+  application/command/  application/query/
+  domain/model/  domain/vo/
+  infra/persistence/
+  interfaces/rest/
+```
+
+### Use Templates
+
+Templates in `templates/` directory have `{{PLACEHOLDER}}` markers:
+- `{{PACKAGE}}` → `com.example`
+- `{{MODULE}}` → `products`
+- `{{NAME}}` → `Product`
+
+**Core templates:**
+- `value-object.java` - Type-safe VOs (SKU, Email, Price)
+- `rich-entity.java` - Entities with behavior
+- `repository.java` - @Query examples
+- `service-cqrs.java` - Write/read services
+- `controller.java` - REST with VOs
+- `spring-converter.java` - Path variable binding
+- `modularity-test.java` - Spring Modulith tests
+- `flyway-migration.sql` - Database schema
+- `exception-handler.java` - ProblemDetail (RFC 7807)
+
+**See all templates:** `ls templates/`
+
+### Naming Conventions (Tomato/DDD)
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Entity | `*Entity` | `ProductEntity` |
+| Value Object | Domain name | `ProductSKU`, `Price` |
+| Command | `*Cmd` | `CreateProductCmd` |
+| View Model | `*VM` | `ProductVM` |
+| Write Service | `*Service` | `ProductService` |
+| Read Service | `*QueryService` | `ProductQueryService` |
+| Module API | `*API` | `ProductsAPI` |
+
+## Step 5: Required Infrastructure
+
+**All patterns need:**
+- Flyway/Liquibase migrations (template: `flyway-migration.sql`)
+- Testcontainers (template: `testcontainers-test.java`)
+- Docker Compose (template: `docker-compose.yml`)
+- Swagger/OpenAPI (auto-included by progen)
+- ProblemDetail errors (template: `exception-handler.java`)
+
+**Tomato/DDD add:**
+- TSID dependency (see `pom-additions.xml`)
+- BaseEntity (template: `base-entity.java`)
+- Spring Converters (template: `spring-converter.java`)
+- ModularityTest (template: `modularity-test.java`)
+
+## Anti-Patterns
+
+| Don't | Do |
+|-------|-----|
+| Jump to implementation | Ask assessment questions first |
+| Create structure manually | Use progen-generator scripts |
+| Use DDD for simple CRUD | Use Layered or Package-by-Module |
+| Use Layered for complex domain | Use Tomato or DDD+Hexagonal |
+| Skip infrastructure | Always include Flyway, Testcontainers, Docker |
+| Copy code without understanding | Read template comments, adapt to your domain |
+
+## Upgrade Path
+
+| From | To | When |
+|------|-----|------|
+| Layered | Package-by-Module | 3+ features, team grows |
+| Package-by-Module | Modular Monolith | Need enforced boundaries |
+| Modular Monolith | Tomato | Type confusion bugs, validation scattered |
+| Tomato | DDD+Hexagonal | Need infrastructure independence, CQRS |
+
+**Start simple. Upgrade when complexity demands it.**

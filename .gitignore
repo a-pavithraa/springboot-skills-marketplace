@@ -1,0 +1,33 @@
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Node modules (if adding any tooling)
+node_modules/
+package-lock.json
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Environment files
+.env
+.env.local
+
+# Claude Code local settings
+.claude/settings.local.json

@@ -1,0 +1,119 @@
+<!--
+  Additional POM dependencies for Spring Boot projects.
+  Add these to your pom.xml as needed.
+-->
+
+<!-- ============================================================ -->
+<!-- TSID - For application-generated IDs (Tomato/DDD patterns)   -->
+<!-- ============================================================ -->
+<dependency>
+    <groupId>io.hypersistence</groupId>
+    <artifactId>hypersistence-utils-hibernate-71</artifactId>
+    <version>3.14.1</version>
+</dependency>
+
+<!-- Usage:
+package {{PACKAGE}}.shared;
+
+import io.hypersistence.tsid.TSID;
+
+public class TSIDUtil {
+    private TSIDUtil() {}
+
+    public static String generateTsidString() {
+        return TSID.Factory.getTsid().toString();
+    }
+
+    public static Long generateTsidLong() {
+        return TSID.Factory.getTsid().toLong();
+    }
+}
+-->
+
+
+<!-- ============================================================ -->
+<!-- Spring Modulith - For Modular Monolith/Tomato patterns       -->
+<!-- ============================================================ -->
+<dependency>
+    <groupId>org.springframework.modulith</groupId>
+    <artifactId>spring-modulith-starter-core</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.modulith</groupId>
+    <artifactId>spring-modulith-starter-jpa</artifactId>
+</dependency>
+
+<!-- Add to dependencyManagement:
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-bom</artifactId>
+            <version>1.2.0</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+-->
+
+
+<!-- ============================================================ -->
+<!-- ArchUnit - For DDD+Hexagonal architecture tests              -->
+<!-- ============================================================ -->
+<dependency>
+    <groupId>com.tngtech.archunit</groupId>
+    <artifactId>archunit-junit5</artifactId>
+    <version>1.2.1</version>
+    <scope>test</scope>
+</dependency>
+
+<!-- Usage:
+@ParameterizedTest
+@ValueSource(strings = {"products", "orders"})
+void shouldVerifyHexagonalArchitecture(String moduleName) {
+    JavaClasses classes = new ClassFileImporter()
+        .importPackages("com.example.%s".formatted(moduleName));
+
+    onionArchitecture()
+        .domainModels("com.example.%s.domain..".formatted(moduleName))
+        .applicationServices("com.example.%s.application..".formatted(moduleName))
+        .adapter("persistence", "com.example.%s.infra.persistence..".formatted(moduleName))
+        .adapter("rest", "com.example.%s.interfaces.rest..".formatted(moduleName))
+        .check(classes);
+}
+-->
+
+
+<!-- ============================================================ -->
+<!-- Testcontainers - For integration tests                       -->
+<!-- ============================================================ -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-testcontainers</artifactId>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.testcontainers</groupId>
+    <artifactId>postgresql</artifactId>
+    <scope>test</scope>
+</dependency>
+<!-- Or for MySQL:
+<dependency>
+    <groupId>org.testcontainers</groupId>
+    <artifactId>mysql</artifactId>
+    <scope>test</scope>
+</dependency>
+-->
+
+
+<!-- ============================================================ -->
+<!-- SpringDoc OpenAPI - For Swagger UI                           -->
+<!-- ============================================================ -->
+<dependency>
+    <groupId>org.springdoc</groupId>
+    <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+    <version>2.3.0</version>
+</dependency>
+
+<!-- Access at: http://localhost:8080/swagger-ui.html -->

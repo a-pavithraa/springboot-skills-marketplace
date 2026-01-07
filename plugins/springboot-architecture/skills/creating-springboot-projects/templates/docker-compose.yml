@@ -1,0 +1,66 @@
+# Docker Compose for local development
+#
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # ============================================================
+  # PostgreSQL Database
+  # ============================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: {{PROJECT_NAME}}-postgres
+    environment:
+      POSTGRES_DB: {{PROJECT_NAME}}db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # MySQL Database (alternative)
+  # ============================================================
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: {{PROJECT_NAME}}-mysql
+  #   environment:
+  #     MYSQL_DATABASE: {{PROJECT_NAME}}db
+  #     MYSQL_ROOT_PASSWORD: root
+  #     MYSQL_USER: app
+  #     MYSQL_PASSWORD: password
+  #   ports:
+  #     - "3306:3306"
+  #   volumes:
+  #     - mysql_data:/var/lib/mysql
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  postgres_data:
+  # mysql_data:
+
+# ============================================================
+# Application Configuration (application.yml)
+# ============================================================
+# spring:
+#   datasource:
+#     url: jdbc:postgresql://localhost:5432/{{PROJECT_NAME}}db
+#     username: postgres
+#     password: postgres
+#   jpa:
+#     hibernate:
+#       ddl-auto: validate
+#     open-in-view: false
+#   flyway:
+#     enabled: true
