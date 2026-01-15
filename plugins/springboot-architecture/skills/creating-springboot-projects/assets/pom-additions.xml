@@ -124,34 +124,122 @@ void shouldVerifyHexagonalArchitecture(String moduleName) {
 <!-- ============================================================ -->
 
 <!--
-Spring Boot 4 Notable Changes:
+MANDATORY VERSIONS:
+- Java: 25
+- Spring Boot: 4.0.x (latest stable)
 
-1. TestRestClient - New testing utility (replaces TestRestTemplate)
-   - Included in spring-boot-starter-webmvc-test
-   - More modern, fluent API for REST testing
-   - Example: restClient.get().uri("/api").exchange(...)
+Spring Boot 4 includes these features natively - no additional dependencies needed:
+
+1. TestRestClient - Modern REST testing API
+   - Already in spring-boot-starter-webmvc-test
+   - Template: testrestclient-test.java
+   - Usage:
+     RestTestClient client = RestTestClient.bindToApplicationContext(context)
+         .apiVersionInserter(ApiVersionInserter.useHeader("API-Version"))
+         .build();
 
 2. Native Resiliency Features - Built-in fault tolerance
-   - Circuit breakers, retries, timeouts without external libraries
-   - More lightweight than Spring Cloud Circuit Breaker
+   - Already in spring-boot-starter
+   - No Resilience4j dependency needed!
+   - Template: resilience-service.java
+   - Annotations: @Retryable, @CircuitBreaker, @ConcurrencyLimit
+   - Configuration in application.yml:
+     spring:
+       resilience:
+         retry:
+           enabled: true
+         circuit-breaker:
+           enabled: true
 
 3. HTTP Service Client Simplification
-   - Simplified HTTP client interfaces using @HttpExchange
-   - Less boilerplate for external API integrations
+   - Already in spring-boot-starter-webmvc
+   - Template: http-service-client.java
+   - Usage:
+     @HttpExchange
+     interface MyClient { @GetExchange(...) }
 
-4. Spring Data AOT - Ahead-of-time compilation support
-   - Faster startup times with GraalVM native images
-   - Better performance for cloud deployments
+     @Configuration
+     @ImportHttpServices(MyClient.class)
+     class Config { }
 
-5. jSpecify NullSafety - Enhanced null checking
-   - Better IDE support for null safety
-   - Compile-time null pointer prevention
+4. API Versioning
+   - Already in spring-boot-starter-webmvc
+   - Template: api-versioning-config.java
+   - Configure in WebMvcConfigurer:
+     configurer.addSupportedVersions("1.0", "2.0")
+              .setDefaultVersion("1.0")
+              .useRequestHeader("API-Version");
 
-6. Spring Modulith 2.0 - Enhanced modularity support
-   - Better integration with Spring Boot 4
-   - Improved event publishing and module boundaries
+5. Spring Data AOT - Native image support
+   - Enable in pom.xml:
+     <plugin>
+       <groupId>org.springframework.boot</groupId>
+       <artifactId>spring-boot-maven-plugin</artifactId>
+       <executions>
+         <execution>
+           <id>process-aot</id>
+           <goals><goal>process-aot</goal></goals>
+         </execution>
+       </executions>
+     </plugin>
+
+6. jSpecify NullSafety - Compile-time null checking
+   - Already included in Spring Boot 4
+   - Template: package-info-jspecify.java
+   - Usage: Add @NullMarked to package-info.java
+   - IDE configuration needed for warnings
 
 Resources:
+- Template files in assets/ directory
 - https://github.com/sivaprasadreddy/spring-boot-4-features
 - https://github.com/sivaprasadreddy/spring-modular-monolith
+-->
+
+
+<!-- ============================================================ -->
+<!-- Spring Boot 4 AOT Configuration (for Native Images)         -->
+<!-- ============================================================ -->
+<!--
+Add this to enable ahead-of-time compilation:
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-maven-plugin</artifactId>
+            <executions>
+                <execution>
+                    <id>process-aot</id>
+                    <goals>
+                        <goal>process-aot</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+-->
+
+
+<!-- ============================================================ -->
+<!-- JSpecify Dependency (Optional - for additional tooling)     -->
+<!-- ============================================================ -->
+<!--
+JSpecify is included by default in Spring Boot 4.
+Add this only if you need explicit version control:
+
+<dependency>
+    <groupId>org.jspecify</groupId>
+    <artifactId>jspecify</artifactId>
+    <version>1.0.0</version>
+    <scope>provided</scope>
+</dependency>
+
+Usage:
+1. Create package-info.java in each package
+2. Add @NullMarked annotation
+3. Configure IDE for null safety warnings
+4. Use @Nullable for optional fields
+
+See template: package-info-jspecify.java
 -->

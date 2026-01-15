@@ -19,10 +19,11 @@
       },
       "repository": "https://github.com/a-pavithraa/springboot-skills-marketplace",
       "category": "spring-boot",
-      "tags": ["spring-boot", "java", "architecture", "ddd", "hexagonal"],
+      "tags": ["spring-boot", "java", "architecture", "ddd", "hexagonal", "spring-data-jpa", "jpa", "hibernate"],
       "strict": false,
       "agents": [
-        "./skills/creating-springboot-projects/SKILL.md"
+        "./skills/creating-springboot-projects/SKILL.md",
+        "./skills/spring-data-jpa/SKILL.md"
       ]
     }
   ]

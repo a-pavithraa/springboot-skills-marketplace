@@ -71,6 +71,41 @@ Depending on your assessment, the skill generates:
 - **Tomato Architecture**: Package-by-Module + Value Objects + Rich Entities + CQRS
 - **DDD+Hexagonal**: Full Domain-Driven Design with Hexagonal Architecture
 
+### 💾 spring-data-jpa
+
+**Purpose**: Implements Spring Data JPA repositories, entities, and queries following modern best practices.
+
+**Key Features**:
+- **Repository Patterns**: From simple repositories to advanced CQRS query services
+- **Performance Optimization**: N+1 prevention, pagination, batch operations
+- **5 Complete Asset Templates**: Query repositories, DTO projections, custom repositories, CQRS services, relationships
+- **6 Detailed Reference Guides**: Query patterns, projections, custom repos, CQRS, relationships, performance
+
+**Critical Rules**:
+1. **NEVER create repositories for every entity** - Only for aggregate roots
+2. **NEVER use complex query method names** - Use @Query for non-trivial queries
+3. **NEVER use save() blindly** - Understand persist vs merge semantics
+
+**Pattern Selection**:
+
+| Pattern | When | Best For |
+|---------|------|----------|
+| **Simple Repository** | Basic CRUD, 1-2 custom queries | Prototypes, simple entities |
+| **@Query Repository** | Multiple filters, joins, sorting | Most production use cases |
+| **DTO Projection** | Read-only, performance-critical | Dashboards, reports, APIs |
+| **Custom Repository** | Complex logic, bulk ops, Criteria API | Dynamic filters, batch updates |
+| **CQRS Query Service** | Separate read/write, multiple projections | Tomato/DDD architectures |
+
+**What You Get**:
+
+Complete implementation guidance with:
+
+- **Asset Templates**: Full working examples with inline documentation
+- **Reference Guides**: Deep-dive articles on specific techniques
+- **Anti-Patterns**: Explicit guidance on what NOT to do and why
+- **Performance Checklist**: N+1 prevention, pagination, batch sizing
+- **Vlad Mihalcea Best Practices**: Industry-standard JPA/Hibernate patterns
+
 ## Usage Example
 
 ### Scenario 1: Simple Product API
@@ -125,9 +160,43 @@ type safety needed), I recommend the Tomato architecture.
 
 **Result**: Production-ready service with strong type safety and rich domain modeling.
 
-## Templates Included
+### Scenario 3: Optimizing Repository Queries
 
-All patterns come with ready-to-use templates:
+```
+You: My product search page is loading slowly. Here's my repository code...
+
+Claude: I'll use the spring-data-jpa skill to optimize this.
+
+[Analyzes the issue]
+
+I see several N+1 query issues. Based on the skill's guidance,
+I recommend switching to DTO projections for the read-heavy search page.
+
+[Creates optimized query using DTO projection]
+
+@Query("""
+    SELECT new com.example.ProductSearchResult(
+        p.id, p.sku, p.name, p.price,
+        c.name, COUNT(r.id)
+    )
+    FROM ProductEntity p
+    LEFT JOIN p.category c
+    LEFT JOIN p.reviews r
+    WHERE p.status = 'ACTIVE'
+    GROUP BY p.id, p.sku, p.name, p.price, c.name
+    """)
+Page<ProductSearchResult> searchProducts(Pageable pageable);
+
+[Adds pagination]
+[Adds @Transactional(readOnly = true)]
+[Configures batch fetching]
+```
+
+**Result**: Page load time reduced from 2.5s to 150ms with proper pagination and projections.
+
+## Templates & Assets Included
+
+### Architecture Templates (`creating-springboot-projects/assets/`)
 
 | Template | Purpose | Applies To |
 |----------|---------|-----------|
@@ -144,6 +213,27 @@ All patterns come with ready-to-use templates:
 | `docker-compose.yml` | PostgreSQL/MySQL for local dev | All patterns |
 | `testcontainers-test.java` | Integration test setup | All patterns |
 | `pom-additions.xml` | TSID, Modulith, ArchUnit deps | Tomato, DDD+Hex |
+
+### JPA Implementation Assets (`spring-data-jpa/assets/`)
+
+| Asset | Purpose | Lines of Code |
+|-------|---------|---------------|
+| `query-repository.java` | @Query patterns, pagination, sorting, bulk operations | 250+ |
+| `dto-projection.java` | Record projections, interface projections, native queries | 350+ |
+| `custom-repository.java` | Criteria API, EntityManager, dynamic filtering | 500+ |
+| `query-service.java` | CQRS pattern with JdbcTemplate for read optimization | 450+ |
+| `relationship-patterns.java` | All JPA associations (ManyToOne, OneToMany, avoiding ManyToMany) | 480+ |
+
+### JPA Reference Guides (`spring-data-jpa/references/`)
+
+| Guide | Topics Covered | Lines |
+|-------|----------------|-------|
+| `query-patterns.md` | Simple methods, @Query/JPQL, pagination, bulk ops | 95 |
+| `dto-projections.md` | Java records, nested records, interfaces, performance | 89 |
+| `custom-repositories.md` | Criteria API, dynamic queries, bulk operations | 117 |
+| `cqrs-query-service.md` | Read/write separation, JdbcTemplate, performance | 188 |
+| `relationships.md` | ManyToOne, OneToMany, avoiding ManyToMany, lazy loading | 185 |
+| `performance-guide.md` | N+1 prevention, pagination, batch sizing, query optimization | 168 |
 
 ## Prerequisites
 
@@ -220,5 +310,6 @@ This repository contains 5 complete implementations of the same event management
 - **Spring Boot 4 Features**: [spring-boot-4-features](https://github.com/sivaprasadreddy/spring-boot-4-features)
 - **Modular Monolith Reference**: [spring-modular-monolith](https://github.com/sivaprasadreddy/spring-modular-monolith)
 - **Marketplace Inspiration**: [sivalabs-marketplace](https://github.com/sivaprasadreddy/sivalabs-marketplace)
+- **JPA/Hibernate Best Practices**: [Vlad Mihalcea](https://vladmihalcea.com/blog/) - Authoritative source for Spring Data JPA patterns
 
 

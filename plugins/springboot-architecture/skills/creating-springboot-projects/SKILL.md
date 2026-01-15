@@ -1,13 +1,18 @@
 ---
 name: creating-springboot-projects
-description: Use when creating new Spring Boot projects - assess complexity first, choose appropriate architecture (Layered to DDD+Hexagonal), then implement using templates
+description: Use when creating new Spring Boot projects - assess complexity first, choose appropriate architecture (Layered to DDD+Hexagonal), then implement using templates. Triggers include when user wants to create, build, scaffold, setup, or initialize a new Spring Boot application, microservice, REST API, or backend service; asks for project structure or architecture recommendations; mentions starting a Spring Boot project from scratch; needs guidance on choosing between architecture patterns (layered, package-by-module, modular monolith, tomato, DDD+hexagonal); or requests Spring Boot project setup with Spring Initializr.
 ---
 
 # Creating Spring Boot Projects
 
-## Critical Rule
+## Critical Rules
 
 **NEVER jump to implementation. ALWAYS assess complexity first.**
+
+**ALWAYS use Java 25 and Spring Boot 4.0.x (latest stable). These versions are MANDATORY.**
+- Java 25 provides modern language features and performance improvements
+- Spring Boot 4 includes jSpecify null safety, native resiliency, and improved testing
+- Older versions are not supported by this skill
 
 ## Step 1: Assess Complexity
 
@@ -69,12 +74,45 @@ Additional for DDD+Hexagonal:
 - ArchUnit (v1.2.1)
 ```
 
-**Spring Boot 4 New Features:**
-- **TestRestClient** - Modern REST testing API (replaces TestRestTemplate)
-- **Native Resiliency** - Built-in circuit breakers, retries without external libs
-- **HTTP Service Client** - Simplified @HttpExchange for external APIs
-- **Spring Data AOT** - Faster startup with GraalVM native images
-- **jSpecify NullSafety** - Better compile-time null checking
+**Spring Boot 4 New Features (Detailed):**
+
+1. **TestRestClient** - Modern REST testing (replaces TestRestTemplate)
+   - Fluent, readable API for integration tests
+   - Built-in API versioning support with `.apiVersion("2.0")`
+   - Better type safety with ParameterizedTypeReference
+   - Template: `testrestclient-test.java`
+
+2. **Native Resiliency** - Built-in fault tolerance (no Resilience4j needed)
+   - `@Retryable` - Automatic retries with configurable delays
+   - `@CircuitBreaker` - Prevent cascading failures, fail fast
+   - `@ConcurrencyLimit` - Rate limiting and bulkhead pattern
+   - Template: `resilience-service.java`
+
+3. **HTTP Service Client Simplification** - Declarative REST clients
+   - Define interface with `@HttpExchange`
+   - Use `@GetExchange`, `@PostExchange`, etc.
+   - Auto-configured with `@ImportHttpServices(YourClient.class)`
+   - No manual HttpServiceProxyFactory setup!
+   - Template: `http-service-client.java`
+
+4. **API Versioning** - Native versioning without external libs
+   - Configure via `ApiVersionConfigurer` in WebMvcConfigurer
+   - Three strategies: Header (recommended), Query param, Media type
+   - Controller methods: `@GetMapping(value = "/search", version = "2.0")`
+   - Works with TestRestClient and HTTP Service Clients
+   - Template: `api-versioning-config.java`
+
+5. **Spring Data AOT** - Ahead-of-time compilation
+   - Faster startup with GraalVM native images
+   - Enable with `process-aot` goal in pom.xml
+   - Better performance for cloud/serverless deployments
+
+6. **jSpecify NullSafety** - Compile-time null checking
+   - Package-level `@NullMarked` annotation
+   - All types non-null by default
+   - Use `@Nullable` for optional fields
+   - IDE integration for warnings
+   - Template: `package-info-jspecify.java`
 
 ## Step 4: Implement Pattern
 
@@ -110,9 +148,9 @@ products/
   interfaces/rest/
 ```
 
-### Use Templates
+### Use Assets
 
-Templates in `templates/` directory have `{{PLACEHOLDER}}` markers:
+Template files in `assets/` directory have `{{PLACEHOLDER}}` markers:
 - `{{PACKAGE}}` → `com.example`
 - `{{MODULE}}` → `products`
 - `{{NAME}}` → `Product`
@@ -128,7 +166,28 @@ Templates in `templates/` directory have `{{PLACEHOLDER}}` markers:
 - `flyway-migration.sql` - Database schema
 - `exception-handler.java` - ProblemDetail (RFC 7807)
 
-**See all templates:** `ls templates/`
+**Spring Boot 4 templates:**
+- `http-service-client.java` - Declarative REST clients with @HttpExchange
+- `api-versioning-config.java` - Native API versioning setup
+- `resilience-service.java` - @Retryable, @CircuitBreaker, @ConcurrencyLimit
+- `testrestclient-test.java` - Modern integration testing
+- `package-info-jspecify.java` - Null-safety with @NullMarked
+
+**See all templates:** `ls assets/`
+
+### Data Access Implementation
+
+For detailed repository implementation patterns beyond basic templates:
+
+**Use the `spring-data-jpa` skill** for:
+- Complex queries with @Query, pagination, sorting
+- DTO projections for read-only, performance-critical queries
+- Custom repositories with Criteria API for dynamic filtering
+- CQRS query services (JdbcTemplate-based reads)
+- Entity relationship patterns (ManyToOne, OneToMany, avoiding ManyToMany)
+- Performance optimization (N+1 prevention, batch operations)
+
+The `repository.java` template provides basic structure. For production-grade implementations with performance optimization, consult the `spring-data-jpa` skill.
 
 ### Naming Conventions (Tomato/DDD)
 
@@ -148,8 +207,15 @@ Templates in `templates/` directory have `{{PLACEHOLDER}}` markers:
 - Flyway/Liquibase migrations (template: `flyway-migration.sql`)
 - Testcontainers (template: `testcontainers-test.java`)
 - Docker Compose (template: `docker-compose.yml`)
-- Swagger/OpenAPI (Springdoc)
+- Swagger/OpenAPI (Springdoc v3.0.0+)
 - ProblemDetail errors (template: `exception-handler.java`)
+- JSpecify null-safety (template: `package-info-jspecify.java`)
+
+**Consider adding:**
+- API Versioning (template: `api-versioning-config.java`) if planning multiple API versions
+- HTTP Service Clients (template: `http-service-client.java`) for external API integration
+- Resiliency features (template: `resilience-service.java`) for production-grade fault tolerance
+- TestRestClient tests (template: `testrestclient-test.java`) for modern integration testing
 
 **Tomato/DDD add:**
 - TSID dependency (see `pom-additions.xml`)
