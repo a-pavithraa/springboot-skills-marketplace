@@ -240,7 +240,7 @@ Page<ProductSearchResult> searchProducts(Pageable pageable);
 - **Claude Code CLI** installed
 - **Java 25** installed
 - **Maven** or **Gradle** for building projects
-- **Spring Boot 4.0+** knowledge (includes TestRestClient, native resiliency, AOT support)
+- **Spring Boot 4.0+** knowledge (includes RestTestClient, HTTP Service Clients, API versioning, modularization, JSpecify null-safety)
 
 ## Architecture Decision Guide
 

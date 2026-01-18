@@ -1,44 +1,69 @@
 package {{PACKAGE}}.config;
 
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.ApiVersionConfigurer;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.api.ApiVersionParser;
+import org.springframework.web.api.ApiVersionResolver;
 
 /**
- * API Versioning Configuration (Spring Boot 4 native feature).
+ * API Versioning Configuration (Spring Boot 4).
  *
- * Spring Boot 4 provides built-in API versioning support without external libraries.
- * Three versioning strategies:
+ * Spring Boot 4 provides native API versioning support.
+ * Configuration options:
+ * 1. Properties-based (recommended) - see application.yml below
+ * 2. Bean-based (shown here) - for more control
+ *
+ * Versioning strategies:
  * 1. Request Header (recommended) - API-Version: 2.0
  * 2. Query Parameter - /api/books?version=2.0
  * 3. Media Type Parameter - Accept: application/json;ver=2.0
+ * 4. Path - /v2/api/books
  *
  * Benefits:
- * - No external dependencies
  * - Clean URL structure (with header approach)
  * - Easy to test
  * - Works with HTTP Service Client (@HttpExchange)
  */
 @Configuration
-public class ApiVersioningConfig implements WebMvcConfigurer {
+public class ApiVersioningConfig {
 
-    @Override
-    public void configureApiVersioning(ApiVersionConfigurer configurer) {
-        configurer
-                // Define supported versions
-                .addSupportedVersions("1.0", "2.0", "3.0")
+    /**
+     * Bean-based configuration (use this OR properties, not both).
+     */
+    @Bean
+    public ApiVersionResolver apiVersionResolver() {
+        // Choose ONE strategy:
+        return ApiVersionResolver.fromHeader("API-Version");     // Recommended
+        // return ApiVersionResolver.fromQueryParameter("version");
+        // return ApiVersionResolver.fromMediaType();
+        // return ApiVersionResolver.fromPath();
+    }
 
-                // Set default version (used when client doesn't specify)
-                .setDefaultVersion("1.0")
-
-                // Choose versioning strategy (pick ONE)
-                .useRequestHeader("API-Version");      // Recommended
-                // .useQueryParam("version");           // Alternative
-                // .useMediaTypeParameter(              // Alternative
-                //     MediaType.APPLICATION_JSON, "ver"
-                // );
+    @Bean
+    public ApiVersionParser apiVersionParser() {
+        return ApiVersionParser.semantic();  // Supports semver (1.0.0, 2.1.3)
     }
 }
+
+// ============================================================
+// ALTERNATIVE: PROPERTIES-BASED CONFIGURATION (RECOMMENDED)
+// ============================================================
+//
+// Instead of the beans above, configure via application.yml:
+//
+// spring:
+//   mvc:
+//     apiversion:
+//       enabled: true
+//       strategy: header  # or: path, query-parameter, media-type
+//       default-version: "1.0"
+//       header-name: "API-Version"
+//
+// Or application.properties:
+// spring.mvc.apiversion.enabled=true
+// spring.mvc.apiversion.strategy=header
+// spring.mvc.apiversion.default-version=1.0
+// spring.mvc.apiversion.header-name=API-Version
 
 // ============================================================
 // CONTROLLER WITH VERSIONED ENDPOINTS
@@ -102,7 +127,7 @@ public class ApiVersioningConfig implements WebMvcConfigurer {
 // }
 
 // ============================================================
-// TESTING VERSIONED ENDPOINTS WITH TestRestClient
+// TESTING VERSIONED ENDPOINTS WITH RestTestClient
 // ============================================================
 
 // package {{PACKAGE}}.{{MODULE}}.rest;
@@ -150,7 +175,7 @@ public class ApiVersioningConfig implements WebMvcConfigurer {
 //     void shouldUseVersion2() {
 //         var result = client.get()
 //                 .uri("/api/{{MODULE}}/search?q=test")
-//                 .apiVersion("2.0")  // Sets API-Version header
+//                 .apiVersion("2.0")
 //                 .exchange()
 //                 .expectStatus().isOk()
 //                 .expectBody(List.class)

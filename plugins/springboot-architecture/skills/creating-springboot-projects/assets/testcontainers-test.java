@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Spring Boot 4 pattern with @TestConfiguration and @ServiceConnection.
  *
  * Note: TestRestTemplate is used here for compatibility, but Spring Boot 4
- * recommends TestRestClient for new code (more modern API with fluent interface).
+ * recommends RestTestClient for new code (more modern API with fluent interface).
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import({{NAME}}IntegrationTest.TestcontainersConfig.class)
@@ -32,9 +32,9 @@ class {{NAME}}IntegrationTest {
     @Autowired
     TestRestTemplate restTemplate;
 
-    // Alternative: Use TestRestClient (Spring Boot 4 recommended approach)
+    // Alternative: Use RestTestClient (Spring Boot 4 recommended approach)
     // @Autowired
-    // TestRestClient restClient;
+    // RestTestClient restClient;
 
     @Test
     void contextLoads() {
@@ -48,7 +48,7 @@ class {{NAME}}IntegrationTest {
         assertThat(response.getBody()).contains("UP");
     }
 
-    // Example using TestRestClient (Spring Boot 4 recommended)
+    // Example using RestTestClient (Spring Boot 4 recommended)
     // @Test
     // void healthEndpointReturnsUpUsingRestClient() {
     //     String health = restClient.get()

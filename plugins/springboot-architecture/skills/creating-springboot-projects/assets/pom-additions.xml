@@ -113,7 +113,8 @@ void shouldVerifyHexagonalArchitecture(String moduleName) {
 <dependency>
     <groupId>org.springdoc</groupId>
     <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-    <version>3.0.0</version>
+    <!-- Set version per Springdoc release notes -->
+    <version>${springdoc.version}</version>
 </dependency>
 
 <!-- Access at: http://localhost:8080/swagger-ui.html -->
@@ -124,75 +125,38 @@ void shouldVerifyHexagonalArchitecture(String moduleName) {
 <!-- ============================================================ -->
 
 <!--
-MANDATORY VERSIONS:
-- Java: 25
-- Spring Boot: 4.0.x (latest stable)
+Spring Boot 4 highlights (see release notes and reference docs):
 
-Spring Boot 4 includes these features natively - no additional dependencies needed:
+1. RestTestClient - Modern REST testing API
+   - Template: resttestclient-test.java
 
-1. TestRestClient - Modern REST testing API
-   - Already in spring-boot-starter-webmvc-test
-   - Template: testrestclient-test.java
-   - Usage:
-     RestTestClient client = RestTestClient.bindToApplicationContext(context)
-         .apiVersionInserter(ApiVersionInserter.useHeader("API-Version"))
-         .build();
-
-2. Native Resiliency Features - Built-in fault tolerance
-   - Already in spring-boot-starter
-   - No Resilience4j dependency needed!
-   - Template: resilience-service.java
-   - Annotations: @Retryable, @CircuitBreaker, @ConcurrencyLimit
-   - Configuration in application.yml:
-     spring:
-       resilience:
-         retry:
-           enabled: true
-         circuit-breaker:
-           enabled: true
-
-3. HTTP Service Client Simplification
-   - Already in spring-boot-starter-webmvc
+2. HTTP Service Clients
    - Template: http-service-client.java
-   - Usage:
-     @HttpExchange
-     interface MyClient { @GetExchange(...) }
+   - Auto-configuration and properties are provided by Spring Boot.
 
-     @Configuration
-     @ImportHttpServices(MyClient.class)
-     class Config { }
-
-4. API Versioning
-   - Already in spring-boot-starter-webmvc
+3. API Versioning (Spring MVC / WebFlux)
    - Template: api-versioning-config.java
-   - Configure in WebMvcConfigurer:
-     configurer.addSupportedVersions("1.0", "2.0")
-              .setDefaultVersion("1.0")
-              .useRequestHeader("API-Version");
+   - Property-based configuration is supported (spring.mvc.apiversion.*).
 
-5. Spring Data AOT - Native image support
-   - Enable in pom.xml:
-     <plugin>
-       <groupId>org.springframework.boot</groupId>
-       <artifactId>spring-boot-maven-plugin</artifactId>
-       <executions>
-         <execution>
-           <id>process-aot</id>
-           <goals><goal>process-aot</goal></goals>
-         </execution>
-       </executions>
-     </plugin>
+4. OpenTelemetry starter
+   - Dependency: spring-boot-starter-opentelemetry
 
-6. jSpecify NullSafety - Compile-time null checking
-   - Already included in Spring Boot 4
+5. Kotlin serialization
+   - Module: spring-boot-kotlinx-serialization-json
+   - Starter: spring-boot-starter-kotlin-serialization
+
+6. JmsClient support
+   - JMS auto-configuration includes the new JmsClient API.
+
+7. TaskDecorator composition
+   - Multiple TaskDecorator beans are supported via CompositeTaskDecorator.
+
+8. JSpecify null-safety improvements
    - Template: package-info-jspecify.java
-   - Usage: Add @NullMarked to package-info.java
-   - IDE configuration needed for warnings
 
-Resources:
-- Template files in assets/ directory
-- https://github.com/sivaprasadreddy/spring-boot-4-features
-- https://github.com/sivaprasadreddy/spring-modular-monolith
+External reference (non-official):
+- Resilience features example (annotations + @EnableResilientMethods):
+  https://github.com/sivaprasadreddy/spring-boot-4-features/tree/main/resilience-features
 -->
 
 

@@ -4,7 +4,7 @@
 
 Spring Boot 4 (with Java 25) includes six major features that eliminate the need for external libraries and improve developer experience.
 
-## 1. TestRestClient - Modern REST Testing
+## 1. RestTestClient - Modern REST Testing
 
 **Replaces:** TestRestTemplate
 
@@ -57,65 +57,92 @@ class ProductControllerTest {
 
 ## 2. Native Resiliency Features
 
-**Replaces:** Spring Cloud Circuit Breaker, Resilience4j
+**What's Native in Spring Framework 7:**
+- `@Retryable` - Automatic retry support (from Spring Retry integration)
+- `@ConcurrencyLimit` - Concurrency control and rate limiting
+
+**What Still Requires External Libraries:**
+- Circuit Breaker → Resilience4j (`spring-cloud-starter-circuitbreaker-resilience4j`)
+- Advanced rate limiting → Resilience4j
+- Bulkhead patterns → Resilience4j
 
 **Benefits:**
-- Zero external dependencies
-- Simpler configuration
-- Lower overhead
-- Production-ready defaults
+- Native retry and concurrency features with zero dependencies
+- Seamless reactive programming support
+- Integration with Virtual Threads (Project Loom)
 
 **Template:** `resilience-service.java`
 
-### @Retryable - Automatic Retries
+### @Retryable - Automatic Retries (NATIVE)
 
 ```java
-@Retryable(
-    maxRetries = 5L,
-    delay = 2000L,
-    includes = {RuntimeException.class}
-)
-public Optional<Product> fetchFromExternalApi(String id) {
-    return externalClient.getById(id);
+import org.springframework.resilience.annotation.Retryable;
+
+@Service
+public class ProductService {
+
+    @Retryable(
+        includes = {RuntimeException.class},
+        maxRetries = 5,
+        delay = 2000L  // milliseconds
+    )
+    public Optional<Product> fetchFromExternalApi(String id) {
+        return externalClient.getById(id);
+    }
+
+    // Optional: Advanced configuration with exponential backoff
+    @Retryable(
+        includes = {IOException.class},
+        maxRetries = 4,
+        delayString = "500ms",
+        multiplier = 1.5,
+        maxDelay = 3000
+    )
+    public String callRemoteService() {
+        // transient failures handled automatically
+    }
 }
 ```
+
+**Configuration:**
+- Requires `@EnableResilientMethods` on a `@Configuration` class
+- Package: `org.springframework.resilience.annotation.*`
+- Supports exponential backoff, jitter, and reactive types
+- Works seamlessly with Virtual Threads
+
+**Parameters:**
+- `includes` - Exception types that trigger retry
+- `excludes` - Exception types that should never retry
+- `maxRetries` - Maximum retry attempts (default: 3)
+- `delay` / `delayString` - Delay between retries
+- `multiplier` - Exponential backoff multiplier
+- `maxDelay` - Maximum delay ceiling
 
 **Use cases:**
 - External API calls with transient failures
 - Database operations during brief connection issues
 - Network operations with temporary disruptions
 
-### @CircuitBreaker - Fail Fast
+### @ConcurrencyLimit - Rate Limiting (NATIVE)
 
 ```java
-@CircuitBreaker(
-    failureThreshold = 5,
-    waitDurationInOpenState = 30000L,
-    slidingWindowSize = 10
-)
-public List<Product> fetchFromUnreliableService() {
-    return externalClient.getAll();
+import org.springframework.resilience.annotation.ConcurrencyLimit;
+
+@Service
+public class ReportService {
+
+    @ConcurrencyLimit(2)  // Max 2 concurrent executions
+    public void processExpensiveOperation(String id) {
+        performExpensiveWork(id);
+    }
 }
 ```
 
-**States:**
-- CLOSED: Normal operation
-- OPEN: Too many failures, fail fast
-- HALF_OPEN: Testing if service recovered
-
-**Use cases:**
-- Protect against failing downstream services
-- Prevent resource exhaustion
-- Fail fast when dependencies are down
-
-### @ConcurrencyLimit - Rate Limiting
-
-```java
-@ConcurrencyLimit(5)
-public void processExpensiveOperation(String id) {
-    performExpensiveWork(id);
-}
-```
+**Configuration:**
+- Requires `@EnableResilientMethods` on a `@Configuration` class
+- Package: `org.springframework.resilience.annotation.*`
+- Particularly valuable with Virtual Threads for controlling parallelism
+- Implements bulkhead pattern for resource isolation
 
 **Use cases:**
 - Limit expensive operations (heavy DB queries)
@@ -123,34 +150,48 @@ public void processExpensiveOperation(String id) {
 - Rate limiting for external API calls
 - Bulkhead pattern implementation
 
-### Combining Patterns
+### Circuit Breaker - Requires Resilience4j
+
+**NOT native in Spring Boot 4.** For circuit breaker patterns, use Resilience4j:
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.github.resilience4j</groupId>
+    <artifactId>resilience4j-spring-boot3</artifactId>
+</dependency>
+```
 
 ```java
-@Retryable(maxRetries = 3L, delay = 1000L)
-@CircuitBreaker(failureThreshold = 5)
-public Product fetchWithResiliency(String id) {
-    return externalClient.getById(id)
-            .orElseThrow(() -> new NotFoundException("Not found: " + id));
+@Service
+public class ProductService {
+
+    @CircuitBreaker(name = "productService", fallbackMethod = "fallbackFetch")
+    public List<Product> fetchFromUnreliableService() {
+        return externalClient.getAll();
+    }
+
+    private List<Product> fallbackFetch(Exception e) {
+        return Collections.emptyList();
+    }
 }
 ```
 
 **Configuration (application.yml):**
 ```yaml
-spring:
-  resilience:
-    retry:
-      enabled: true
-      max-attempts: 3
-      wait-duration: 1s
-    circuit-breaker:
-      enabled: true
-      failure-rate-threshold: 50
-      wait-duration-in-open-state: 30s
-    rate-limiter:
-      enabled: true
-      limit-for-period: 10
-      limit-refresh-period: 1s
+resilience4j:
+  circuitbreaker:
+    instances:
+      productService:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        sliding-window-size: 10
 ```
+
+**⚠️ Note:** As of December 2025, there are compatibility issues between Resilience4j and Spring Boot 4. Check the latest Resilience4j releases before upgrading.
 
 ## 3. HTTP Service Client Simplification
 
@@ -207,14 +248,16 @@ public class ClientConfig {
 **Configuration (application.yml):**
 ```yaml
 spring:
-  web:
-    client:
-      connect-timeout: 5s
-      read-timeout: 10s
   http:
-    services:
-      product-service:
-        url: http://localhost:8080
+    serviceclient:
+      product-service:  # Group name
+        base-url: http://localhost:8080
+        connect-timeout: 5s
+        read-timeout: 10s
+        apiversion:
+          default-version: "1.0"
+          insert:
+            header: API-Version
 ```
 
 ## 4. API Versioning
@@ -229,16 +272,32 @@ spring:
 
 **Template:** `api-versioning-config.java`
 
-**Configuration:**
+**Configuration Option 1 - Properties (Recommended):**
+```yaml
+spring:
+  mvc:
+    apiversion:
+      enabled: true
+      strategy: header  # or: path, query-parameter, media-type
+      default-version: "1.0"
+      header-name: "API-Version"
+```
+
+**Configuration Option 2 - Java Beans:**
 ```java
 @Configuration
-public class ApiVersioningConfig implements WebMvcConfigurer {
-    @Override
-    public void configureApiVersioning(ApiVersionConfigurer configurer) {
-        configurer
-                .addSupportedVersions("1.0", "2.0", "3.0")
-                .setDefaultVersion("1.0")
-                .useRequestHeader("API-Version");  // Recommended
+public class ApiVersioningConfig {
+
+    @Bean
+    public ApiVersionResolver apiVersionResolver() {
+        return ApiVersionResolver.fromHeader("API-Version");
+        // Alternative: ApiVersionResolver.fromQueryParameter("version")
+        // Alternative: ApiVersionResolver.fromMediaType()
+    }
+
+    @Bean
+    public ApiVersionParser apiVersionParser() {
+        return ApiVersionParser.semantic();  // Supports semver (1.0.0, 2.1.3)
     }
 }
 ```
@@ -247,6 +306,7 @@ public class ApiVersioningConfig implements WebMvcConfigurer {
 1. **Request Header** (recommended): `API-Version: 2.0`
 2. **Query Parameter**: `/api/products?version=2.0`
 3. **Media Type**: `Accept: application/json;ver=2.0`
+4. **Path**: `/v2/api/products` (less common with native support)
 
 **Controller Implementation:**
 ```java
@@ -369,7 +429,7 @@ public interface ProductRepository extends JpaRepository<ProductEntity, Long> {
 @RestController
 public class ProductController {
     @GetMapping("/{id}")
-    public ProductVM getById(@PathVariable @NotNull Long id) {
+    public ProductVM getById(@PathVariable Long id) {  // Non-null by default with @NullMarked
         return service.findById(id);
     }
 
@@ -415,13 +475,27 @@ All Spring Boot 4 features are included by default. No additional dependencies r
 
 | Spring Boot 3 | Spring Boot 4 | Notes |
 |---------------|---------------|-------|
-| TestRestTemplate | TestRestClient | More fluent API |
-| Resilience4j | @Retryable, @CircuitBreaker | Native annotations |
-| Manual HttpServiceProxyFactory | @ImportHttpServices | Auto-configuration |
-| Custom versioning | ApiVersionConfigurer | Native support |
-| Spring Nullability | JSpecify @NullMarked | Better IDE support |
+| TestRestTemplate | RestTestClient | More fluent API, better type safety |
+| Resilience4j @Retry | @Retryable (native) | Now built into Spring Framework 7 |
+| Manual concurrency control | @ConcurrencyLimit (native) | Now built into Spring Framework 7 |
+| Resilience4j @CircuitBreaker | Still Resilience4j | Circuit breaker NOT native, still requires external library |
+| Manual HttpServiceProxyFactory | @ImportHttpServices | Auto-configuration, zero boilerplate |
+| Custom versioning | spring.mvc.apiversion.* | Native support via properties or beans |
+| Spring Nullability | JSpecify @NullMarked | Better IDE support, standard annotations |
 
 **Breaking Changes:**
+
 - TestRestTemplate still works but deprecated
-- Some Resilience4j annotations need migration to native equivalents
+- @Retryable API different from Resilience4j version (different package and parameters)
 - HttpServiceProxyFactory manual setup still works but unnecessary
+- Circuit breaker still requires Resilience4j (check compatibility with Spring Boot 4)
+
+**Migration Strategy:**
+
+1. Replace TestRestTemplate with RestTestClient in tests
+2. Replace Resilience4j @Retry with native @Retryable (requires @EnableResilientMethods)
+   - Change package: `org.springframework.resilience.annotation.*`
+   - Update parameters: `retryFor` → `includes`, `maxAttempts` → `maxRetries`
+3. Keep Resilience4j for circuit breaker and advanced patterns
+4. Replace manual HTTP client setup with @ImportHttpServices
+5. Configure API versioning via spring.mvc.apiversion.* properties

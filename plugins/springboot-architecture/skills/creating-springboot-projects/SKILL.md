@@ -1,6 +1,6 @@
 ---
 name: creating-springboot-projects
-description: Create Spring Boot projects with Java 25 and Spring Boot 4. Use when user wants to create, build, scaffold, setup, or initialize a new Spring Boot application, microservice, REST API, or backend service; asks for project structure recommendations; mentions Java 25 or Spring Boot 4 features (TestRestClient, native resiliency, HTTP Service Client, API versioning, JSpecify null-safety); needs architecture guidance (layered, package-by-module, modular monolith, tomato, DDD+hexagonal); or requests Spring Initializr setup. Also triggers on discussions about Spring Boot architecture patterns, Value Objects, CQRS, or domain-driven design.
+description: Create Spring Boot projects with Java 25 and Spring Boot 4. Use when user wants to create, build, scaffold, setup, or initialize a new Spring Boot application, microservice, REST API, or backend service; asks for project structure recommendations; mentions Java 25 or Spring Boot 4 features (RestTestClient, HTTP Service Clients, API versioning, JSpecify null-safety, modularization); needs architecture guidance (layered, package-by-module, modular monolith, tomato, DDD+hexagonal); or requests Spring Initializr setup. Also triggers on discussions about Spring Boot architecture patterns, Value Objects, CQRS, or domain-driven design.
 ---
 
 # Creating Spring Boot Projects
@@ -10,6 +10,7 @@ description: Create Spring Boot projects with Java 25 and Spring Boot 4. Use whe
 **NEVER jump to implementation. ALWAYS assess complexity first.**
 
 **MANDATORY versions:** Java 25 + Spring Boot 4.0.x (latest stable)
+**Platform baseline:** Spring Framework 7, Jakarta EE 11 (Servlet 6.1); Java 17+ required.
 
 ## Workflow
 
@@ -39,27 +40,29 @@ Ask user:
 **Use Spring Initializr:** https://start.spring.io
 
 **Required configuration:**
-- Project: Maven
+- Project: Maven or Gradle (Gradle 9 supported)
 - Language: Java
 - Spring Boot: 4.0.x (latest stable)
 - Java: 25
 
 **Core dependencies:**
-- Spring Web
+- Spring Web MVC (`spring-boot-starter-webmvc`)
 - Spring Data JPA
 - Validation
-- Flyway Migration
+- Flyway (`spring-boot-starter-flyway`) or Liquibase (`spring-boot-starter-liquibase`)
 - PostgreSQL/MySQL Driver
 - Testcontainers
-- Docker Compose Support
-- Springdoc OpenAPI (v3.0.0)
 - Spring Boot Actuator
 
-**Additional dependencies:**
-- Spring Modulith (v2.0.1) - for Modular Monolith/Tomato
-- ArchUnit (v1.2.1) - for DDD+Hexagonal
+**Starter conventions (Spring Boot 4 modularization):**
+- Prefer `spring-boot-starter-<technology>` and matching `spring-boot-starter-<technology>-test`
+- Avoid raw third-party deps when a Boot starter exists (for example Flyway/Liquibase)
 
-**Spring Boot 4 features:** TestRestClient, Native Resiliency (@Retryable, @CircuitBreaker, @ConcurrencyLimit), HTTP Service Client (@HttpExchange), API Versioning, Spring Data AOT, JSpecify null-safety
+**Additional dependencies:**
+- Spring Modulith - for Modular Monolith/Tomato
+- ArchUnit - for DDD+Hexagonal
+
+**Spring Boot 4 features:** RestTestClient, HTTP Service Clients, API Versioning, modularization, JSpecify null-safety improvements, OpenTelemetry starter, Kotlin serialization, JmsClient, TaskDecorator composition
 
 **For detailed Spring Boot 4 feature documentation:** See [spring-boot-4-features.md](references/spring-boot-4-features.md)
 
@@ -83,10 +86,10 @@ Ask user:
 
 **Spring Boot 4 templates:**
 - `http-service-client.java` - @HttpExchange clients
-- `api-versioning-config.java` - Native API versioning
-- `resilience-service.java` - Resiliency patterns
-- `testrestclient-test.java` - Modern testing
+- `api-versioning-config.java` - API versioning
+- `resttestclient-test.java` - Modern testing
 - `package-info-jspecify.java` - Null-safety
+- `resilience-service.java` - Resiliency example (external reference)
 
 **Data access:** For complex queries, DTO projections, performance optimization, use the `spring-data-jpa` skill.
 
@@ -103,7 +106,7 @@ Ask user:
 **Optional (based on requirements):**
 - API versioning
 - HTTP Service Clients
-- Resiliency features
+- OpenAPI documentation (third-party, e.g., Springdoc)
 
 **For detailed infrastructure patterns:** See `pom-additions.xml` in assets/
 
@@ -118,3 +121,8 @@ Ask user:
 ## Key Principle
 
 **Start simple. Upgrade when complexity demands it.**
+
+## External References (Non-Official)
+
+- https://github.com/sivaprasadreddy/spring-boot-4-features
+- https://github.com/sivaprasadreddy/spring-modular-monolith

@@ -4,7 +4,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.test.web.servlet.client.RestTestClient;
@@ -21,12 +20,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT;
 
 /**
- * Integration test using TestRestClient (Spring Boot 4 modern testing API).
+ * Integration test using RestTestClient (Spring Boot 4 modern testing API).
  *
- * TestRestClient replaces TestRestTemplate with:
+ * RestTestClient replaces TestRestTemplate with:
  * - Fluent, readable API
  * - Better type safety with ParameterizedTypeReference
- * - Built-in API versioning support
  * - Integrated with WebTestClient patterns
  * - More intuitive assertions
  *
@@ -142,7 +140,7 @@ class {{NAME}}ControllerIntegrationTest {
     void shouldUseVersion1() {
         List<{{NAME}}VM> items = client.get()
                 .uri("/api/{{MODULE}}/search?q=test")
-                .apiVersion("1.0")  // Sets API-Version header
+                .apiVersion("1.0")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(new ParameterizedTypeReference<List<{{NAME}}VM>>() {})
@@ -273,7 +271,7 @@ class {{NAME}}ControllerIntegrationTest {
 //  * Unit test using MockMvcTester (Spring Boot 4).
 //  *
 //  * Use when you want to test controller logic without full integration.
-//  * Faster than TestRestClient but doesn't test full HTTP stack.
+//  * Faster than RestTestClient but doesn't test full HTTP stack.
 //  */
 // @SpringBootTest
 // @AutoConfigureMockMvc
@@ -317,7 +315,7 @@ class {{NAME}}ControllerIntegrationTest {
 // }
 
 // ============================================================
-// KEY DIFFERENCES: TestRestClient vs TestRestTemplate
+// KEY DIFFERENCES: RestTestClient vs TestRestTemplate
 // ============================================================
 
 // TestRestTemplate (Old):
@@ -327,7 +325,7 @@ class {{NAME}}ControllerIntegrationTest {
 // assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 // assertThat(response.getBody().id()).isEqualTo("123");
 //
-// TestRestClient (New - Spring Boot 4):
+// RestTestClient (New - Spring Boot 4):
 // {{NAME}}VM item = client.get()
 //     .uri("/api/{{MODULE}}/123")
 //     .exchange()
@@ -341,4 +339,3 @@ class {{NAME}}ControllerIntegrationTest {
 // - More fluent and readable
 // - Better type inference
 // - Integrated assertions
-// - API versioning support built-in
