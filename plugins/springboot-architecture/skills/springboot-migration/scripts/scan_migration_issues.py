@@ -259,17 +259,18 @@ class MigrationScanner:
                         "Remove .withServices() - services are now auto-detected"
                     )
 
-        # Check for incorrect resilience package
+        # Note: org.springframework.resilience.* is used in the external sample repo.
+        # Keep this as informational instead of treating it as invalid.
         if 'org.springframework.resilience' in content:
             for i, line in enumerate(lines, 1):
                 if 'org.springframework.resilience' in line:
                     self.result.add_issue(
-                        "Spring Boot 4 - Spring Retry",
-                        "CRITICAL",
+                        "Spring Boot 4 - Retry/Resilience",
+                        "INFO",
                         str(rel_path),
                         i,
-                        "Non-existent package: org.springframework.resilience",
-                        "Use org.springframework.retry instead + add Spring Retry dependency with version"
+                        "Using org.springframework.resilience annotations",
+                        "Ensure AOP support; if using Spring Retry directly, use org.springframework.retry + explicit version"
                     )
 
         # Check for @Retryable usage (need Spring Retry dependency)

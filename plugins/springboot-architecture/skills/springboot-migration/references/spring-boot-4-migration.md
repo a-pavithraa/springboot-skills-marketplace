@@ -117,7 +117,7 @@ Update directly to new modular starters (web→webmvc, aop→aspectj, etc.)
 
 **When you need it:**
 - Your application uses AspectJ annotations (typically in `org.aspectj.lang.annotation` package)
-- Using `@Retryable` from Spring Retry
+- Using `@Retryable` / `@ConcurrencyLimit` annotations
 - Using certain Micrometer annotations like `@Timed`
 - Spring Modulith event handling (if using aspect-based features)
 
@@ -184,15 +184,16 @@ Update directly to new modular starters (web→webmvc, aop→aspectj, etc.)
 </dependency>
 ```
 
-### 5. Spring Retry (CRITICAL)
+### 5. Retry/Resilience Annotations
 
-**Change:** Spring Retry is **no longer dependency-managed** by Spring Boot
+**Sample usage (from `sivaprasadreddy/spring-boot-4-features`):**
+- Package: `org.springframework.resilience.annotation.*`
+- Annotations: `@Retryable`, `@ConcurrencyLimit`
+- Enablement: `@EnableResilientMethods`
+- Parameters used: `includes`, `maxRetries`, `delay`
+- Circuit breaker is still external (Resilience4j)
 
-**Background:** The Spring portfolio is moving from Spring Retry to new core retry features in Spring Framework. If your application still relies on Spring Retry, you must explicitly specify a version.
-
-**Recommendation:** Consider migrating to Spring Framework's built-in retry capabilities instead of continuing with Spring Retry.
-
-**Migration (if continuing with Spring Retry):**
+**Migration (Spring Retry variant, if used directly):**
 
 ```xml
 <!-- Add explicit version (check Maven Central for latest) -->
@@ -212,29 +213,28 @@ Update directly to new modular starters (web→webmvc, aop→aspectj, etc.)
 **Code changes required:**
 
 ```java
-// Config
-import org.springframework.retry.annotation.EnableRetry;
+// Config (sample repo)
+import org.springframework.resilience.annotation.EnableResilientMethods;
 
 @Configuration
-@EnableRetry  // Required
-public class RetryConfig {
+@EnableResilientMethods  // Required
+public class ResilienceConfig {
 }
 
-// Service
-import org.springframework.retry.annotation.Retryable;
-import org.springframework.retry.annotation.Backoff;
+// Service (sample repo)
+import org.springframework.resilience.annotation.Retryable;
 
 @Retryable(
-    retryFor = {SomeException.class},
-    maxAttempts = 3,
-    backoff = @Backoff(delay = 1000, multiplier = 2.0)
+    includes = {SomeException.class},
+    maxRetries = 3,
+    delay = 1000L
 )
 public void methodWithRetry() {
     // ...
 }
 ```
 
-**IMPORTANT:** There is **NO** `org.springframework.resilience` package. If you see this in code, it's incorrect. Use `org.springframework.retry` instead.
+**Alternative:** If using Spring Retry directly, use `org.springframework.retry.annotation.*` and `@EnableRetry`.
 
 ### 6. Web MVC Test Starter
 
@@ -592,12 +592,12 @@ spring.devtools.livereload.enabled=true
 
 #### Issue 3: @Retryable Not Working
 
-**Cause:** Missing AOP dependency or @EnableRetry
+**Cause:** Missing `@EnableResilientMethods` or missing AOP support
 
 **Solution:**
 1. Add `spring-boot-starter-aspectj`
-2. Add `@EnableRetry` to configuration
-3. Ensure Spring Retry dependency is present with explicit version
+2. Add `@EnableResilientMethods` to configuration
+3. If using Spring Retry directly, ensure `spring-retry` dependency is present with explicit version
 
 ---
 
@@ -608,7 +608,7 @@ spring.devtools.livereload.enabled=true
 - [ ] Rename `spring-boot-starter-web` to `-webmvc` (or use classic)
 - [ ] Rename `spring-boot-starter-aop` to `-aspectj`
 - [ ] Update `spring-security-test` to Spring Boot starter
-- [ ] Add Spring Retry with explicit version (if used)
+- [ ] Add Spring Retry with explicit version (if using Spring Retry directly)
 - [ ] Add Flyway starter (if using database migrations)
 - [ ] Update Testcontainers dependencies (if used)
 
@@ -618,7 +618,7 @@ spring.devtools.livereload.enabled=true
 - [ ] **Recommended:** Update `@SpyBean` to `@MockitoSpyBean` (deprecated but still works)
 - [ ] Update `@WebMvcTest` import
 - [ ] Add `@AutoConfigureMockMvc` where needed
-- [ ] Fix Spring Retry imports and annotations
+- [ ] Fix retry/resilience imports and annotations
 - [ ] Update package relocations (EntityScan, BootstrapRegistry)
 
 ### Phase 3: Configuration

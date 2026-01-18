@@ -67,6 +67,14 @@ public class UserProfile {
 
 **Avoid bidirectional @OneToOne** - causes N+1 queries even with LAZY.
 
+**Reference:** [Vlad Mihalcea - One-to-One Table Relationships](https://vladmihalcea.com/one-to-one-table-relationships/)
+
+**Analysis (from the article):**
+- Shared primary key: child FK equals parent PK to model true one-to-one
+- Optional data: separate table enforces NOT NULL pairs without triggers
+- Concurrency: splitting reduces optimistic lock conflicts and row blocking
+- IO/cache: narrower hot rows reduce dirty page churn
+
 ## @OneToMany (Avoid When Possible)
 
 **Better alternative:** Query from many side

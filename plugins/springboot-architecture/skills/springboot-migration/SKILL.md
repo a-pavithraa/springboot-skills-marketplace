@@ -56,6 +56,8 @@ Is project using Spring Boot 3.x?
 
 **CRITICAL:** Migrations must be done in phases to ensure stability:
 
+For scenario-specific guidance and common pitfalls, see `references/migration-overview.md` before planning.
+
 #### Phase 1: Dependencies (Safe)
 - Update `pom.xml` / `build.gradle`
 - Rename starters (web→webmvc, aop→aspectj, etc.)
@@ -101,101 +103,7 @@ Is project using Spring Boot 3.x?
 
 ### Step 5: Verification Checklist
 
-After migration, verify:
-
-- [ ] Build succeeds: `./mvnw clean package`
-- [ ] All tests pass
-- [ ] No deprecation warnings in startup logs
-- [ ] Application starts successfully
-- [ ] Critical endpoints respond correctly
-- [ ] Database migrations run (if using Flyway/Liquibase)
-- [ ] Event store initialized (if using Spring Modulith)
-- [ ] Testcontainers work in tests
-
-## Common Migration Scenarios
-
-### Scenario 1: Spring Boot 3 → 4 Only
-
-**Scan output shows:** Spring Boot dependency updates only
-
-**Steps:**
-1. Read `references/spring-boot-4-migration.md`
-2. Follow dependency updates section
-3. Apply code changes (annotations, imports)
-4. Update configuration if needed
-5. Test thoroughly
-
-### Scenario 2: Full Stack Migration (Boot + Modulith + Testcontainers)
-
-**Scan output shows:** All three components need updates
-
-**Steps:**
-1. Read all three migration guides
-2. Start with Spring Boot 4 migration
-3. Apply Spring Modulith 2 changes (event store schema!)
-4. Apply Testcontainers 2 changes (package renames)
-5. Test at each step
-
-### Scenario 3: Fixing Broken Retry Logic
-
-**Scan output shows:** `org.springframework.resilience` imports (non-existent)
-
-**Critical fix:**
-- Spring Retry is NO LONGER auto-managed in Spring Boot 4
-- Must add explicit dependency with version
-- Must add `spring-boot-starter-aspectj` for AOP support
-- See `references/spring-boot-4-migration.md` → "Spring Retry" section
-
-## Critical Migration Issues
-
-### Issue 1: Jackson 3 Breaking Changes
-- Group ID changed: `com.fasterxml.jackson` → `tools.jackson`
-- Exception: `jackson-annotations` stays with old group ID
-- Class renames: `Jackson2ObjectMapperBuilderCustomizer` → `JsonMapperBuilderCustomizer`
-
-**Reference:** `references/spring-boot-4-migration.md` → "Jackson 3 Migration"
-
-### Issue 2: Test Annotation Renames
-- `@MockBean` → `@MockitoBean`
-- `@SpyBean` → `@MockitoSpyBean`
-- `@WebMvcTest` package relocated
-- `@SpringBootTest` may need `@AutoConfigureMockMvc`
-
-**Reference:** `references/spring-boot-4-migration.md` → "Test Changes"
-
-### Issue 3: Spring Modulith Event Store Schema
-- Spring Modulith 2.0 REQUIRES dedicated `events` schema
-- Must create migration: `V0__create_events_schema.sql`
-- Must enable Flyway integration
-- Must configure event store properties
-
-**Reference:** `references/spring-modulith-2-migration.md`
-
-### Issue 4: Testcontainers Package Changes
-- Artifacts renamed with `testcontainers-` prefix
-- Package structure changed: `org.testcontainers.containers.postgresql` → `org.testcontainers.postgresql`
-- LocalStack `.withServices()` removed
-- `getEndpointOverride(Service)` → `getEndpoint()`
-
-**Reference:** `references/testcontainers-2-migration.md`
-
-## Migration Strategies
-
-### Strategy A: Direct Migration (Recommended)
-Update directly to new starters and APIs.
-
-**Pros:** Clean, modern codebase
-**Cons:** More changes at once
-**Best for:** Small-medium projects, green field migrations
-
-### Strategy B: Classic Starters (Gradual)
-Use `spring-boot-starter-classic` and `spring-boot-starter-test-classic` temporarily.
-
-**Pros:** Fewer breaking changes, easier rollback
-**Cons:** Eventually need to migrate anyway
-**Best for:** Large projects, risk-averse migrations
-
-**Reference:** `references/spring-boot-4-migration.md` → "Migration Strategy"
+After migration, follow the verification sections in the relevant references.
 
 ## Quick Reference
 
@@ -204,18 +112,11 @@ Use `spring-boot-starter-classic` and `spring-boot-starter-test-classic` tempora
 - **Spring Boot 4 issues** → `references/spring-boot-4-migration.md`
 - **Spring Modulith 2 issues** → `references/spring-modulith-2-migration.md`
 - **Testcontainers 2 issues** → `references/testcontainers-2-migration.md`
+- **Scenarios, strategies, common issues** → `references/migration-overview.md`
 
 ### Available Scripts
 
 - `scripts/scan_migration_issues.py` - Analyzes project for migration issues
-
-### Official Documentation
-
-All migration guidance based on official documentation:
-- [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide)
-- [Spring Modulith 2.0 Reference](https://docs.spring.io/spring-modulith/reference/)
-- [Testcontainers 2.0 Migration Guide](https://java.testcontainers.org/migrations/testcontainers-2/)
-- [Vlad Mihalcea's Blog](https://vladmihalcea.com/blog/) - JPA/Hibernate best practices
 
 ## Anti-Patterns
 
