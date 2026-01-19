@@ -30,6 +30,7 @@
 
 **Critical fix:**
 - Ensure AOP support via `spring-boot-starter-aspectj`
+- Ask whether to keep Spring Retry or migrate to native `org.springframework.resilience.annotation.*`
 - If using Spring Retry directly, add explicit `spring-retry` dependency/version
 - See `spring-boot-4-migration.md` → "Retry/Resilience Annotations" section
 

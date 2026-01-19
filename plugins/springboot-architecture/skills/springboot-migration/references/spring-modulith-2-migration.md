@@ -115,6 +115,11 @@ ALTER TABLE event_publication
 
 **CRITICAL:** You MUST update the `event_publication` table structure to match Spring Modulith 2.0 schema.
 
+**Pre-reqs before running ALTER migration:**
+- The `event_publication` table already exists (from Spring Modulith 1.x or a prior create migration).
+- If you configured `spring.modulith.events.jdbc.schema=events`, the `events` schema exists and the table is in that schema.
+- `spring-modulith-starter-jdbc` is on the classpath (otherwise the table is never created).
+
 **Migration example (adjust for your database):**
 
 ```sql
@@ -450,6 +455,21 @@ CREATE SCHEMA IF NOT EXISTS events;
 # spring.modulith.events.jdbc.schema=events
 ```
 
+### Issue 5: ALTER migration fails with "relation event_publication does not exist"
+
+**Error:**
+```
+ERROR: relation "event_publication" does not exist
+```
+
+**Cause:** Running the Spring Modulith 2.0 ALTER migration before the table exists.
+
+**Fix:**
+- Create the `event_publication` table first (use the official schema from the appendix), then apply the ALTER migration.
+- If you intended to let Modulith initialize tables in dev/test, set:
+  `spring.modulith.events.jdbc.schema-initialization.enabled=true`
+  and remove/skip the ALTER migration.
+
 ---
 
 ## Migration Checklist
@@ -460,6 +480,10 @@ CREATE SCHEMA IF NOT EXISTS events;
 - [ ] Backup production database before migration
 
 ### Phase 1: Update Event Publication Table Schema (CRITICAL)
+- [ ] Verify pre-reqs before ALTER migration:
+  - [ ] `event_publication` table exists
+  - [ ] If using `spring.modulith.events.jdbc.schema=events`, the `events` schema exists
+  - [ ] `spring-modulith-starter-jdbc` dependency is present
 - [ ] Create database migration to add new columns:
   - `status` (VARCHAR 20)
   - `completion_attempts` (INT)

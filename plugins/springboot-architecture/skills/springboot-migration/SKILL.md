@@ -20,8 +20,14 @@ description: Migrate Spring Boot projects to version 4.0 with Java 25, including
 Use the migration scanner to identify what needs to be migrated:
 
 ```bash
-python3 scripts/scan_migration_issues.py /path/to/project
+# Run from the skill directory
+python3 <SKILL_DIR>/scripts/scan_migration_issues.py /path/to/project
+
+# Or if the skill is in .codex:
+python3 .codex/springboot-migration/scripts/scan_migration_issues.py /path/to/project
 ```
+
+**Note:** Replace `<SKILL_DIR>` with the actual path to this skill directory. When copying skills to `.codex/`, use the second form.
 
 This will analyze:
 - Spring Boot version and required changes

@@ -71,6 +71,11 @@ class ProductControllerTest {
 - Seamless reactive programming support
 - Integration with Virtual Threads (Project Loom)
 
+**Decision note:**
+- Spring Retry is now maintenance-only and superseded by Spring Framework 7 resilience features.
+- Prefer `org.springframework.resilience.annotation.*` for new Boot 4 projects and remove `spring-retry` if not needed.
+- Reference: https://github.com/spring-projects/spring-retry
+
 **Template:** `resilience-service.java`
 
 ### @Retryable - Automatic Retries (NATIVE)

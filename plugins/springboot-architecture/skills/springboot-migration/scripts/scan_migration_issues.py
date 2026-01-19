@@ -49,6 +49,8 @@ class MigrationScanner:
     def __init__(self, project_path: str):
         self.project_path = Path(project_path)
         self.result = ScanResult()
+        self.modulith_schema_configured = False
+        self.modulith_in_use = False
 
     def scan(self) -> ScanResult:
         """Run full migration scan"""
@@ -89,6 +91,7 @@ class MigrationScanner:
         spring_modulith_match = re.search(r'<spring-modulith\.version>([\d.]+)', content)
         if spring_modulith_match:
             self.result.spring_modulith_version = spring_modulith_match.group(1)
+            self.modulith_in_use = True
 
         testcontainers_match = re.search(r'<testcontainers\.version>([\d.]+)', content)
         if testcontainers_match:
@@ -97,6 +100,11 @@ class MigrationScanner:
         print(f"   Spring Boot: {self.result.spring_boot_version}")
         print(f"   Spring Modulith: {self.result.spring_modulith_version}")
         print(f"   Testcontainers: {self.result.testcontainers_version}")
+
+        if re.search(r'<artifactId>spring-modulith', content) or re.search(
+            r'<groupId>org\.springframework\.modulith</groupId>', content
+        ):
+            self.modulith_in_use = True
 
         # Check for old starters
         old_starters = {
@@ -175,6 +183,13 @@ class MigrationScanner:
 
         content = ''.join(lines)
         rel_path = file_path.relative_to(self.project_path)
+        imports = [
+            line.strip().replace("import ", "").replace(";", "")
+            for line in lines
+            if line.strip().startswith("import ")
+        ]
+        if any(i.startswith("org.springframework.modulith") for i in imports):
+            self.modulith_in_use = True
 
         # Check for old test annotations
         test_annotation_patterns = {
@@ -270,21 +285,33 @@ class MigrationScanner:
                         str(rel_path),
                         i,
                         "Using org.springframework.resilience annotations",
-                        "Ensure AOP support; if using Spring Retry directly, use org.springframework.retry + explicit version"
+                        "Native retry detected; ensure @EnableResilientMethods + AOP, and drop spring-retry if not used"
                     )
 
-        # Check for @Retryable usage (need Spring Retry dependency)
+        # Check for @Retryable usage and align suggestion with imports
         if '@Retryable' in content:
-            # Note: We'll need to check if dependency exists in pom
+            uses_spring_retry = any(i.startswith("org.springframework.retry.annotation") for i in imports)
+            uses_resilience = any(i.startswith("org.springframework.resilience.annotation") for i in imports)
+
             for i, line in enumerate(lines, 1):
                 if '@Retryable' in line and not line.strip().startswith('//'):
+                    if uses_resilience:
+                        suggestion = "Ensure @EnableResilientMethods + spring-boot-starter-aspectj"
+                        category = "Spring Boot 4 - Retry/Resilience"
+                    elif uses_spring_retry:
+                        suggestion = "Confirm Spring Retry vs native resilience; keep spring-retry + aspectj if staying"
+                        category = "Spring Boot 4 - Spring Retry"
+                    else:
+                        suggestion = "Confirm Spring Retry vs native resilience; ensure matching imports + AOP"
+                        category = "Spring Boot 4 - Retry/Resilience"
+
                     self.result.add_issue(
-                        "Spring Boot 4 - Spring Retry",
+                        category,
                         "INFO",
                         str(rel_path),
                         i,
                         "Using @Retryable",
-                        "Ensure spring-retry dependency with explicit version + spring-boot-starter-aspectj"
+                        suggestion
                     )
 
         # Check for Jackson 2 classes
@@ -342,16 +369,19 @@ class MigrationScanner:
 
         for props_path in props_paths:
             if props_path.exists():
-                self._scan_properties_file(props_path)
+                has_modulith_schema = self._scan_properties_file(props_path)
+                self.modulith_schema_configured = (
+                    self.modulith_schema_configured or has_modulith_schema
+                )
 
-    def _scan_properties_file(self, file_path: Path):
+    def _scan_properties_file(self, file_path: Path) -> bool:
         """Scan properties file"""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
         except Exception as e:
             print(f"   Error reading {file_path}: {e}")
-            return
+            return False
 
         content = ''.join(lines)
         rel_path = file_path.relative_to(self.project_path)
@@ -376,15 +406,7 @@ class MigrationScanner:
 
         # Check for Spring Modulith event store config
         has_modulith_jdbc = 'spring.modulith.events.jdbc.schema' in content
-        if self.result.spring_modulith_version != "Unknown" and not has_modulith_jdbc:
-            self.result.add_issue(
-                "Spring Modulith 2.0 - Configuration",
-                "CRITICAL",
-                str(rel_path),
-                0,
-                "Missing Spring Modulith event store configuration",
-                "Add: spring.modulith.events.jdbc.schema=events"
-            )
+        return has_modulith_jdbc
 
     def _scan_flyway_migrations(self):
         """Scan Flyway migrations for Spring Modulith event schema"""
@@ -395,28 +417,22 @@ class MigrationScanner:
             print("   No Flyway migrations found")
             return
 
-        # Check for events schema migration
-        root_migrations = migration_dir / "__root"
-        if root_migrations.exists():
-            events_schema_files = list(root_migrations.glob("V0__*events*.sql"))
-            if not events_schema_files and self.result.spring_modulith_version != "Unknown":
+        # Check for events schema migration only if configured
+        if self.modulith_in_use and self.modulith_schema_configured:
+            events_schema_files = list(migration_dir.glob("V*__*events*.sql"))
+            root_migrations = migration_dir / "__root"
+            if root_migrations.exists():
+                events_schema_files += list(root_migrations.glob("V*__*events*.sql"))
+
+            if not events_schema_files:
                 self.result.add_issue(
                     "Spring Modulith 2.0 - Database",
                     "CRITICAL",
-                    "src/main/resources/db/migration/__root/",
+                    "src/main/resources/db/migration/",
                     0,
                     "Missing events schema migration",
-                    "Create: V0__create_events_schema.sql with 'CREATE SCHEMA events;'"
+                    "Create: V1__create_events_schema.sql with 'CREATE SCHEMA events;'"
                 )
-        elif self.result.spring_modulith_version != "Unknown":
-            self.result.add_issue(
-                "Spring Modulith 2.0 - Database",
-                "CRITICAL",
-                "src/main/resources/db/migration/",
-                0,
-                "Missing __root directory for events schema migration",
-                "Create: __root/V0__create_events_schema.sql"
-            )
 
     def print_report(self):
         """Print scan report"""

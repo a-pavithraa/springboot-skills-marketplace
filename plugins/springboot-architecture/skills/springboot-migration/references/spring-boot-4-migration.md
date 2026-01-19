@@ -193,6 +193,17 @@ Update directly to new modular starters (web→webmvc, aop→aspectj, etc.)
 - Parameters used: `includes`, `maxRetries`, `delay`
 - Circuit breaker is still external (Resilience4j)
 
+**Decision point (ask the user):** Do you want to keep Spring Retry or move to the native Spring Framework 7 resilience annotations?
+
+- **Native (recommended for Boot 4):**
+  - Use `org.springframework.resilience.annotation.*` + `@EnableResilientMethods`
+  - Remove `spring-retry` if no longer used
+  - Official reference: https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/resilience/annotation/Retryable.html
+  - Spring Retry status: maintenance only, superseded by Spring Framework 7: https://github.com/spring-projects/spring-retry
+- **Spring Retry (legacy):**
+  - Use `org.springframework.retry.annotation.*` + `@EnableRetry`
+  - Keep `spring-retry` with an explicit version
+
 **Migration (Spring Retry variant, if used directly):**
 
 ```xml

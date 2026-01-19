@@ -1,18 +1,18 @@
 # Spring Boot Skills Marketplace
 
-A collection of [Claude Code](https://claude.com/claude-code) skills for creating Spring Boot applications with proper architecture patterns.
+A curated set of Claude Code skills for building Spring Boot apps with the right architecture from day one.
 
-## About
+## Why This Exists
 
-This marketplace provides battle-tested skills for building Spring Boot applications using context-appropriate architecture patterns. Instead of jumping to implementation, these skills guide you through a systematic assessment process to choose the right architecture for your project's complexity.
+Most projects start simple and grow. This marketplace helps you pick an architecture that fits *today* while keeping a clear upgrade path for *tomorrow*.
 
-### Architecture Philosophy
-
-The skills in this marketplace are based on the progressive architecture patterns documented in [spring-boot-application-architecture-patterns](https://github.com/sivaprasadreddy/spring-boot-application-architecture-patterns) repository. The core philosophy is:
+Core idea:
 
 > **Start simple. Add complexity only when complexity demands it.**
 
-The skills help you choose between five progressive patterns:
+The approach is based on the patterns in [spring-boot-application-architecture-patterns](https://github.com/sivaprasadreddy/spring-boot-application-architecture-patterns).
+
+## Architecture Patterns (Progressive)
 
 | Pattern | Complexity | When to Use |
 |---------|-----------|-------------|
@@ -20,296 +20,141 @@ The skills help you choose between five progressive patterns:
 | **Package-by-Module** | ⭐⭐ Low-Medium | 3-5 distinct features, medium apps |
 | **Modular Monolith** | ⭐⭐ Medium | Need module boundaries, Spring Modulith |
 | **Tomato** | ⭐⭐⭐ Medium-High | Rich domain, Value Objects, type safety |
-| **DDD+Hexagonal** | ⭐⭐⭐⭐ High | Complex domains, CQRS, infrastructure independence |
+| **DDD+Hexagonal** | ⭐⭐⭐⭐ High | Complex domains, CQRS, infra independence |
 
 ## Installation
 
-### 1. Add the Marketplace
-
 ```bash
 /plugin marketplace add a-pavithraa/springboot-skills-marketplace
-```
-
-### 2. Enable the Marketplace
-
-```bash
 /plugin enable a-pavithraa/springboot-skills-marketplace
-```
-
-### 3. Install the Plugin
-
-```bash
 /plugin install springboot-architecture@springboot-skills-marketplace
 ```
 
 ## Available Skills
 
-### 🏗️ creating-springboot-projects
+### creating-springboot-projects
 
-**Purpose**: Creates Spring Boot projects with context-appropriate architecture patterns.
+Builds a Spring Boot project after a short assessment so the architecture matches your team, domain, and lifespan.
 
-**Key Features**:
-- **Assessment-First Approach**: Evaluates project complexity before choosing architecture
-- **5 Progressive Patterns**: From simple Layered to full DDD+Hexagonal
-- **Spring Initializr Integration**: Uses Spring Initializr for project scaffolding
-- **13 Ready-to-Use Templates**: Value Objects, Rich Entities, CQRS Services, Spring Converters, etc.
+**You get:**
+- Assessment-first guidance (no guesswork)
+- Architecture-specific scaffolding
+- Spring Initializr setup
+- Templates for Value Objects, Rich Entities, CQRS, converters, etc.
 
-**Assessment Questions**:
-1. **Domain Complexity** - Simple CRUD or complex business rules?
-2. **Team Size** - 1-3, 3-10, or 10+?
-3. **Lifespan** - Months, 1-2 years, or 5+ years?
-4. **Type Safety** - Basic validation or strong typing needed (financial/healthcare)?
-5. **Bounded Contexts** - Single domain or multiple subdomains?
+**Assessment questions:**
+1. **Domain complexity** — simple CRUD or complex business rules?
+2. **Team size** — 1–3, 3–10, or 10+?
+3. **Lifespan** — months, 1–2 years, or 5+ years?
+4. **Type safety needs** — basic validation or strong typing (finance/healthcare)?
+5. **Bounded contexts** — single domain or multiple subdomains?
 
-**What You Get**:
+### spring-data-jpa
 
-Depending on your assessment, the skill generates:
+Focused guidance for repositories, queries, and mapping patterns that scale.
 
-- **Layered Architecture**: Traditional `controller/` `service/` `repository/` structure
-- **Package-by-Module**: Vertical slices like `products/` `orders/` with internal layering
-- **Modular Monolith**: Package-by-Module + Spring Modulith for enforced boundaries
-- **Tomato Architecture**: Package-by-Module + Value Objects + Rich Entities + CQRS
-- **DDD+Hexagonal**: Full Domain-Driven Design with Hexagonal Architecture
+**You get:**
+- Query patterns and DTO projections
+- Custom repositories and CQRS query services
+- Relationship patterns and performance tuning
+- Anti-patterns you should avoid
 
-### 💾 spring-data-jpa
+**Critical rules:**
+1. Don’t create repositories for every entity
+2. Don’t use long method-name queries for complex logic
+3. Don’t call `save()` blindly (understand persist vs merge)
 
-**Purpose**: Implements Spring Data JPA repositories, entities, and queries following modern best practices.
+### springboot-migration
 
-**Key Features**:
-- **Repository Patterns**: From simple repositories to advanced CQRS query services
-- **Performance Optimization**: N+1 prevention, pagination, batch operations
-- **5 Complete Asset Templates**: Query repositories, DTO projections, custom repositories, CQRS services, relationships
-- **6 Detailed Reference Guides**: Query patterns, projections, custom repos, CQRS, relationships, performance
+Guided, phased upgrades for Spring Boot 4 with Java 25, plus Spring Modulith 2 and Testcontainers 2 when needed.
 
-**Critical Rules**:
-1. **NEVER create repositories for every entity** - Only for aggregate roots
-2. **NEVER use complex query method names** - Use @Query for non-trivial queries
-3. **NEVER use save() blindly** - Understand persist vs merge semantics
+**You get:**
+- Mandatory scan-first workflow using a migration scanner
+- Dependency/code/config phases to reduce breakage
+- Dedicated references for Boot 4, Modulith 2, and Testcontainers 2
+- Retry/resilience guidance aligned with the sample repo
 
-**Pattern Selection**:
+## Usage Examples
 
-| Pattern | When | Best For |
-|---------|------|----------|
-| **Simple Repository** | Basic CRUD, 1-2 custom queries | Prototypes, simple entities |
-| **@Query Repository** | Multiple filters, joins, sorting | Most production use cases |
-| **DTO Projection** | Read-only, performance-critical | Dashboards, reports, APIs |
-| **Custom Repository** | Complex logic, bulk ops, Criteria API | Dynamic filters, batch updates |
-| **CQRS Query Service** | Separate read/write, multiple projections | Tomato/DDD architectures |
-
-**What You Get**:
-
-Complete implementation guidance with:
-
-- **Asset Templates**: Full working examples with inline documentation
-- **Reference Guides**: Deep-dive articles on specific techniques
-- **Anti-Patterns**: Explicit guidance on what NOT to do and why
-- **Performance Checklist**: N+1 prevention, pagination, batch sizing
-- **Vlad Mihalcea Best Practices**: Industry-standard JPA/Hibernate patterns
-
-## Usage Example
-
-### Scenario 1: Simple Product API
+### 1) Simple Product API
 
 ```
-You: I need a REST API for managing products with basic CRUD operations.
-
-Claude: I'll use the creating-springboot-projects skill to set this up.
+You: I need a REST API for products with basic CRUD.
+Claude: I’ll use creating-springboot-projects.
 
 [Asks assessment questions]
 
-Based on your answers (simple CRUD, small team, short lifespan),
-I recommend the Layered architecture.
-
-[Creates project via Spring Initializr]
-[Sets up standard layered structure with templates]
+Recommendation: Layered architecture.
+[Generates project and templates]
 ```
 
-**Result**: Clean Spring Boot project with standard layered structure.
-
-### Scenario 2: Order Processing Microservice
+### 2) Order Processing Service
 
 ```
-You: I need an order processing service with state machines,
-     payment integration, and inventory checks.
-
-Claude: I'll use the creating-springboot-projects skill to set this up.
+You: I need an order service with payments and inventory rules.
+Claude: I’ll use creating-springboot-projects.
 
 [Asks assessment questions]
 
-Based on your answers (complex domain, medium team, long lifespan,
-type safety needed), I recommend the Tomato architecture.
-
-[Creates project via Spring Initializr with Modulith support]
-
-[Creates Value Objects using templates]
-- OrderId (TSID-based)
-- OrderStatus (enum with state machine)
-- Money (type-safe currency)
-- Quantity (inventory tracking)
-
-[Creates Rich Entity]
-- OrderEntity with business logic (validate, confirm, ship, etc.)
-
-[Creates CQRS Services]
-- OrderService (write operations)
-- OrderQueryService (read operations)
-
-[Creates Spring Converters]
-- String to OrderId converter for path variables
+Recommendation: Tomato architecture.
+[Generates value objects, rich entities, CQRS services]
 ```
 
-**Result**: Production-ready service with strong type safety and rich domain modeling.
-
-### Scenario 3: Optimizing Repository Queries
+### 3) Slow Search Queries
 
 ```
-You: My product search page is loading slowly. Here's my repository code...
+You: My product search is slow.
+Claude: I’ll use spring-data-jpa.
 
-Claude: I'll use the spring-data-jpa skill to optimize this.
-
-[Analyzes the issue]
-
-I see several N+1 query issues. Based on the skill's guidance,
-I recommend switching to DTO projections for the read-heavy search page.
-
-[Creates optimized query using DTO projection]
-
-@Query("""
-    SELECT new com.example.ProductSearchResult(
-        p.id, p.sku, p.name, p.price,
-        c.name, COUNT(r.id)
-    )
-    FROM ProductEntity p
-    LEFT JOIN p.category c
-    LEFT JOIN p.reviews r
-    WHERE p.status = 'ACTIVE'
-    GROUP BY p.id, p.sku, p.name, p.price, c.name
-    """)
-Page<ProductSearchResult> searchProducts(Pageable pageable);
-
-[Adds pagination]
-[Adds @Transactional(readOnly = true)]
-[Configures batch fetching]
+[Analyzes and replaces N+1 queries with DTO projections]
 ```
 
-**Result**: Page load time reduced from 2.5s to 150ms with proper pagination and projections.
+### 4) Spring Boot 4 Migration
 
-## Templates & Assets Included
+```
+You: We need to migrate a Boot 3 app to Boot 4 (Modulith + Testcontainers too).
+Claude: I’ll use springboot-migration.
 
-### Architecture Templates (`creating-springboot-projects/assets/`)
+[Runs scan_migration_issues.py]
+[Plans dependency → code → config → testing phases]
+[Applies changes and verifies each phase]
+```
 
-| Template | Purpose | Applies To |
-|----------|---------|-----------|
-| `value-object.java` | Type-safe Value Objects (SKU, Email, Price) | Tomato, DDD+Hex |
-| `rich-entity.java` | Entities with business behavior | Tomato, DDD+Hex |
-| `base-entity.java` | JPA auditing superclass | All patterns |
-| `repository.java` | Spring Data JPA with @Query examples | All patterns |
-| `service-cqrs.java` | Separate write/read services | Tomato, DDD+Hex |
-| `controller.java` | REST with Value Object binding | All patterns |
-| `spring-converter.java` | @PathVariable binding to VOs | Tomato, DDD+Hex |
-| `exception-handler.java` | ProblemDetail (RFC 7807) | All patterns |
-| `modularity-test.java` | Spring Modulith boundary tests | Modulith, Tomato |
-| `flyway-migration.sql` | Database schema templates | All patterns |
-| `docker-compose.yml` | PostgreSQL/MySQL for local dev | All patterns |
-| `testcontainers-test.java` | Integration test setup | All patterns |
-| `pom-additions.xml` | TSID, Modulith, ArchUnit deps | Tomato, DDD+Hex |
+## Templates & Assets
 
-### JPA Implementation Assets (`spring-data-jpa/assets/`)
+**Architecture templates:** `creating-springboot-projects/assets/`
+- Value Objects, Rich Entities, CQRS services, converters, REST controllers
+- Flyway migrations, Testcontainers setup, ProblemDetail handler
 
-| Asset | Purpose | Lines of Code |
-|-------|---------|---------------|
-| `query-repository.java` | @Query patterns, pagination, sorting, bulk operations | 250+ |
-| `dto-projection.java` | Record projections, interface projections, native queries | 350+ |
-| `custom-repository.java` | Criteria API, EntityManager, dynamic filtering | 500+ |
-| `query-service.java` | CQRS pattern with JdbcTemplate for read optimization | 450+ |
-| `relationship-patterns.java` | All JPA associations (ManyToOne, OneToMany, avoiding ManyToMany) | 480+ |
+**JPA templates:** `spring-data-jpa/assets/`
+- Query repositories, DTO projections, custom repos, CQRS query services
+- Relationship patterns with do/don’t guidance
 
-### JPA Reference Guides (`spring-data-jpa/references/`)
-
-| Guide | Topics Covered | Lines |
-|-------|----------------|-------|
-| `query-patterns.md` | Simple methods, @Query/JPQL, pagination, bulk ops | 95 |
-| `dto-projections.md` | Java records, nested records, interfaces, performance | 89 |
-| `custom-repositories.md` | Criteria API, dynamic queries, bulk operations | 117 |
-| `cqrs-query-service.md` | Read/write separation, JdbcTemplate, performance | 188 |
-| `relationships.md` | ManyToOne, OneToMany, avoiding ManyToMany, lazy loading | 185 |
-| `performance-guide.md` | N+1 prevention, pagination, batch sizing, query optimization | 168 |
+**Reference guides:** `spring-data-jpa/references/`
+- Query patterns, projections, custom repositories
+- Relationships and performance tuning
 
 ## Prerequisites
 
-- **Claude Code CLI** installed
-- **Java 25** installed
-- **Maven** or **Gradle** for building projects
-- **Spring Boot 4.0+** knowledge (includes RestTestClient, HTTP Service Clients, API versioning, modularization, JSpecify null-safety)
-
-## Architecture Decision Guide
-
-Still not sure which architecture to choose? Here's a quick guide:
-
-### Choose **Layered** if:
-- Building a prototype or MVP
-- Simple CRUD operations
-- Team of 1-3 developers
-- Project lifespan < 6 months
-- No complex business rules
-
-### Choose **Package-by-Module** if:
-- 3-5 distinct features
-- Medium-sized application
-- Team of 3-10 developers
-- Project lifespan 1-2 years
-- Features are relatively independent
-
-### Choose **Modular Monolith** if:
-- Everything from Package-by-Module, plus:
-- Need enforced module boundaries
-- Want persistent event infrastructure
-- Planning potential microservice extraction
-
-### Choose **Tomato** if:
-- Complex domain with business rules
-- Type confusion is a risk (SKU vs String)
-- Validation scattered across layers
-- Financial or healthcare domain
-- Team of 5-15 developers
-- Project lifespan 3-5 years
-
-### Choose **DDD+Hexagonal** if:
-- Very complex domain with multiple subdomains
-- Need infrastructure independence
-- CQRS pattern required
-- Team of 10+ developers
-- Project lifespan 5+ years
-- Potential for microservices migration
+- Claude Code CLI
+- Java 25
+- Maven or Gradle
+- Spring Boot 4.0+ familiarity
 
 ## Upgrade Path
 
-These patterns are designed to be upgradeable:
-
 ```
 Layered
-  → Package-by-Module (when 3+ features, team grows)
-    → Modular Monolith (when need enforced boundaries)
-      → Tomato (when type confusion bugs, scattered validation)
-        → DDD+Hexagonal (when need infrastructure independence, CQRS)
+  → Package-by-Module
+    → Modular Monolith
+      → Tomato
+        → DDD+Hexagonal
 ```
-
-**Key Principle**: Start simple. Refactor when complexity demands it.
-
-## Reference Architecture
-
-The patterns implemented by these skills are thoroughly documented with working examples in:
-
-**📚 [Spring Boot Application Architecture Patterns](https://github.com/sivaprasadreddy/spring-boot-application-architecture-patterns)**
-
-This repository contains 5 complete implementations of the same event management system (Meetup4j), each following a different pattern. It's an excellent resource for understanding the tradeoffs between patterns.
 
 ## Credits
 
-- **Architecture Patterns Reference**: [Siva Prasad Reddy](https://github.com/sivaprasadreddy)
-- **Spring Boot 4 Features**: [spring-boot-4-features](https://github.com/sivaprasadreddy/spring-boot-4-features)
-- **Modular Monolith Reference**: [spring-modular-monolith](https://github.com/sivaprasadreddy/spring-modular-monolith)
-- **Marketplace Inspiration**: [sivalabs-marketplace](https://github.com/sivaprasadreddy/sivalabs-marketplace)
-- **JPA/Hibernate Best Practices**: [Vlad Mihalcea](https://vladmihalcea.com/blog/) - Authoritative source for Spring Data JPA patterns
-
-
+- Architecture patterns: [Siva Prasad Reddy](https://github.com/sivaprasadreddy)
+- Spring Boot 4 features: [spring-boot-4-features](https://github.com/sivaprasadreddy/spring-boot-4-features)
+- Modular monolith reference: [spring-modular-monolith](https://github.com/sivaprasadreddy/spring-modular-monolith)
+- Marketplace inspiration: [sivalabs-marketplace](https://github.com/sivaprasadreddy/sivalabs-marketplace)
+- JPA/Hibernate best practices: [Vlad Mihalcea](https://vladmihalcea.com/blog/)
