@@ -74,6 +74,18 @@ Guided, phased upgrades for Spring Boot 4 with Java 25, plus Spring Modulith 2 a
 - Dedicated references for Boot 4, Modulith 2, and Testcontainers 2
 - Retry/resilience guidance aligned with the sample repo
 
+### java25-springboot4-reviewer
+
+Architecture and performance review assistance for Spring Boot 4 / Java 25 projects.
+
+**You get:**
+- Pattern fit/avoid guidance across Layered, Package-by-Module, Modular Monolith, Tomato, and DDD+Hex
+- Review checklists for architecture, events, CQRS, Modulith boundaries
+- Performance patterns (N+1, caching, async/virtual threads, pooling, resource management)
+- Quick decision matrix to suggest the right architecture level
+
+**Use when:** you want a lightweight architecture/performance review or to pick the next evolution step.
+
 ## Usage Examples
 
 ### 1) Simple Product API
@@ -120,6 +132,16 @@ Claude: I’ll use springboot-migration.
 [Applies changes and verifies each phase]
 ```
 
+### 5) Architecture/Performance Review
+
+```
+You: Can you sanity-check our Boot 4 service for architecture and performance issues?
+Claude: I’ll use java25-springboot4-reviewer.
+
+[Runs through architecture pattern fit/avoid]
+[Checks for N+1, caching, async, virtual thread pinning, pool sizing, DTO vs entity leaks]
+```
+
 ## Templates & Assets
 
 **Architecture templates:** `creating-springboot-projects/assets/`
@@ -129,6 +151,9 @@ Claude: I’ll use springboot-migration.
 **JPA templates:** `spring-data-jpa/assets/`
 - Query repositories, DTO projections, custom repos, CQRS query services
 - Relationship patterns with do/don’t guidance
+
+**Reviewer references:** `springboot-architecture/skills/java25-springboot4-reviewer/references/`
+- Architecture patterns, decision matrix, performance patterns, checklists
 
 **Reference guides:** `spring-data-jpa/references/`
 - Query patterns, projections, custom repositories
