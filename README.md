@@ -1,16 +1,14 @@
 # Spring Boot Skills Marketplace
 
-A curated set of Claude Code skills for building Spring Boot apps with the right architecture from day one.
+Claude Code skills that help you build Spring Boot apps with architecture that actually fits your needs.
 
 ## Why This Exists
 
-Most projects start simple and grow. This marketplace helps you pick an architecture that fits *today* while keeping a clear upgrade path for *tomorrow*.
-
-Core idea:
+Projects that start simple tend to grow messy. These skills help you pick the right architecture for where you are now—with a clear path forward when things get complex.
 
 > **Start simple. Add complexity only when complexity demands it.**
 
-The approach is based on the patterns in [spring-boot-application-architecture-patterns](https://github.com/sivaprasadreddy/spring-boot-application-architecture-patterns).
+Built on patterns from [spring-boot-application-architecture-patterns](https://github.com/sivaprasadreddy/spring-boot-application-architecture-patterns).
 
 ## Architecture Patterns (Progressive)
 
@@ -34,130 +32,66 @@ The approach is based on the patterns in [spring-boot-application-architecture-p
 
 ### creating-springboot-projects
 
-Builds a Spring Boot project after a short assessment so the architecture matches your team, domain, and lifespan.
+Asks a few questions about your project, then builds the right architecture from the start.
 
-**You get:**
-- Assessment-first guidance (no guesswork)
-- Architecture-specific scaffolding
-- Spring Initializr setup
-- Templates for Value Objects, Rich Entities, CQRS, converters, etc.
+What you get: assessment-driven scaffolding, Spring Initializr setup, and templates for Value Objects, Rich Entities, CQRS patterns, converters—whatever your chosen architecture needs.
 
-**Assessment questions:**
-1. **Domain complexity** — simple CRUD or complex business rules?
-2. **Team size** — 1–3, 3–10, or 10+?
-3. **Lifespan** — months, 1–2 years, or 5+ years?
-4. **Type safety needs** — basic validation or strong typing (finance/healthcare)?
-5. **Bounded contexts** — single domain or multiple subdomains?
+**Quick assessment covers:**
+- Domain complexity (CRUD vs. business rules)
+- Team size and project lifespan
+- Type safety requirements
+- Bounded contexts
 
 ### spring-data-jpa
 
-Focused guidance for repositories, queries, and mapping patterns that scale.
+Helps you write JPA code that doesn't slow down six months later.
 
-**You get:**
-- Query patterns and DTO projections
-- Custom repositories and CQRS query services
-- Relationship patterns and performance tuning
-- Anti-patterns you should avoid
-
-**Critical rules:**
-1. Don’t create repositories for every entity
-2. Don’t use long method-name queries for complex logic
-3. Don’t call `save()` blindly (understand persist vs merge)
+Covers query patterns, DTO projections, custom repositories, CQRS query services, and the performance anti-patterns that bite everyone eventually (repositories for every entity, method-name query hell, blind `save()` calls).
 
 ### springboot-migration
 
-Guided, phased upgrades for Spring Boot 4 with Java 25, plus Spring Modulith 2 and Testcontainers 2 when needed.
+Step-by-step migration to Spring Boot 4 + Java 25 (with Spring Modulith 2 and Testcontainers 2 support).
 
-**You get:**
-- Mandatory scan-first workflow using a migration scanner
-- Dependency/code/config phases to reduce breakage
-- Dedicated references for Boot 4, Modulith 2, and Testcontainers 2
-- Retry/resilience guidance aligned with the sample repo
+Scans your project first, then walks through dependencies → code → config in phases. Includes retry/resilience patterns and references for each upgrade target.
 
-### java25-springboot4-reviewer
+### code-reviewer
 
-Architecture and performance review assistance for Spring Boot 4 / Java 25 projects.
+Sanity-checks your Boot 4 / Java 25 project for architecture fit and performance gotchas.
 
-**You get:**
-- Pattern fit/avoid guidance across Layered, Package-by-Module, Modular Monolith, Tomato, and DDD+Hex
-- Review checklists for architecture, events, CQRS, Modulith boundaries
-- Performance patterns (N+1, caching, async/virtual threads, pooling, resource management)
-- Quick decision matrix to suggest the right architecture level
+Covers all five architecture patterns (when to use, when to avoid), plus checklists for events, CQRS, Modulith boundaries. Catches N+1 queries, missing caches, virtual thread pinning, and other performance traps.
 
-**Use when:** you want a lightweight architecture/performance review or to pick the next evolution step.
+Use this when you want a second opinion or need to decide if it's time to evolve your architecture.
 
 ## Usage Examples
 
-### 1) Simple Product API
+**"I need a REST API for products with basic CRUD."**
+→ Asks about your domain, team, and timeline. Suggests Layered architecture. Generates scaffolding.
 
-```
-You: I need a REST API for products with basic CRUD.
-Claude: I’ll use creating-springboot-projects.
+**"I need an order service with payments and inventory rules."**
+→ Assesses complexity. Recommends Tomato architecture. Generates value objects, rich entities, CQRS services.
 
-[Asks assessment questions]
+**"My product search is slow."**
+→ Analyzes your queries, spots N+1 issues, refactors to DTO projections.
 
-Recommendation: Layered architecture.
-[Generates project and templates]
-```
+**"We need to migrate from Boot 3 to Boot 4."**
+→ Runs migration scanner, plans phased upgrade (dependencies → code → config), applies and verifies each step.
 
-### 2) Order Processing Service
-
-```
-You: I need an order service with payments and inventory rules.
-Claude: I’ll use creating-springboot-projects.
-
-[Asks assessment questions]
-
-Recommendation: Tomato architecture.
-[Generates value objects, rich entities, CQRS services]
-```
-
-### 3) Slow Search Queries
-
-```
-You: My product search is slow.
-Claude: I’ll use spring-data-jpa.
-
-[Analyzes and replaces N+1 queries with DTO projections]
-```
-
-### 4) Spring Boot 4 Migration
-
-```
-You: We need to migrate a Boot 3 app to Boot 4 (Modulith + Testcontainers too).
-Claude: I’ll use springboot-migration.
-
-[Runs scan_migration_issues.py]
-[Plans dependency → code → config → testing phases]
-[Applies changes and verifies each phase]
-```
-
-### 5) Architecture/Performance Review
-
-```
-You: Can you sanity-check our Boot 4 service for architecture and performance issues?
-Claude: I’ll use java25-springboot4-reviewer.
-
-[Runs through architecture pattern fit/avoid]
-[Checks for N+1, caching, async, virtual thread pinning, pool sizing, DTO vs entity leaks]
-```
+**"Can you review our Boot 4 service for issues?"**
+→ Checks architecture pattern fit, hunts for performance problems (N+1, missing caches, virtual thread pinning, entity leaks).
 
 ## Templates & Assets
 
-**Architecture templates:** `creating-springboot-projects/assets/`
-- Value Objects, Rich Entities, CQRS services, converters, REST controllers
-- Flyway migrations, Testcontainers setup, ProblemDetail handler
+**Architecture templates** (`creating-springboot-projects/assets/`)
+Value Objects, Rich Entities, CQRS services, converters, REST controllers, Flyway migrations, Testcontainers, ProblemDetail handlers.
 
-**JPA templates:** `spring-data-jpa/assets/`
-- Query repositories, DTO projections, custom repos, CQRS query services
-- Relationship patterns with do/don’t guidance
+**JPA templates** (`spring-data-jpa/assets/`)
+Query repositories, DTO projections, custom repos, CQRS query services, relationship patterns.
 
-**Reviewer references:** `springboot-architecture/skills/java25-springboot4-reviewer/references/`
-- Architecture patterns, decision matrix, performance patterns, checklists
+**Reviewer references** (`java25-springboot4-reviewer/references/`)
+Architecture patterns, decision matrices, performance checklists.
 
-**Reference guides:** `spring-data-jpa/references/`
-- Query patterns, projections, custom repositories
-- Relationships and performance tuning
+**Reference guides** (`spring-data-jpa/references/`)
+Query patterns, projections, custom repositories, relationship handling, performance tuning.
 
 ## Prerequisites
 
@@ -166,14 +100,12 @@ Claude: I’ll use java25-springboot4-reviewer.
 - Maven or Gradle
 - Spring Boot 4.0+ familiarity
 
-## Upgrade Path
+## Evolution Path
 
-```
-Layered
-  → Package-by-Module
-    → Modular Monolith
-      → Tomato
-        → DDD+Hexagonal
+Start simple, evolve as needed:
+
+```text
+Layered → Package-by-Module → Modular Monolith → Tomato → DDD+Hexagonal
 ```
 
 ## Credits
