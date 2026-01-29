@@ -319,18 +319,8 @@ Value-object-heavy, richer domain within a modular monolith. JPA entities embed 
 ### Simple Example
 
 ```java
-// Value Object
-public record OrderNumber(@JsonValue String value) {
-    public OrderNumber {
-        if (value == null || value.trim().isEmpty()) {
-            throw new IllegalArgumentException("Order number cannot be empty");
-        }
-    }
-
-    public static OrderNumber generate() {
-        return new OrderNumber(UUID.randomUUID().toString());
-    }
-}
+// Value Object (see value-objects-patterns.md for full implementation)
+public record OrderNumber(@JsonValue String value) { /* validation in constructor */ }
 
 // Rich Entity
 @Entity
@@ -430,19 +420,15 @@ public class User {
 
 ✅ **Value Object (no identity, immutable)**
 ```java
+// Minimal example - see value-objects-patterns.md for full implementation with validation
 @Embeddable
-public record Address(
-    String street,
-    String city,
-    String state,
-    String zipCode
-) {
+public record Address(String street, String city, String state, String zipCode) {
     // No ID - compared by value
     // Immutable - no setters
 }
 ```
 
-**See:** [value-objects-patterns.md](value-objects-patterns.md) for more VO patterns
+**See:** [value-objects-patterns.md](value-objects-patterns.md) for comprehensive VO patterns including Address with JPA annotations and validation
 
 ### Aggregates
 

@@ -627,24 +627,18 @@ private Money price;
 #### Step 2: Create Value Objects
 
 ```java
+// Example: OrderNumber as a Value Object
 public record OrderNumber(String value) {
     public OrderNumber {
+        // Validation in constructor (fail-fast)
         if (value == null || value.trim().isEmpty()) {
             throw new IllegalArgumentException("Order number required");
         }
     }
-
-    public static OrderNumber of(String value) {
-        return new OrderNumber(value);
-    }
-
-    public static OrderNumber generate() {
-        return new OrderNumber(UUID.randomUUID().toString());
-    }
 }
 ```
 
-**See:** [value-objects-patterns.md](value-objects-patterns.md) for more VO patterns
+**See:** [value-objects-patterns.md](value-objects-patterns.md) for comprehensive VO patterns including factory methods, JSON serialization, and format validation
 
 #### Step 3: Move Validation to VOs
 

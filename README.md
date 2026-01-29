@@ -22,10 +22,67 @@ Built on patterns from [spring-boot-application-architecture-patterns](https://g
 
 ## Installation
 
+> **Using Codex?** See [CODEX-COMPATIBILITY.md](./CODEX-COMPATIBILITY.md) for detailed Codex installation and usage instructions.
+
+### Claude Code (Plugin Marketplace)
+
 ```bash
 /plugin marketplace add a-pavithraa/springboot-skills-marketplace
 /plugin enable a-pavithraa/springboot-skills-marketplace
 /plugin install springboot-architecture@springboot-skills-marketplace
+```
+
+### Claude Code (Manual Installation)
+
+```bash
+# Clone or download this repository
+git clone https://github.com/a-pavithraa/springboot-skills-marketplace.git
+
+# Copy skills to Claude Code skills directory
+cp -r springboot-skills-marketplace/plugins/springboot-architecture/skills/* ~/.claude/skills/
+```
+
+### Codex (Manual Installation)
+
+```bash
+# Clone or download this repository
+git clone https://github.com/a-pavithraa/springboot-skills-marketplace.git
+
+# Copy skills to Codex skills directory
+mkdir -p ~/.codex/skills
+cp -r springboot-skills-marketplace/plugins/springboot-architecture/skills/* ~/.codex/skills/
+```
+
+## Usage
+
+### Claude Code
+
+Skills are automatically discovered and loaded when relevant. Claude will invoke them based on your request:
+
+```
+You: "I need to create a new Spring Boot microservice"
+Claude: [Automatically loads creating-springboot-projects skill]
+```
+
+You can also explicitly request a skill:
+```
+You: "Use the spring-data-jpa skill to optimize this repository"
+```
+
+### Codex
+
+Skills must be manually invoked using the `$skill-name` syntax:
+
+```
+using $creating-springboot-projects create a new order service
+using $spring-data-jpa optimize this repository code
+using $springboot-migration upgrade to Spring Boot 4
+using $code-reviewer review this service implementation
+```
+
+For detailed reference chapters, include the path:
+```
+using $spring-data-jpa and ~/.codex/skills/spring-data-jpa/references/dto-projections.md implement efficient queries
 ```
 
 ## Available Skills
@@ -92,6 +149,25 @@ Architecture patterns, decision matrices, performance checklists.
 
 **Reference guides** (`spring-data-jpa/references/`)
 Query patterns, projections, custom repositories, relationship handling, performance tuning.
+
+## Testing Skills
+
+Want to verify skills work as intended? See the `tests/` directory for baseline scenarios.
+
+**Quick start:**
+```bash
+# Run one scenario in 5 minutes
+cd tests
+cat QUICKSTART.md
+```
+
+**Full test suite:**
+- 8 baseline scenarios testing each skill's core behaviors
+- RED-GREEN-REFACTOR methodology
+- Rationalization tracking
+- See `tests/README.md` for complete testing guide
+
+Based on [terraform-skill testing approach](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md).
 
 ## Prerequisites
 

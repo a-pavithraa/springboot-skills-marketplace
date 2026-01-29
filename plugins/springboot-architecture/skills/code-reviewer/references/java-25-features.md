@@ -24,9 +24,24 @@ Lightweight threads managed by the JVM, not the OS. Enable millions of concurren
 
 ### When to Use
 
-- High-concurrency I/O-bound workloads
-- Microservices with many blocking calls (DB, HTTP, etc.)
-- Replacing thread pools for blocking operations
+**Official Oracle guidance** ([Java Virtual Threads](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)):
+> "If your application never has 10,000 virtual threads or more, it is unlikely to benefit from virtual threads."
+
+✅ **Use virtual threads when ALL criteria are met:**
+- 10,000+ concurrent tasks (not daily totals, actual concurrency)
+  - **Source:** This threshold is from [Oracle's official Java 21 Virtual Threads Guide](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
+  - **JEP 444** also emphasizes virtual threads are for "a **great number** of concurrent tasks"
+- I/O-bound workload (database queries, HTTP calls, file I/O)
+- Tasks spend most time waiting/blocked on I/O
+- Thread pool exhaustion observed in production metrics
+
+❌ **Do NOT use virtual threads when:**
+- Low concurrency (<10,000 concurrent tasks)
+  - **Evidence:** Oracle states applications below this threshold "are unlikely to benefit"
+- CPU-bound workload (computation, data processing)
+  - **Evidence:** [JEP 444](https://openjdk.org/jeps/444) explicitly states "cannot improve throughput for CPU-bound workloads"
+- Intentional thread pool sizing (rate limiting, backpressure)
+- Low-traffic applications (hundreds of requests per day)
 
 ### Anti-Patterns
 
@@ -84,10 +99,40 @@ public class UserService {
 
 ### Migration Checklist
 
+**BEFORE migrating to virtual threads, verify requirements:**
+- [ ] Application has 10,000+ concurrent tasks (measure actual concurrency, not daily totals)
+- [ ] Workload is primarily I/O-bound (database, HTTP, file operations)
+- [ ] Thread pool exhaustion is observed in production metrics
+- [ ] Using Java 21+ and Spring Boot 3.2+
+
+**IF requirements met, then migrate:**
 - [ ] Replace `@Async` thread pools with virtual threads config
 - [ ] Replace `synchronized` with `ReentrantLock` in I/O code paths
 - [ ] Remove manual thread pool sizing (virtual threads scale automatically)
 - [ ] Test under load to verify no pinning issues
+
+**IF requirements NOT met:**
+- [ ] Keep existing thread pools - they are appropriate for the workload
+- [ ] Consider tuning pool sizes if metrics show under-provisioning
+- [ ] Re-evaluate when concurrency increases significantly
+
+### Official References for Virtual Threads
+
+The 10,000 concurrent tasks threshold and usage guidance comes from official sources:
+
+1. **[Oracle Java 21 Virtual Threads Guide](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)**
+   - Primary documentation stating: "If your application never has 10,000 virtual threads or more, it is unlikely to benefit from virtual threads."
+
+2. **[JEP 444: Virtual Threads](https://openjdk.org/jeps/444)**
+   - Official Java Enhancement Proposal (Final)
+   - States: "Virtual threads cannot improve throughput for CPU-bound workloads"
+   - Emphasizes virtual threads are for "a great number of concurrent tasks"
+
+3. **[JEP 425: Virtual Threads (Preview)](https://openjdk.org/jeps/425)**
+   - Earlier preview specification
+
+4. **[Spring Boot Task Execution Documentation](https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html)**
+   - How Spring Boot integrates virtual threads
 
 ---
 
@@ -635,9 +680,12 @@ byte[] hash = kd.deriveKey(password, params).getEncoded();
 4. **instanceof Pattern Matching** - Common pattern
 5. **Sequenced Collections** - Safer than manual index access
 
-### Medium Priority
+### Medium Priority (Evaluate Carefully)
 
-6. **Virtual Threads** - Requires testing, high impact for I/O-bound apps
+6. **Virtual Threads** - ONLY if 10,000+ concurrent tasks, I/O-bound workload, and thread pool exhaustion
+   - Most applications do NOT meet these criteria
+   - Measure actual concurrency before adopting
+   - Reference: [Oracle Virtual Threads Guide](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
 7. **Sealed Classes** - Where type hierarchies are fixed
 8. **Switch Pattern Matching** - When working with type hierarchies
 9. **Primitive Patterns** - When pattern matching with primitives (preview)
@@ -665,7 +713,7 @@ When reviewing Java code, check for:
 - [ ] Mutable DTOs with boilerplate → Use records
 - [ ] String concatenation for multi-line text → Use text blocks
 - [ ] Old switch statements → Use switch expressions
-- [ ] Thread pools for I/O blocking operations → Consider virtual threads
+- [ ] Thread pools with metrics showing exhaustion → Evaluate virtual threads (requires 10,000+ concurrent tasks and I/O-bound workload)
 - [ ] `list.get(0)` / `list.get(list.size()-1)` → Use `getFirst()` / `getLast()`
 - [ ] Open-ended class hierarchies that should be sealed → Use sealed classes
 - [ ] Pattern matching with boxed primitives → Consider primitive patterns (preview)

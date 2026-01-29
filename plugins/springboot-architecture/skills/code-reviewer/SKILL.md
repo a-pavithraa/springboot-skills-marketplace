@@ -17,6 +17,8 @@ description: Comprehensive code review for Java 25 and Spring Boot 4 apps. Use w
 
 **MANDATORY baseline:** Java 25 + Spring Boot 4.0.x (latest stable). Flag if build files show otherwise.
 
+**ANALYZE workload before architectural recommendations.** Don't suggest virtual threads, reactive patterns, or architectural changes without understanding actual concurrency, traffic patterns, and workload characteristics. Pattern matching without analysis leads to inappropriate recommendations.
+
 **JSpecify is the null-safety baseline.** Avoid `org.springframework.lang` annotations; use package-level `@NullMarked` + explicit `@Nullable` in type usage. Copy nullability annotations when overriding.
 
 **Prefer official Spring docs as source of truth.** If a pattern in code conflicts with documented guidance, flag it and link to the official rule via the relevant reference files.
@@ -72,7 +74,8 @@ Ask:
 
 **Pass F: Performance + resilience**
 - Caching strategy
-- Virtual threads usage and blocking calls
+- Virtual threads evaluation (MUST verify 10,000+ concurrent tasks and I/O-bound workload before recommending - see `java-25-features.md` for threshold explanation)
+- Thread pool sizing matches workload (check actual concurrency, not daily totals)
 - Timeouts, retries, backoff
 
 ### Step 4: Report Findings
@@ -119,7 +122,8 @@ Use this structure:
 - N+1 queries
 - No pagination / unbounded queries
 - No caching for heavy reads
-- Blocking calls in virtual-thread executors
+- Virtual threads recommended without analyzing workload (MUST verify 10,000+ concurrent tasks, I/O-bound operations, and thread pool exhaustion - see `java-25-features.md`)
+- Thread pool sizes that don't match actual workload characteristics
 
 ### Architecture
 - Controllers calling repositories directly
@@ -166,13 +170,14 @@ Use this structure:
 - [ ] Read-only transactions marked
 - [ ] Connection pool configured
 - [ ] No resource leaks (try-with-resources)
+- [ ] Thread pool sizing appropriate for workload (analyze actual concurrency before suggesting changes)
 
 ### Quick Migration Check (5 minutes)
 
 - [ ] Spring Boot 4 starters (webmvc, aspectj)
 - [ ] Jackson 3 imports (`tools.jackson.*`)
 - [ ] New test annotations (`@MockitoBean`)
-- [ ] Virtual threads configured for I/O workloads
+- [ ] Virtual threads evaluated only if workload meets criteria (see `java-25-features.md`)
 
 ### Comprehensive Review (30+ minutes)
 

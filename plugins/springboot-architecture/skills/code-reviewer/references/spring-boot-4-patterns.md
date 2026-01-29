@@ -585,24 +585,91 @@ private int tokenExpiry;
 
 Spring Boot 4 has first-class virtual thread support.
 
-### Enable Virtual Threads
+### ⚠️ CRITICAL: Evaluate Before Adopting Virtual Threads
 
+**See [java-25-features.md](java-25-features.md) for full virtual threads guidance, official citations, and why the 10,000 concurrent tasks threshold exists.**
+
+**Before recommending virtual threads, MUST verify:**
+
+1. **Concurrency level** - Check actual concurrent requests (NOT daily totals)
+   - ✅ Use if: 10,000+ concurrent tasks (per Oracle's official threshold)
+   - ❌ Don't use if: <1,000 concurrent requests
+
+2. **Workload type** - Identify I/O vs CPU characteristics
+   - ✅ Use if: I/O-bound (database queries, REST calls, file operations)
+   - ❌ Don't use if: CPU-bound (computation, data processing)
+
+3. **Thread pool metrics** - Examine current pool utilization
+   - ✅ Use if: Thread pool exhaustion, high queue depths
+   - ❌ Don't use if: Low pool utilization, small queue sizes
+
+4. **Pool size intent** - Understand why current pool is sized
+   - ✅ Use if: Pool size limited by memory constraints
+   - ❌ Don't use if: Small pool is intentional (rate limiting, backpressure)
+
+### When Virtual Threads Are NOT Appropriate
+
+❌ **Low-traffic applications**
+```java
+// Example: 100 requests/day (~4/hour)
+// Virtual threads provide NO benefit here
+@Bean(name = "auditExecutor")
+public Executor auditExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);  // Already over-provisioned for this load
+    executor.setMaxPoolSize(5);
+    return executor;
+}
+```
+
+❌ **Intentional rate limiting**
+```java
+// Small pool size is deliberate to throttle
+@Bean(name = "externalApiExecutor")
+public Executor externalApiExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setMaxPoolSize(5);  // Protects external API from overload
+    // Virtual threads would bypass this protection!
+    return executor;
+}
+```
+
+❌ **CPU-bound tasks**
+```java
+// Virtual threads don't help CPU-intensive work
+@Async
+public void processLargeDataset(byte[] data) {
+    // Heavy computation, no I/O wait
+    performComplexCalculations(data);
+}
+```
+
+### When Virtual Threads ARE Appropriate
+
+✅ **High-concurrency I/O-bound applications**
 ```yaml
+# Enable for web servers with thousands of concurrent requests
 spring:
   threads:
     virtual:
       enabled: true
 ```
 
-### Async Methods
+✅ **Requirements met:**
+- 10,000+ concurrent requests
+- I/O-bound workload (database, HTTP, messaging)
+- Thread pool exhaustion observed in metrics
+- Java 21+ and Spring Boot 3.2+
 
-✅ **@Async automatically uses virtual threads**
+### Async Methods with Virtual Threads
+
+✅ **@Async automatically uses virtual threads when enabled**
 ```java
 @Service
 public class EmailService {
-    @Async  // Uses virtual threads when enabled
+    @Async  // Uses virtual threads if spring.threads.virtual.enabled=true
     public CompletableFuture<Void> sendEmail(String to, String subject, String body) {
-        // Send email (blocking I/O)
+        // Send email (blocking I/O) - benefits from virtual threads
         return CompletableFuture.completedFuture(null);
     }
 }
@@ -670,10 +737,17 @@ webClient.get()
 ❌ Using `@Retryable` or Resilience4j annotations without AOP support
 ✅ Ensure `spring-boot-starter-aspectj` is present for annotation-based resilience
 
-### 5. Ignoring Virtual Threads
+### 5. Recommending Virtual Threads Without Analysis
 
-❌ Using manual thread pools for I/O-bound tasks
-✅ Enable virtual threads and use `@Async`
+❌ Suggesting virtual threads without verifying workload characteristics
+✅ Analyze concurrency level (must be 10,000+ concurrent tasks), workload type (must be I/O-bound), and thread pool metrics before recommending
+
+**See [java-25-features.md](java-25-features.md) for detailed explanation of why 10,000 tasks is the threshold and full official citations.**
+
+**Example of incorrect recommendation:**
+- Application: 100 requests/day (~4/hour), 2-5 thread pool
+- ❌ "Use virtual threads" - No benefit, unnecessary complexity
+- ✅ Keep existing pool - Already over-provisioned for this load
 
 ### 6. Custom Error Responses
 
@@ -695,11 +769,11 @@ When reviewing Spring Boot 4 code:
 - [ ] Jackson imports use `tools.jackson.*` (except `jackson-annotations`)
 - [ ] Test annotations use `@MockitoBean` / `@MockitoSpyBean`
 - [ ] `@Retryable` has `spring-boot-starter-aspectj` dependency
-- [ ] Virtual threads enabled for I/O-bound workloads
+- [ ] Virtual threads evaluated for high-concurrency I/O-bound workloads (10,000+ concurrent tasks)
+- [ ] Thread pool sizing is appropriate for workload (not blindly replaced with virtual threads)
 - [ ] Problem Details used for error responses
 - [ ] Type-safe configuration with `@ConfigurationProperties`
 - [ ] Observability configured (metrics, tracing)
-- [ ] No manual thread pools for blocking I/O (use virtual threads instead)
 
 ---
 
