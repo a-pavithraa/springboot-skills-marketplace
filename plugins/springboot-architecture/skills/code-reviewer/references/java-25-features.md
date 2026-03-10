@@ -126,7 +126,7 @@ The 10,000 concurrent tasks threshold and usage guidance comes from official sou
 2. **[JEP 444: Virtual Threads](https://openjdk.org/jeps/444)**
    - Official Java Enhancement Proposal (Final)
    - States: "Virtual threads cannot improve throughput for CPU-bound workloads"
-   - Emphasizes virtual threads are for "a great number of concurrent tasks"
+   - Uses softer language than Oracle's guide: "significant improvement when the number of concurrent tasks is high (more than a few thousand)" — does **not** state the 10,000 threshold specifically
 
 3. **[JEP 425: Virtual Threads (Preview)](https://openjdk.org/jeps/425)**
    - Earlier preview specification

@@ -148,11 +148,19 @@ For **gradual migration**, use classic starters:
 
 ## Jackson 3 Migration
 
+Spring Boot 4.0.0-M3+ uses Jackson 3 as the default JSON library. Jackson 2 is available in a deprecated compatibility mode via `spring-boot-jackson2`.
+
+Sources: [Spring Boot 4.0.0 M3 Release Notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0.0-M3-Release-Notes) | [Introducing Jackson 3 support in Spring](https://spring.io/blog/2025/10/07/introducing-jackson-3-support-in-spring/)
+
 ### Group ID Changes
 
-> **⚠️ IMPORTANT:** As of Spring Boot 4.0.0, Jackson 3 integration details are still evolving. Verify actual group IDs in your `pom.xml` or `build.gradle` when migrating. The information below is based on early Jackson 3 specifications and may need adjustment.
+The group ID change is confirmed but applies **only to `jackson-core` and `jackson-databind`**. `jackson-annotations` intentionally stays at the old group ID to allow Jackson 2 and Jackson 3 to coexist during ecosystem migration.
 
-**Expected Jackson 3 Group ID Changes:**
+| Artifact | Jackson 2 group ID | Jackson 3 group ID |
+|----------|-------------------|-------------------|
+| `jackson-core` | `com.fasterxml.jackson.core` | `tools.jackson.core` |
+| `jackson-databind` | `com.fasterxml.jackson.core` | `tools.jackson.core` |
+| `jackson-annotations` | `com.fasterxml.jackson.core` | **`com.fasterxml.jackson.core` (unchanged)** |
 
 ❌ **Jackson 2 (Spring Boot 3)**
 ```xml
@@ -162,28 +170,37 @@ For **gradual migration**, use classic starters:
 </dependency>
 ```
 
-✅ **Jackson 3 (Expected in Spring Boot 4)**
+✅ **Jackson 3 (Spring Boot 4)**
 ```xml
-<!-- Expected group ID change - verify in your project -->
 <dependency>
     <groupId>tools.jackson.core</groupId>
     <artifactId>jackson-databind</artifactId>
 </dependency>
-```
-
-⚠️ **Exception: jackson-annotations may keep old group ID**
-```xml
-<!-- May still use old group ID - verify in your project -->
+<!-- jackson-annotations stays at com.fasterxml.jackson.core — this is intentional -->
 <dependency>
     <groupId>com.fasterxml.jackson.core</groupId>
     <artifactId>jackson-annotations</artifactId>
 </dependency>
 ```
 
-**Verification Steps:**
-1. Check your `pom.xml` or `build.gradle` after upgrading to Spring Boot 4
-2. Look for Jackson dependencies managed by Spring Boot BOM
-3. Verify group IDs match what Spring Boot 4 expects
+Source: [FasterXML/jackson MIGRATING_TO_JACKSON_3.md](https://github.com/FasterXML/jackson/blob/main/jackson3/MIGRATING_TO_JACKSON_3.md)
+
+### Import Changes
+
+❌ **Old imports**
+```java
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+```
+
+✅ **Jackson 3 imports**
+```java
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.JsonProcessingException;
+// jackson-annotations package is unchanged:
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+```
 
 ### Code Changes
 
@@ -198,7 +215,7 @@ public class JacksonConfig implements Jackson2ObjectMapperBuilderCustomizer {
 }
 ```
 
-✅ **Spring Boot 4 (Expected)**
+✅ **Spring Boot 4**
 ```java
 @Component
 public class JacksonConfig implements JsonMapperBuilderCustomizer {
@@ -208,28 +225,6 @@ public class JacksonConfig implements JsonMapperBuilderCustomizer {
     }
 }
 ```
-
-**Note:** Class names and interfaces may vary based on final Jackson 3 integration. Consult Spring Boot 4 migration guide for actual class names.
-
-### Import Changes (Expected)
-
-❌ **Old imports**
-```java
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-```
-
-✅ **Expected new imports**
-```java
-// Expected Jackson 3 package structure - verify in your project
-import tools.jackson.databind.ObjectMapper;
-import tools.jackson.core.JsonProcessingException;
-```
-
-**If imports fail:**
-- Check if Spring Boot 4 is using a different Jackson 3 packaging
-- Review Spring Boot 4.x migration documentation
-- Verify Jackson version in dependency tree: `mvn dependency:tree | grep jackson`
 
 ---
 

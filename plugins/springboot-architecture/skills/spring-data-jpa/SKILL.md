@@ -1,346 +1,139 @@
 ---
 name: spring-data-jpa
-description: Implement Spring Data JPA repositories, entities, and queries following modern best practices. Use for creating repositories (only for aggregate roots), writing queries (@Query, DTO projections), custom repositories (Criteria API, bulk ops), CQRS query services, entity relationships, and performance optimization. Covers patterns from simple repositories to advanced CQRS with detailed anti-patterns guidance.
+description: Designs and implements Spring Data JPA repositories, projections, query patterns, custom repositories, CQRS read models, entity relationships, and persistence performance fixes for Java 25 and Spring Boot 4 projects. Use when the task needs repository-boundary decisions or concrete JPA implementation patterns from this skill. Do not use for generic SQL help or project-wide migration work that belongs in another skill.
 ---
 
 # Spring Data JPA Implementation
 
-## Critical Rules
+## Purpose
 
-**NEVER create repositories for every entity. ALWAYS create repositories only for aggregate roots.**
+Use this skill when the task is specifically about persistence design or implementation in a Spring Boot codebase. This skill adds value through aggregate-root guidance, query-pattern selection, CQRS read-model decisions, and the bundled repository and relationship templates.
 
-**NEVER use complex query method names. ALWAYS use @Query for non-trivial queries.**
+## Critical rules
 
-**NEVER use save() blindly. ALWAYS understand persist vs merge semantics (see Vlad Mihalcea's guidance).**
+- Never create repositories for every entity. Create repositories only for aggregate roots.
+- Never rely on long derived query method names when the query has become non-trivial.
+- Never use `save()` blindly when entity state transitions matter; understand persist versus merge behavior.
+- Prefer projections or dedicated query services for read-heavy paths.
+- Keep transaction boundaries in the service layer unless the existing architecture intentionally does otherwise.
 
-## Step 1: Identify Repository Needs
+## Workflow
 
-Ask:
-1. **Is this an aggregate root?** - Only aggregate roots get repositories
-2. **Query complexity?** - Simple lookup or complex filtering?
-3. **Read vs Write?** - Commands (write) or queries (read)?
-4. **Performance critical?** - Large datasets, pagination, or projections?
+### Step 1: Identify the persistence problem
 
-## Step 2: Choose Pattern
+Collect the minimum context first:
 
-| Pattern | When | Read |
-|---------|------|------|
-| **Simple Repository** | Basic CRUD, 1-2 custom queries | - |
-| **@Query Repository** | Multiple filters, joins, sorting | `references/query-patterns.md` |
-| **DTO Projection** | Read-only, performance-critical | `references/dto-projections.md` |
-| **Custom Repository** | Complex logic, bulk ops, Criteria API | `references/custom-repositories.md` |
-| **CQRS Query Service** | Separate read/write, multiple projections | `references/cqrs-query-service.md` |
+1. Is the type an aggregate root or an internal entity?
+2. Is the task primarily read-side, write-side, or both?
+3. Is the query simple lookup, filtered search, aggregation, projection, or dynamic criteria?
+4. Is the path performance-sensitive?
+5. Are there module-boundary or loose-coupling constraints that affect relationship modeling?
 
-**Decision criteria:**
+### Step 2: Choose the implementation pattern
 
-| Need | Simple | @Query | DTO | Custom | CQRS |
-|------|--------|--------|-----|--------|------|
-| Basic CRUD | ✅ | ✅ | ❌ | ✅ | ✅ |
-| Custom Queries | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Best Performance | ✅ | ✅ | ✅✅ | ✅✅ | ✅✅ |
-| Complex Logic | ❌ | ❌ | ❌ | ✅ | ✅ |
-| Read/Write Separation | ❌ | ❌ | ✅ | ✅ | ✅✅ |
+Use this table to decide what to load next.
 
-## Step 3: Implement Repository
+| Pattern | Use when | Read |
+|---------|----------|------|
+| Simple repository | Basic CRUD and 1-2 simple lookups | Existing code or none |
+| `@Query` repository | Multiple filters, joins, sorting, readable JPQL | `references/query-patterns.md` |
+| DTO projection | Read-only and performance-critical responses | `references/dto-projections.md` |
+| Custom repository | Criteria API, bulk operations, EntityManager logic | `references/custom-repositories.md` |
+| CQRS query service | Separate read and write models, reporting, specialized read paths | `references/cqrs-query-service.md` |
 
-### Simple Repository
+Use this decision guide:
 
-For basic lookups (1-2 properties):
+| Need | Simple | `@Query` | DTO | Custom | CQRS |
+|------|--------|----------|-----|--------|------|
+| Basic CRUD | Yes | Yes | No | Yes | Yes |
+| Custom filters | No | Yes | Yes | Yes | Yes |
+| Best read performance | No | Sometimes | Yes | Sometimes | Yes |
+| Complex dynamic logic | No | No | No | Yes | Yes |
+| Clear read/write split | No | No | Sometimes | Sometimes | Yes |
 
-```java
-public interface ProductRepository extends JpaRepository<ProductEntity, Long> {
-    Optional<ProductEntity> findByCode(String code);
-    List<ProductEntity> findByStatus(ProductStatus status);
-}
+### Step 3: Load the matching reference
+
+Load only the references needed for the current task:
+
+- `references/query-patterns.md`
+- `references/dto-projections.md`
+- `references/custom-repositories.md`
+- `references/cqrs-query-service.md`
+- `references/relationships.md`
+- `references/performance-guide.md`
+
+### Step 4: Apply the matching asset
+
+Use the bundled templates in `assets/` instead of rebuilding the pattern from scratch:
+
+- `assets/query-repository.java`
+- `assets/dto-projection.java`
+- `assets/custom-repository.java`
+- `assets/query-service.java`
+- `assets/relationship-patterns.java`
+
+### Step 5: Validate relationships and transaction boundaries
+
+Before finalizing the change, check:
+
+- repository exists only at the aggregate-root boundary
+- lazy-loading behavior is intentional
+- pagination or projections are used where row counts can grow
+- `@ManyToMany` has not been introduced when a join entity is more appropriate
+- read services use `@Transactional(readOnly = true)` where appropriate
+- write operations stay in service-layer transactions
+
+### Step 6: Validate performance-sensitive paths
+
+Read `references/performance-guide.md` when the task includes:
+
+- N+1 risks
+- fetch-plan problems
+- unbounded queries
+- batch operations
+- heavy read views that should use projections
+
+## High-value patterns to prefer
+
+### Repository boundaries
+
+- Aggregate roots get repositories.
+- Internal child entities usually do not.
+
+### Query style
+
+- Use derived query methods for simple lookups.
+- Use `@Query` for joins, readable text blocks, or multiple filters.
+- Use DTO projections when the response does not need entities.
+- Use a CQRS query service when the read model differs from the write model.
+
+### Relationships
+
+- Prefer `@ManyToOne` over `@OneToMany` when possible.
+- Use IDs instead of entity references when loose coupling is more important than navigation.
+- Treat `@ManyToMany` as a warning sign; prefer an explicit join entity.
+
+## Output format
+
+When proposing or implementing a persistence change, return:
+
+```markdown
+## Recommended pattern
+- Pattern:
+- Why:
+
+## Files to change
+- `path/to/file`
+
+## References used
+- `references/...`
+
+## Risks to verify
+- ...
 ```
 
-**Asset:** Use existing entity and repository patterns
-
-### @Query Repository
-
-For 3+ filters, joins, or readability. **Read:** `references/query-patterns.md`
-
-```java
-public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
-
-    @Query("""
-        SELECT DISTINCT o
-        FROM OrderEntity o
-        LEFT JOIN FETCH o.items
-        WHERE o.userId = :userId
-        ORDER BY o.createdAt DESC
-        """)
-    List<OrderEntity> findUserOrders(@Param("userId") Long userId);
-}
-```
-
-**Asset:** `assets/query-repository.java` - Complete template with examples
-
-### DTO Projections
-
-For read-only, performance-critical queries. **Read:** `references/dto-projections.md`
-
-```java
-public record ProductSummary(Long id, String name, BigDecimal price) {}
-
-@Query("""
-    SELECT new com.example.ProductSummary(p.id, p.name, p.price)
-    FROM ProductEntity p
-    WHERE p.status = 'ACTIVE'
-    """)
-List<ProductSummary> findActiveSummaries();
-```
-
-**Asset:** `assets/dto-projection.java` - Records, interfaces, native queries
-
-### Custom Repository
-
-For Criteria API, bulk ops. **Read:** `references/custom-repositories.md`
-
-```java
-// 1. Custom interface
-public interface ProductRepositoryCustom {
-    List<ProductEntity> findByDynamicCriteria(SearchCriteria criteria);
-}
-
-// 2. Implementation (must be named <Repository>Impl)
-@Repository
-class ProductRepositoryImpl implements ProductRepositoryCustom {
-    @PersistenceContext
-    private EntityManager entityManager;
-    // Implementation using Criteria API
-}
-
-// 3. Main repository extends both
-public interface ProductRepository extends JpaRepository<ProductEntity, Long>,
-                                           ProductRepositoryCustom {
-    Optional<ProductEntity> findBySku(String sku);
-}
-```
-
-**Asset:** `assets/custom-repository.java` - Complete pattern
-
-### CQRS Query Service
-
-For Tomato/DDD architectures. **Read:** `references/cqrs-query-service.md`
-
-```java
-// Repository (package-private) - writes only
-interface ProductRepository extends JpaRepository<ProductEntity, ProductId> {
-    Optional<ProductEntity> findBySku(ProductSKU sku);
-}
-
-// QueryService (public) - reads only
-@Service
-@Transactional(readOnly = true)
-public class ProductQueryService {
-
-    private final JdbcTemplate jdbcTemplate;
-
-    public List<ProductVM> findAllActive() {
-        return jdbcTemplate.query("""
-            SELECT id, name, price FROM products
-            WHERE status = 'ACTIVE'
-            """,
-            (rs, rowNum) -> new ProductVM(
-                rs.getLong("id"),
-                rs.getString("name"),
-                rs.getBigDecimal("price")
-            )
-        );
-    }
-}
-```
-
-**Asset:** `assets/query-service.java` - Full CQRS pattern with JdbcTemplate
-
-## Step 4: Entity Relationships
-
-**Read:** `references/relationships.md` for detailed guidance
-
-**Quick patterns:**
-
-```java
-// ✅ GOOD: @ManyToOne (most common)
-@ManyToOne(fetch = FetchType.LAZY, optional = false)
-@JoinColumn(name = "order_id", nullable = false)
-private Order order;
-
-// ✅ ALTERNATIVE: Just use ID (loose coupling)
-@Column(name = "product_id", nullable = false)
-private Long productId;
-
-// ❌ AVOID: @OneToMany (query from many side instead)
-// Instead: List<OrderItem> items = itemRepository.findByOrderId(orderId);
-
-// ❌ NEVER: @ManyToMany (create join entity instead)
-@Entity
-public class Enrollment {
-    @ManyToOne private Student student;
-    @ManyToOne private Course course;
-    private LocalDate enrolledAt;
-}
-```
-
-**Asset:** `assets/relationship-patterns.java` - All relationship types with examples
-
-## Step 5: Performance Optimization
-
-**Read:** `references/performance-guide.md` for complete checklist
-
-**Critical optimizations:**
-
-1. **Prevent N+1 queries:**
-   ```java
-   // Use JOIN FETCH
-   @Query("SELECT o FROM Order o JOIN FETCH o.customer")
-   List<Order> findWithCustomer();
-
-   // Or use DTO projection
-   @Query("SELECT new OrderSummary(o.id, c.name) FROM Order o JOIN o.customer c")
-   List<OrderSummary> findSummaries();
-   ```
-
-2. **Use pagination:**
-   ```java
-   Pageable pageable = PageRequest.of(0, 20);
-   Page<Product> page = repository.findByCategory("Electronics", pageable);
-   ```
-
-3. **Mark read services as readOnly:**
-   ```java
-   @Service
-   @Transactional(readOnly = true)
-   public class ProductQueryService { }
-   ```
-
-4. **Configure batch size:**
-   ```yaml
-   spring.jpa.properties.hibernate.jdbc.batch_size: 25
-   ```
-
-## Step 6: Transaction Management
-
-**Best practices:**
-
-```java
-@Service
-@Transactional(readOnly = true)  // Class-level for read services
-public class ProductService {
-
-    public List<ProductVM> findAll() {
-        // Read operations
-    }
-
-    @Transactional  // Override for writes
-    public void createProduct(CreateProductCmd cmd) {
-        ProductEntity product = ProductEntity.create(cmd);
-        repository.save(product);
-    }
-}
-```
-
-**Rules:**
-- Use `@Transactional(readOnly = true)` at class level for query services
-- Put `@Transactional` at service layer, not repository
-- Override with `@Transactional` for write methods in read services
-
-## Step 7: Testing
-
-```java
-@DataJpaTest
-@Testcontainers
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-class ProductRepositoryTest {
-
-    @Container
-    static PostgreSQLContainer<?> postgres =
-        new PostgreSQLContainer<>("postgres:16-alpine");
-
-    @Autowired
-    private ProductRepository repository;
-
-    @DynamicPropertySource
-    static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", postgres::getJdbcUrl);
-        registry.add("spring.datasource.username", postgres::getUsername);
-        registry.add("spring.datasource.password", postgres::getPassword);
-    }
-
-    @Test
-    void shouldFindProductByCode() {
-        ProductEntity product = createTestProduct("P001");
-        repository.save(product);
-
-        Optional<ProductEntity> found = repository.findByCode("P001");
-
-        assertThat(found).isPresent();
-    }
-}
-```
-
-## Anti-Patterns
-
-| Don't | Do | Why |
-|-------|-----|-----|
-| Repository for every entity | Only for aggregate roots | Maintains boundaries |
-| Use save() blindly | Understand persist/merge | Avoids unnecessary SELECT |
-| Long query method names | Use @Query | Readability |
-| findAll() without pagination | Use Page<> or Stream | Memory issues |
-| Fetch entities for read views | Use DTO projections | Performance |
-| FetchType.EAGER | LAZY + JOIN FETCH | Avoids N+1 |
-| @ManyToMany | Use join entity | Allows relationship attributes |
-| @Transactional in repository | Put in service layer | Proper boundaries |
-| Return entities from controllers | Return DTOs/VMs | Prevents lazy issues |
-
-## Common Pitfalls
-
-### 1. LazyInitializationException
-**Problem:** Accessing lazy associations outside transaction
-
-**Solution:** Use DTO projection or JOIN FETCH
-```java
-@Query("SELECT o FROM Order o JOIN FETCH o.items WHERE o.id = :id")
-Optional<Order> findByIdWithItems(@Param("id") Long id);
-```
-
-### 2. N+1 Queries
-**Problem:** Loading associations in loop
-
-**Solution:** See `references/performance-guide.md`
-
-### 3. Cartesian Product
-**Problem:** Multiple JOIN FETCH with collections
-
-**Solution:** Separate queries or DTO projections
-
-## Quick Reference
-
-### When to Load References
-
-- **Multiple filters/joins needed** → `references/query-patterns.md`
-- **Read-only, performance-critical** → `references/dto-projections.md`
-- **Dynamic queries, bulk operations** → `references/custom-repositories.md`
-- **CQRS, read/write separation** → `references/cqrs-query-service.md`
-- **Entity associations** → `references/relationships.md`
-- **Slow queries, N+1 issues** → `references/performance-guide.md`
-
-### Available Assets
-
-All templates in `assets/`:
-- `query-repository.java` - @Query examples, pagination, bulk ops
-- `dto-projection.java` - Records, interfaces, native queries
-- `custom-repository.java` - Criteria API, EntityManager
-- `query-service.java` - CQRS with JdbcTemplate
-- `relationship-patterns.java` - All JPA associations
-
-## References
-
-Incorporates best practices from:
-- [Vlad Mihalcea - Best Spring Data JpaRepository](https://vladmihalcea.com/best-spring-data-jparepository/)
-- [Vlad Mihalcea - Spring Data JPA DTO Projections](https://vladmihalcea.com/spring-jpa-dto-projection/)
-- [Vlad Mihalcea - Spring Data Query Methods](https://vladmihalcea.com/spring-data-query-methods/)
-- [Vlad Mihalcea - Spring Transaction Best Practices](https://vladmihalcea.com/spring-transaction-best-practices/)
-- [Vlad Mihalcea - ManyToOne Best Practices](https://vladmihalcea.com/manytoone-jpa-hibernate/)
-
-Browse [vladmihalcea.com/blog](https://vladmihalcea.com/blog/) for deep-dive articles.
+## When not to use this skill
+
+- Generic SQL or database administration work outside Spring Data JPA
+- Whole-project migration planning
+- Broad project scaffolding that belongs in `creating-springboot-projects`

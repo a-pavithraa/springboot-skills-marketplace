@@ -246,82 +246,13 @@ public class RedisCacheConfig {
 
 ## Virtual Threads
 
-Spring Boot 4 has first-class virtual thread support.
+> Full guidance, usage thresholds, anti-patterns, and official citations are in [`java-25-features.md`](java-25-features.md#virtual-threads).
 
-### Enable Virtual Threads
-
-```yaml
-spring:
-  threads:
-    virtual:
-      enabled: true
-```
-
-### When to Use
-
-✅ **I/O-bound operations**
-```java
-@Service
-public class UserService {
-    private final RestClient restClient;
-
-    @Async  // Uses virtual threads when enabled
-    public CompletableFuture<User> fetchUserFromExternalAPI(Long id) {
-        User user = restClient.get()
-            .uri("/users/{id}", id)
-            .retrieve()
-            .body(User.class);  // Blocking I/O - perfect for virtual threads
-        return CompletableFuture.completedFuture(user);
-    }
-}
-```
-
-### When NOT to Use
-
-❌ **CPU-bound operations**
-```java
-@Service
-public class ComputeService {
-    @Async  // Virtual threads don't help here!
-    public CompletableFuture<BigInteger> computeLargePrime(int bits) {
-        // CPU-intensive - use platform threads
-        return CompletableFuture.completedFuture(BigInteger.probablePrime(bits, new Random()));
-    }
-}
-```
-
-### Pinning Issues
-
-❌ **Synchronized blocks pin virtual threads**
-```java
-private final Object lock = new Object();
-
-public void processRequest() {
-    synchronized (lock) {  // Pins virtual thread!
-        String response = httpClient.send(request);  // Blocking I/O
-    }
-}
-```
-
-✅ **Use ReentrantLock instead**
-```java
-private final ReentrantLock lock = new ReentrantLock();
-
-public void processRequest() {
-    lock.lock();
-    try {
-        String response = httpClient.send(request);
-    } finally {
-        lock.unlock();
-    }
-}
-```
-
-**Review Checklist:**
-- [ ] Virtual threads enabled for I/O-bound services
-- [ ] No `synchronized` blocks in I/O code paths (use `ReentrantLock`)
-- [ ] Thread pool sizes removed (virtual threads scale automatically)
-- [ ] CPU-bound tasks use platform threads
+**Quick review checklist:**
+- [ ] `spring.threads.virtual.enabled: true` is set (Spring Boot 4 config)
+- [ ] No `synchronized` blocks wrapping blocking I/O — use `ReentrantLock`
+- [ ] Virtual threads are not recommended for CPU-bound workloads
+- [ ] Recommendation to use virtual threads is backed by measured workload evidence, not assumed
 
 ---
 
