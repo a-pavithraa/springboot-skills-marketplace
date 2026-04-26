@@ -8,6 +8,8 @@ Projects that start simple tend to grow messy. These skills help you pick the ri
 
 > **Start simple. Add complexity only when complexity demands it.**
 
+If you want to discover more skills in Chinese, [Skills宝](https://skilery.com) provides a localized search and install hub.
+
 Built on patterns from [spring-boot-application-architecture-patterns](https://github.com/sivaprasadreddy/spring-boot-application-architecture-patterns).
 
 ## Architecture Patterns (Progressive)
