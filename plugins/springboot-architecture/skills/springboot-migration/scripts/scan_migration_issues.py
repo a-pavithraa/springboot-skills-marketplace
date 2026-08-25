@@ -61,12 +61,40 @@ class MigrationScanner:
         print(f"Scanning project: {self.project_path}")
         print("=" * 80)
 
-        # Scan pom.xml for versions and dependencies
+        # Scan build files — Maven and/or Gradle. Projects occasionally have both
+        # (e.g. mid-migration); scan whichever are present.
         pom_path = self.project_path / "pom.xml"
+        gradle_groovy = self.project_path / "build.gradle"
+        gradle_kotlin = self.project_path / "build.gradle.kts"
+
+        # Multi-module Maven: the root pom usually only declares <modules> and
+        # the actual Spring Boot version sits in submodule poms. Discover and
+        # scan every pom.xml in the tree (root first so its outputs print
+        # first), skipping `target/` and `.git/` to avoid noise. The first
+        # match wins for version detection because `_scan_pom` only assigns
+        # when the field is still default.
         if pom_path.exists():
-            self._scan_pom(pom_path)
-        else:
-            print("⚠️  Warning: pom.xml not found (Maven project expected)")
+            poms = [pom_path]
+            for child in sorted(self.project_path.rglob("pom.xml")):
+                if child == pom_path:
+                    continue
+                parts = set(child.relative_to(self.project_path).parts)
+                if parts & {"target", ".git", "node_modules", "build"}:
+                    continue
+                poms.append(child)
+            for pom in poms:
+                self._scan_pom(pom)
+            # Single summary after walking every pom — first detection wins.
+            print(f"   Spring Boot: {self.result.spring_boot_version}")
+            print(f"   Spring Modulith: {self.result.spring_modulith_version}")
+            print(f"   Testcontainers: {self.result.testcontainers_version}")
+        if gradle_groovy.exists():
+            self._scan_gradle(gradle_groovy)
+        if gradle_kotlin.exists():
+            self._scan_gradle(gradle_kotlin)
+
+        if not (pom_path.exists() or gradle_groovy.exists() or gradle_kotlin.exists()):
+            print("⚠️  Warning: no pom.xml, build.gradle, or build.gradle.kts found")
 
         # Scan Java files
         self._scan_java_files()
@@ -77,12 +105,22 @@ class MigrationScanner:
         # Scan Flyway migrations
         self._scan_flyway_migrations()
 
+        # Resolve build-file label for post-scan warnings
+        if pom_path.exists():
+            build_file_ref = "pom.xml"
+        elif gradle_groovy.exists():
+            build_file_ref = "build.gradle"
+        elif gradle_kotlin.exists():
+            build_file_ref = "build.gradle.kts"
+        else:
+            build_file_ref = "build file"
+
         # Post-scan: check for missing modular HTTP client starters
         if self.uses_restclient and not self.has_restclient_starter:
             self.result.add_issue(
                 "Spring Boot 4 - Dependencies",
                 "WARNING",
-                "pom.xml",
+                build_file_ref,
                 0,
                 "RestClient used but spring-boot-starter-restclient not found",
                 "Boot 4 modular starters require spring-boot-starter-restclient for RestClient auto-configuration"
@@ -91,7 +129,7 @@ class MigrationScanner:
             self.result.add_issue(
                 "Spring Boot 4 - Dependencies",
                 "WARNING",
-                "pom.xml",
+                build_file_ref,
                 0,
                 "WebClient used but spring-boot-starter-webclient not found",
                 "Boot 4 modular starters require spring-boot-starter-webclient for WebClient auto-configuration"
@@ -101,36 +139,95 @@ class MigrationScanner:
 
     def _scan_pom(self, pom_path: Path):
         """Scan pom.xml for dependency issues"""
-        print("\n📦 Scanning pom.xml...")
+        try:
+            rel = pom_path.relative_to(self.project_path)
+        except ValueError:
+            rel = pom_path
+        print(f"\n📦 Scanning {rel}...")
 
         with open(pom_path, 'r') as f:
             content = f.read()
-            lines = content.split('\n')
 
-        # Extract versions
-        spring_boot_match = re.search(r'<spring-boot\.version>([\d.]+)', content)
-        if spring_boot_match:
+        # Strip <!-- ... --> XML comments before parsing so commented-out
+        # dependencies aren't flagged as real issues. Replace each comment with
+        # the same number of newlines it spanned, so reported line numbers
+        # stay accurate.
+        content = re.sub(
+            r'<!--.*?-->',
+            lambda m: '\n' * m.group(0).count('\n'),
+            content,
+            flags=re.DOTALL,
+        )
+        lines = content.split('\n')
+
+        # Version patterns intentionally accept pre-release/snapshot suffixes
+        # (e.g. 4.0.0-RC1, 2.0.0-SNAPSHOT, 2.0.0-M3) instead of truncating to
+        # the leading digits.
+        version_value = r'([\d.]+(?:[-.\w]*)?)'
+
+        # Spring Boot version detection — try three idiomatic styles in order:
+        #   (1) <spring-boot.version>X</spring-boot.version> property style
+        #   (2) <parent>...<artifactId>spring-boot-starter-parent</artifactId>
+        #       <version>X</version></parent>     (Spring Initializr default)
+        #   (3) <dependencyManagement> BOM import of spring-boot-dependencies
+        spring_boot_match = re.search(r'<spring-boot\.version>' + version_value, content)
+        if not spring_boot_match:
+            # <parent> style: capture the version that sits inside the same
+            # <parent>...</parent> block as spring-boot-starter-parent. Block
+            # is non-greedy and anchored on both tags so the regex doesn't
+            # roam across unrelated <parent> declarations (e.g. a multi-module
+            # build with its own parent above the spring-boot one).
+            spring_boot_match = re.search(
+                r'<parent>[\s\S]*?<artifactId>\s*spring-boot-starter-parent\s*</artifactId>'
+                r'[\s\S]*?<version>\s*' + version_value + r'\s*</version>'
+                r'[\s\S]*?</parent>',
+                content,
+            )
+        if not spring_boot_match:
+            # <dependencyManagement> BOM-import style.
+            spring_boot_match = re.search(
+                r'<artifactId>\s*spring-boot-dependencies\s*</artifactId>'
+                r'[\s\S]{0,400}?<version>\s*' + version_value + r'\s*</version>',
+                content,
+            )
+        # In multi-module scans the root pom may not declare a version while
+        # submodule poms do. First match wins — don't overwrite a value found
+        # in an earlier (e.g. root or sibling) pom.
+        if spring_boot_match and self.result.spring_boot_version == "Unknown":
             self.result.spring_boot_version = spring_boot_match.group(1)
 
-        spring_modulith_match = re.search(r'<spring-modulith\.version>([\d.]+)', content)
+        spring_modulith_match = re.search(r'<spring-modulith\.version>' + version_value, content)
+        if not spring_modulith_match:
+            # spring-modulith-bom import style.
+            spring_modulith_match = re.search(
+                r'<artifactId>\s*spring-modulith-bom\s*</artifactId>'
+                r'[\s\S]{0,400}?<version>\s*' + version_value + r'\s*</version>',
+                content,
+            )
         if spring_modulith_match:
-            self.result.spring_modulith_version = spring_modulith_match.group(1)
+            if self.result.spring_modulith_version == "Unknown":
+                self.result.spring_modulith_version = spring_modulith_match.group(1)
             self.modulith_in_use = True
 
-        testcontainers_match = re.search(r'<testcontainers\.version>([\d.]+)', content)
-        if testcontainers_match:
+        testcontainers_match = re.search(r'<testcontainers\.version>' + version_value, content)
+        if not testcontainers_match:
+            # testcontainers-bom import style.
+            testcontainers_match = re.search(
+                r'<artifactId>\s*testcontainers-bom\s*</artifactId>'
+                r'[\s\S]{0,400}?<version>\s*' + version_value + r'\s*</version>',
+                content,
+            )
+        if testcontainers_match and self.result.testcontainers_version == "Unknown":
             self.result.testcontainers_version = testcontainers_match.group(1)
-
-        print(f"   Spring Boot: {self.result.spring_boot_version}")
-        print(f"   Spring Modulith: {self.result.spring_modulith_version}")
-        print(f"   Testcontainers: {self.result.testcontainers_version}")
 
         if re.search(r'<artifactId>spring-modulith', content) or re.search(
             r'<groupId>org\.springframework\.modulith</groupId>', content
         ):
             self.modulith_in_use = True
 
-        # Check for old starters
+        # Check for old starters — verify the surrounding <dependency> block
+        # carries <groupId>org.springframework.boot</groupId> so a third-party
+        # artifact reusing the same name isn't misflagged.
         old_starters = {
             'spring-boot-starter-web': 'spring-boot-starter-webmvc',
             'spring-boot-starter-aop': 'spring-boot-starter-aspectj',
@@ -139,6 +236,9 @@ class MigrationScanner:
         for i, line in enumerate(lines, 1):
             for old, new in old_starters.items():
                 if f'<artifactId>{old}</artifactId>' in line:
+                    context = '\n'.join(lines[max(0, i-3):min(len(lines), i+2)])
+                    if '<groupId>org.springframework.boot</groupId>' not in context:
+                        continue
                     self.result.add_issue(
                         "Spring Boot 4 - Dependencies",
                         "CRITICAL",
@@ -184,16 +284,199 @@ class MigrationScanner:
         self.has_restclient_starter = 'spring-boot-starter-restclient' in content
         self.has_webclient_starter = 'spring-boot-starter-webclient' in content
 
-        # Check for legacy spring-retry dependency (should be removed for Boot 4)
-        if 'spring-retry' in content:
-            self.result.add_issue(
-                "Spring Boot 4 - Legacy Spring Retry",
-                "WARNING",
-                "pom.xml",
-                0,
-                "Legacy spring-retry dependency found",
-                "Remove spring-retry dependency — Spring Framework 7 provides native @Retryable via org.springframework.resilience.annotation.*"
-            )
+        # Check for legacy spring-retry dependency — require the real coordinate
+        # so incidental mentions in <description> / text don't fire.
+        for i, line in enumerate(lines, 1):
+            if '<artifactId>spring-retry</artifactId>' in line:
+                context = '\n'.join(lines[max(0, i-3):min(len(lines), i+2)])
+                if '<groupId>org.springframework.retry</groupId>' in context:
+                    self.result.add_issue(
+                        "Spring Boot 4 - Legacy Spring Retry",
+                        "WARNING",
+                        str(pom_path),
+                        i,
+                        "Legacy spring-retry dependency found",
+                        "Remove spring-retry dependency — Spring Framework 7 provides native @Retryable via org.springframework.resilience.annotation.*"
+                    )
+                    break
+
+    def _scan_gradle(self, gradle_path: Path):
+        """Scan build.gradle or build.gradle.kts for dependency issues.
+
+        Handles both the Groovy DSL (single quotes, ``id 'foo' version 'x'``)
+        and the Kotlin DSL (double quotes, ``id("foo") version "x"``).
+        """
+        flavor = gradle_path.name
+        print(f"\n📦 Scanning {flavor}...")
+
+        try:
+            with open(gradle_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"   Error reading {gradle_path}: {e}")
+            return
+
+        # Strip /* ... */ block comments before parsing so deps inside disabled
+        # blocks don't surface as real issues. Replace each comment with the same
+        # number of newlines it spanned, so reported line numbers stay accurate.
+        content = re.sub(
+            r'/\*.*?\*/',
+            lambda m: '\n' * m.group(0).count('\n'),
+            content,
+            flags=re.DOTALL,
+        )
+        lines = content.split('\n')
+
+        # Build a code-only view of the content with `//` line comments stripped
+        # (same rule the per-line loop uses below: `//` at start-of-line or
+        # preceded by whitespace, leaving `://` inside URL string literals
+        # alone). Commented portions are blanked rather than removed so line
+        # numbers in `lines` still match. All content-level substring/regex
+        # checks below run against `code_content` so a commented-out dep like
+        #   // implementation("org.springframework.boot:spring-boot-starter-restclient")
+        # cannot satisfy a presence flag.
+        def _strip_line_comment(line: str) -> str:
+            comment_match = re.search(r'(^//|\s//)', line)
+            return line[:comment_match.end(0) - 2] if comment_match else line
+
+        code_content = '\n'.join(_strip_line_comment(line) for line in lines)
+
+        # Spring Boot plugin version — works for both DSLs:
+        #   id 'org.springframework.boot' version '4.0.0'
+        #   id("org.springframework.boot") version "4.0.0"
+        sb_plugin = re.search(
+            r"""id\s*[\(\s]+\s*['"]org\.springframework\.boot['"]\s*\)?\s*version\s*['"]([\d.]+(?:[-.\w]*)?)['"]""",
+            code_content,
+        )
+        if sb_plugin:
+            self.result.spring_boot_version = sb_plugin.group(1)
+
+        # Common property style for Modulith / Testcontainers versions:
+        #   ext { set('springModulithVersion', '2.0.0') }   (Groovy)
+        #   springModulithVersion = '2.0.0'                  (Groovy ext)
+        #   extra["springModulithVersion"] = "2.0.0"         (Kotlin)
+        for prop_pattern, target_attr, marks_modulith in [
+            (r"""springModulithVersion['"\]]*\s*[=,]\s*['"]([\d.]+(?:[-.\w]*)?)['"]""",
+             "spring_modulith_version", True),
+            (r"""testcontainersVersion['"\]]*\s*[=,]\s*['"]([\d.]+(?:[-.\w]*)?)['"]""",
+             "testcontainers_version", False),
+        ]:
+            m = re.search(prop_pattern, code_content)
+            if m:
+                setattr(self.result, target_attr, m.group(1))
+                if marks_modulith:
+                    self.modulith_in_use = True
+
+        # Spring Modulith presence by groupId/artifactId
+        if 'org.springframework.modulith' in code_content or 'spring-modulith' in code_content:
+            self.modulith_in_use = True
+
+        print(f"   Spring Boot: {self.result.spring_boot_version}")
+        print(f"   Spring Modulith: {self.result.spring_modulith_version}")
+        print(f"   Testcontainers: {self.result.testcontainers_version}")
+
+        # Dependency notation: 'group:artifact[:version]' or "group:artifact[:version]"
+        # Both DSLs use the same string form for the GAV coordinate.
+        dep_re = re.compile(
+            r"""['"]([A-Za-z0-9_.\-]+):([A-Za-z0-9_.\-]+)(?::([\w.+\-]+))?['"]"""
+        )
+
+        # Map-style notation, same line:
+        #   Groovy: implementation group: 'g', name: 'a' [, version: 'v']
+        #   Kotlin: implementation(group = "g", name = "a" [, version = "v"])
+        # Keys may appear in any order on the line. We only need group + name
+        # to identify the artifact; version is ignored. Multi-line map-style
+        # is uncommon and intentionally not handled — a separate pass over
+        # logical statements would be required.
+        map_kv_re = re.compile(
+            r"""\b(group|name)\s*[:=]\s*['"]([A-Za-z0-9_.\-]+)['"]"""
+        )
+
+        def _gradle_gav_pairs(code_line):
+            """Yield (group_id, artifact_id) for every dependency on this line.
+
+            Covers both the string-form GAV coordinate and the map-style
+            notation. For map-style, only the first occurrence of each key on
+            the line is taken — pairing multiple group/name kv-pairs on the
+            same line is ambiguous and not idiomatic Gradle.
+            """
+            for m in dep_re.finditer(code_line):
+                yield m.group(1), m.group(2)
+            kv = {}
+            for m in map_kv_re.finditer(code_line):
+                kv.setdefault(m.group(1), m.group(2))
+            if 'group' in kv and 'name' in kv:
+                yield kv['group'], kv['name']
+
+        old_starters = {
+            'spring-boot-starter-web': 'spring-boot-starter-webmvc',
+            'spring-boot-starter-aop': 'spring-boot-starter-aspectj',
+        }
+        tc_old_artifacts = {'junit-jupiter', 'postgresql', 'mysql', 'localstack', 'mongodb'}
+
+        spring_retry_reported = False
+        for i, line in enumerate(lines, 1):
+            # Drop trailing line comments so `impl 'group:art' // note` still
+            # parses the dep, while fully-commented lines fall through below.
+            code = _strip_line_comment(line)
+            stripped = code.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            for group_id, artifact_id in _gradle_gav_pairs(code):
+                if group_id == 'org.springframework.boot' and artifact_id in old_starters:
+                    self.result.add_issue(
+                        "Spring Boot 4 - Dependencies",
+                        "CRITICAL",
+                        str(gradle_path),
+                        i,
+                        f"Old starter: {artifact_id}",
+                        f"Change to: {old_starters[artifact_id]} (or use spring-boot-starter-classic for gradual migration)"
+                    )
+
+                if group_id == 'org.springframework.security' and artifact_id == 'spring-security-test':
+                    self.result.add_issue(
+                        "Spring Boot 4 - Dependencies",
+                        "CRITICAL",
+                        str(gradle_path),
+                        i,
+                        "Old spring-security-test dependency",
+                        "Change to: spring-boot-starter-security-test"
+                    )
+
+                if group_id == 'org.testcontainers' and artifact_id in tc_old_artifacts:
+                    self.result.add_issue(
+                        "Testcontainers 2.x - Dependencies",
+                        "WARNING",
+                        str(gradle_path),
+                        i,
+                        f"Old Testcontainers artifact: {artifact_id}",
+                        f"Change to: testcontainers-{artifact_id}"
+                    )
+
+                # Legacy spring-retry — coordinate-based, not substring, so
+                # incidental mentions in strings/comments don't fire.
+                if (
+                    not spring_retry_reported
+                    and group_id == 'org.springframework.retry'
+                    and artifact_id == 'spring-retry'
+                ):
+                    self.result.add_issue(
+                        "Spring Boot 4 - Legacy Spring Retry",
+                        "WARNING",
+                        str(gradle_path),
+                        i,
+                        "Legacy spring-retry dependency found",
+                        "Remove spring-retry dependency — Spring Framework 7 provides native @Retryable via org.springframework.resilience.annotation.*"
+                    )
+                    spring_retry_reported = True
+
+        # Track modular HTTP client starters (use code_content so a commented
+        # `// implementation("...spring-boot-starter-restclient")` cannot flip
+        # the presence flag and suppress the missing-starter warning).
+        if 'spring-boot-starter-restclient' in code_content:
+            self.has_restclient_starter = True
+        if 'spring-boot-starter-webclient' in code_content:
+            self.has_webclient_starter = True
 
     def _scan_java_files(self):
         """Scan Java files for code issues"""
@@ -262,9 +545,9 @@ class MigrationScanner:
         # Check for old imports
         old_imports = {
             'org.springframework.boot.test.mock.mockito.MockBean':
-                'org.springframework.boot.test.mock.mockito.MockitoBean',
+                'org.springframework.test.context.bean.override.mockito.MockitoBean',
             'org.springframework.boot.test.mock.mockito.SpyBean':
-                'org.springframework.boot.test.mock.mockito.MockitoSpyBean',
+                'org.springframework.test.context.bean.override.mockito.MockitoSpyBean',
             'org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest':
                 'org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest',
             'org.springframework.boot.autoconfigure.domain.EntityScan':
@@ -276,6 +559,8 @@ class MigrationScanner:
         }
 
         for i, line in enumerate(lines, 1):
+            if line.strip().startswith('//'):
+                continue
             for old_import, new_import in old_imports.items():
                 if f'import {old_import}' in line:
                     self.result.add_issue(
@@ -300,6 +585,8 @@ class MigrationScanner:
         }
 
         for i, line in enumerate(lines, 1):
+            if line.strip().startswith('//'):
+                continue
             for old_import, new_import in tc_old_imports.items():
                 if f'import {old_import}' in line:
                     self.result.add_issue(
@@ -314,21 +601,21 @@ class MigrationScanner:
         # Check for LocalStack Service enum usage
         if 'LocalStackContainer.Service' in content:
             for i, line in enumerate(lines, 1):
-                if 'LocalStackContainer.Service' in line:
+                if 'LocalStackContainer.Service' in line and not line.strip().startswith('//'):
                     self.result.add_issue(
                         "Testcontainers 2.x - API Changes",
                         "CRITICAL",
                         str(rel_path),
                         i,
-                        "LocalStackContainer.Service enum removed",
-                        "Remove .withServices() - services are now auto-detected"
+                        "LocalStackContainer.Service enum removed in Testcontainers 2.x",
+                        "Replace enum constants with string service names: .withServices(LocalStackContainer.Service.S3) -> .withServices(\"s3\"). The withServices(String...) method itself still exists."
                     )
 
         # Note: org.springframework.resilience.* is used in the external sample repo.
         # Keep this as informational instead of treating it as invalid.
         if 'org.springframework.resilience' in content:
             for i, line in enumerate(lines, 1):
-                if 'org.springframework.resilience' in line:
+                if 'org.springframework.resilience' in line and not line.strip().startswith('//'):
                     self.result.add_issue(
                         "Spring Boot 4 - Retry/Resilience",
                         "INFO",
@@ -373,8 +660,8 @@ class MigrationScanner:
                         "WARNING",
                         str(rel_path),
                         i,
-                        "TestRestTemplate is deprecated in Spring Boot 4",
-                        "Replace with RestTestClient (org.springframework.test.web.servlet.client.RestTestClient)"
+                        "TestRestTemplate is no longer auto-provided by @SpringBootTest in Spring Boot 4 (class itself still supported, not deprecated)",
+                        "Opt in via @AutoConfigureTestRestTemplate + spring-boot-resttestclient dep, or migrate to RestTestClient (org.springframework.test.web.servlet.client.RestTestClient)"
                     )
 
         # Check for manual HttpServiceProxyFactory setup
@@ -411,7 +698,8 @@ class MigrationScanner:
         # Check for generic Testcontainers types
         if 'PostgreSQLContainer<?>' in content or 'MySQLContainer<?>' in content:
             for i, line in enumerate(lines, 1):
-                if 'PostgreSQLContainer<?>' in line or 'MySQLContainer<?>' in line:
+                if ('PostgreSQLContainer<?>' in line or 'MySQLContainer<?>' in line) \
+                        and not line.strip().startswith('//'):
                     self.result.add_issue(
                         "Testcontainers 2.x - Generic Types",
                         "WARNING",
@@ -424,7 +712,8 @@ class MigrationScanner:
         # Check for getEndpointOverride with Service parameter
         if 'getEndpointOverride(' in content:
             for i, line in enumerate(lines, 1):
-                if 'getEndpointOverride(' in line and 'Service' in line:
+                if 'getEndpointOverride(' in line and 'Service' in line \
+                        and not line.strip().startswith('//'):
                     self.result.add_issue(
                         "Testcontainers 2.x - LocalStack API",
                         "CRITICAL",
@@ -460,25 +749,6 @@ class MigrationScanner:
             return False
 
         content = ''.join(lines)
-        rel_path = file_path.relative_to(self.project_path)
-
-        # Check for old Jackson properties
-        old_jackson_props = [
-            'spring.jackson.read.',
-            'spring.jackson.write.',
-        ]
-
-        for i, line in enumerate(lines, 1):
-            for old_prop in old_jackson_props:
-                if old_prop in line and not line.strip().startswith('#'):
-                    self.result.add_issue(
-                        "Spring Boot 4 - Configuration",
-                        "WARNING",
-                        str(rel_path),
-                        i,
-                        f"Old Jackson property: {line.strip()}",
-                        "Change spring.jackson.* to spring.jackson.json.*"
-                    )
 
         # Check for Spring Modulith event store config
         has_modulith_jdbc = 'spring.modulith.events.jdbc.schema' in content

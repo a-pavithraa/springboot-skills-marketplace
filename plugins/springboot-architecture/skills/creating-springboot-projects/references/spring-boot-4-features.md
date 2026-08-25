@@ -1,12 +1,26 @@
 # Spring Boot 4 New Features Reference
 
+## Table of Contents
+
+1. [Overview](#overview)
+2. [1. RestTestClient - Modern REST Testing](#1-resttestclient---modern-rest-testing)
+3. [2. Native Resiliency Features](#2-native-resiliency-features)
+4. [3. HTTP Service Client Simplification](#3-http-service-client-simplification)
+5. [4. API Versioning](#4-api-versioning)
+6. [5. Spring Data AOT - Native Image Support](#5-spring-data-aot---native-image-support)
+7. [6. JSpecify Null-Safety](#6-jspecify-null-safety)
+8. [Dependencies](#dependencies)
+9. [Migration from Spring Boot 3](#migration-from-spring-boot-3)
+
+---
+
 ## Overview
 
-Spring Boot 4 (with Java 25) includes six major features that eliminate the need for external libraries and improve developer experience.
+Spring Boot 4 (built on Spring Framework 7; Java 17 minimum) includes six major features that eliminate the need for external libraries and improve developer experience. Recommended toolchain: Java 25 — the current LTS, which Boot 4's tooling and Spring's null-safety guidance both target. Java 26 (GA March 2026) is the newest feature release but not an LTS; only adopt it if a project policy already moves to non-LTS releases.
 
 ## 1. RestTestClient - Modern REST Testing
 
-**Replaces:** TestRestTemplate
+**Recommended new HTTP test client.** `TestRestTemplate` is not deprecated, but `@SpringBootTest` no longer auto-provides it in Boot 4 — opt in via `@AutoConfigureTestRestTemplate` to keep existing tests, or migrate to `RestTestClient` for new ones.
 
 **Benefits:**
 - Fluent, readable API for integration tests
@@ -14,7 +28,7 @@ Spring Boot 4 (with Java 25) includes six major features that eliminate the need
 - Better type safety with ParameterizedTypeReference
 - More intuitive assertions
 
-**Template:** `testrestclient-test.java`
+**Template:** `resttestclient-test.java`
 
 **Basic Usage:**
 ```java
@@ -28,7 +42,7 @@ class ProductControllerTest {
     @BeforeEach
     void setup() {
         client = RestTestClient.bindToApplicationContext(context)
-                .apiVersionInserter(ApiVersionInserter.useHeader("API-Version"))
+                .apiVersionInserter(ApiVersionInserter.useHeader("X-API-Version"))
                 .build();
     }
 
@@ -58,13 +72,13 @@ class ProductControllerTest {
 ## 2. Native Resiliency Features
 
 **What's Native in Spring Framework 7:**
-- `@Retryable` - Automatic retry support (from Spring Retry integration)
-- `@ConcurrencyLimit` - Concurrency control and rate limiting
+- `@Retryable` — automatic retry with backoff (`org.springframework.resilience.annotation`)
+- `@ConcurrencyLimit` — concurrent-invocation throttling. From the Framework reference: "specifies a concurrency limit for an individual method ... meant to protect the target resource from being accessed from too many threads at the same time, similar to the effect of a pool size limit for a thread pool or a connection pool that blocks access if its limit is reached." This is **not** time-window rate limiting and **not** the Resilience4j bulkhead.
 
 **What Still Requires External Libraries:**
 - Circuit Breaker → Resilience4j (`spring-cloud-starter-circuitbreaker-resilience4j`)
-- Advanced rate limiting → Resilience4j
-- Bulkhead patterns → Resilience4j
+- Time-window rate limiting (requests-per-second budgets) → Resilience4j or Bucket4j; `@ConcurrencyLimit` only caps in-flight concurrency.
+- Resilience4j-style Bulkhead with queueing semantics → Resilience4j
 
 **Benefits:**
 - Native retry and concurrency features with zero dependencies
@@ -86,19 +100,20 @@ import org.springframework.resilience.annotation.Retryable;
 @Service
 public class ProductService {
 
+    // 1 initial attempt + maxRetries — up to 5 total invocations here
     @Retryable(
         includes = {RuntimeException.class},
-        maxAttempts = 5,
+        maxRetries = 4,
         delay = 2000L  // milliseconds
     )
     public Optional<Product> fetchFromExternalApi(String id) {
         return externalClient.getById(id);
     }
 
-    // Optional: Advanced configuration with exponential backoff
+    // Optional: Advanced configuration with exponential backoff (up to 4 total invocations)
     @Retryable(
         includes = {IOException.class},
-        maxAttempts = 4,
+        maxRetries = 3,
         delay = 1000,
         multiplier = 2
     )
@@ -117,7 +132,7 @@ public class ProductService {
 **Parameters:**
 - `includes` - Exception types that trigger retry
 - `excludes` - Exception types that should never retry
-- `maxAttempts` - Maximum attempts including initial call (default: 3)
+- `maxRetries` - Number of retries after the initial attempt (default: 3 — total invocations = 1 + maxRetries)
 - `delay` / `delayString` - Delay between retries
 - `multiplier` - Exponential backoff multiplier
 - `maxDelay` - Maximum delay ceiling
@@ -127,7 +142,7 @@ public class ProductService {
 - Database operations during brief connection issues
 - Network operations with temporary disruptions
 
-### @ConcurrencyLimit - Rate Limiting (NATIVE)
+### @ConcurrencyLimit - Concurrent Invocation Throttling (NATIVE)
 
 ```java
 import org.springframework.resilience.annotation.ConcurrencyLimit;
@@ -135,24 +150,27 @@ import org.springframework.resilience.annotation.ConcurrencyLimit;
 @Service
 public class ReportService {
 
-    @ConcurrencyLimit(2)  // Max 2 concurrent executions
+    @ConcurrencyLimit(2)  // At most 2 invocations in flight at any time
     public void processExpensiveOperation(String id) {
         performExpensiveWork(id);
     }
 }
 ```
 
+Semantics: when the third caller arrives while 2 invocations are already running, it **blocks** until a slot frees up — same shape as a fixed-size connection pool. It is not a time-window rate limit and does not implement Resilience4j-style bulkhead queueing.
+
 **Configuration:**
 - Requires `@EnableResilientMethods` on a `@Configuration` class
 - Package: `org.springframework.resilience.annotation.*`
-- Particularly valuable with Virtual Threads for controlling parallelism
-- Implements bulkhead pattern for resource isolation
+- Particularly valuable with Virtual Threads, where caller threads are cheap and back-pressure has to come from somewhere
 
-**Use cases:**
-- Limit expensive operations (heavy DB queries)
-- Prevent thread pool exhaustion
-- Rate limiting for external API calls
-- Bulkhead pattern implementation
+**Good fits:**
+- Cap concurrent calls into an expensive downstream (DB report query, slow third-party API) to protect the resource
+- Hold the in-flight count below a known safe ceiling regardless of how many caller threads exist
+
+**NOT this annotation's job:**
+- Time-window rate limiting ("≤ 100 requests/sec") — use Resilience4j or Bucket4j
+- Resilience4j-style Bulkhead with explicit queue depth / wait timeout semantics — use Resilience4j
 
 ### RetryTemplate - Programmatic Retry (NATIVE)
 
@@ -168,8 +186,9 @@ public class DriverAssignmentService {
     private final RetryTemplate retryTemplate;
 
     public DriverAssignmentService() {
+        // 1 initial attempt + maxRetries — up to 11 total invocations
         RetryPolicy retryPolicy = RetryPolicy.builder()
-                .maxAttempts(10)
+                .maxRetries(10)
                 .delay(Duration.ofMillis(2000))
                 .multiplier(1.5)
                 .maxDelay(Duration.ofMillis(10000))
@@ -228,9 +247,10 @@ Source: [danvega/quick-bytes](https://github.com/danvega/quick-bytes) (Spring Bo
     <groupId>org.springframework.cloud</groupId>
     <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
 </dependency>
+<!-- Use the Boot 4-specific starter. The dedicated resilience4j-spring-boot4 module is currently 2.4.0 on Maven Central — confirm the latest at https://central.sonatype.com/artifact/io.github.resilience4j/resilience4j-spring-boot4 before pinning. -->
 <dependency>
     <groupId>io.github.resilience4j</groupId>
-    <artifactId>resilience4j-spring-boot3</artifactId>
+    <artifactId>resilience4j-spring-boot4</artifactId>
 </dependency>
 ```
 
@@ -260,7 +280,7 @@ resilience4j:
         sliding-window-size: 10
 ```
 
-**⚠️ Note:** As of December 2025, there are compatibility issues between Resilience4j and Spring Boot 4. Check the latest Resilience4j releases before upgrading.
+**⚠️ Note:** Verify the current Resilience4j release before upgrading — see [the Resilience4j releases page](https://github.com/resilience4j/resilience4j/releases). The dedicated `resilience4j-spring-boot4` module is the right starter for Boot 4; the older `resilience4j-spring-boot3` is for Boot 3 stacks.
 
 ## 3. HTTP Service Client Simplification
 
@@ -343,33 +363,43 @@ spring:
 spring:
   mvc:
     apiversion:
-      enabled: true
-      strategy: header  # or: path, query-parameter, media-type
-      default-version: "1.0"
-      header-name: "API-Version"
+      default: "1.0"
+      supported: "1.0,2.0"
+      use:
+        header: X-API-Version
+        # Alternative strategies (use only one resolver):
+        # query-parameter: version
+        # path-segment: 1
+        # media-type-parameter[application/json]: version
 ```
 
-**Configuration Option 2 - Java Beans:**
+**Configuration Option 2 - Java (`WebMvcConfigurer.configureApiVersioning`):**
 ```java
+import org.springframework.web.accept.SemanticApiVersionParser;
+import org.springframework.web.servlet.config.annotation.ApiVersionConfigurer;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
 @Configuration
-public class ApiVersioningConfig {
+public class ApiVersioningConfig implements WebMvcConfigurer {
 
-    @Bean
-    public ApiVersionResolver apiVersionResolver() {
-        return ApiVersionResolver.fromHeader("API-Version");
-        // Alternative: ApiVersionResolver.fromQueryParameter("version")
-        // Alternative: ApiVersionResolver.fromMediaType()
-    }
-
-    @Bean
-    public ApiVersionParser apiVersionParser() {
-        return ApiVersionParser.semantic();  // Supports semver (1.0.0, 2.1.3)
+    @Override
+    public void configureApiVersioning(ApiVersionConfigurer configurer) {
+        configurer
+                .useRequestHeader("X-API-Version")             // resolver
+                // .useQueryParam("version")
+                // .useMediaTypeParameter(MediaType.APPLICATION_JSON, "version")
+                // .usePathSegment(1)
+                .addSupportedVersions("1.0", "2.0")
+                .setDefaultVersion("1.0")
+                .setVersionParser(new SemanticApiVersionParser()); // optional — default
     }
 }
 ```
 
+Notes: `ApiVersionConfigurer` lives in `org.springframework.web.servlet.config.annotation`. The default parser is `SemanticApiVersionParser` from `org.springframework.web.accept`. There are no `ApiVersionResolver.fromHeader(...)` / `ApiVersionParser.semantic()` static factories.
+
 **Versioning Strategies:**
-1. **Request Header** (recommended): `API-Version: 2.0`
+1. **Request Header** (recommended): `X-API-Version: 2.0`
 2. **Query Parameter**: `/api/products?version=2.0`
 3. **Media Type**: `Accept: application/json;ver=2.0`
 4. **Path**: `/v2/api/products` (less common with native support)
@@ -392,11 +422,11 @@ public class ProductController {
 }
 ```
 
-**Testing with TestRestClient:**
+**Testing with RestTestClient:**
 ```java
 client.get()
         .uri("/api/products/search?q=test")
-        .apiVersion("2.0")  // Sets API-Version header
+        .apiVersion("2.0")  // Sets X-API-Version header
         .exchange()
         .expectStatus().isOk();
 ```
@@ -536,10 +566,13 @@ Boot 4 uses modular starters. Add only what you need:
 <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>4.0.0</version>
+    <version>4.1.0</version>
 </parent>
 
 <properties>
+    <!-- Boot 4 baseline is 17. Recommended: 25 (current LTS). Use 21 for the
+         previous LTS, 17 for stricter compatibility, or 26 (GA 2026-03-17)
+         only when your project tracks non-LTS feature releases. -->
     <java.version>25</java.version>
 </properties>
 ```
@@ -548,7 +581,7 @@ Boot 4 uses modular starters. Add only what you need:
 
 | Spring Boot 3 | Spring Boot 4 | Notes |
 |---------------|---------------|-------|
-| TestRestTemplate | RestTestClient | More fluent API, better type safety |
+| TestRestTemplate (auto-wired in Boot 3) | RestTestClient + `@AutoConfigureRestTestClient` (Boot 4) | `TestRestTemplate` is still supported; opt in with `@AutoConfigureTestRestTemplate`. New tests should prefer `RestTestClient`. |
 | Resilience4j @Retry | @Retryable (native) | Now built into Spring Framework 7 |
 | Manual concurrency control | @ConcurrencyLimit (native) | Now built into Spring Framework 7 |
 | Resilience4j @CircuitBreaker | Still Resilience4j | Circuit breaker NOT native, still requires external library |
@@ -558,17 +591,17 @@ Boot 4 uses modular starters. Add only what you need:
 
 **Breaking Changes:**
 
-- TestRestTemplate still works but deprecated
+- TestRestTemplate still works (not deprecated) but is no longer auto-provided by `@SpringBootTest` — opt in with `@AutoConfigureTestRestTemplate`; prefer `RestTestClient` for new tests
 - @Retryable API different from Resilience4j version (different package and parameters)
 - HttpServiceProxyFactory manual setup still works but unnecessary
 - Circuit breaker still requires Resilience4j (check compatibility with Spring Boot 4)
 
 **Migration Strategy:**
 
-1. Replace TestRestTemplate with RestTestClient in tests
+1. For tests still using `TestRestTemplate`, either add `@AutoConfigureTestRestTemplate` (minimum change) or migrate the test to `RestTestClient` + `@AutoConfigureRestTestClient`. `TestRestTemplate` itself is not deprecated.
 2. Replace Resilience4j @Retry with native @Retryable (requires @EnableResilientMethods)
    - Change package: `org.springframework.resilience.annotation.*`
-   - Update parameters: `retryFor` → `includes` (parameter `maxAttempts` keeps same name)
+   - Update parameters: `retryFor` → `includes`; `maxAttempts` (total) → `maxRetries` (retries after the first call — subtract 1, so `maxAttempts = 4` becomes `maxRetries = 3`)
 3. Keep Resilience4j for circuit breaker and advanced patterns
 4. Replace manual HTTP client setup with @ImportHttpServices
 5. Configure API versioning via spring.mvc.apiversion.* properties

@@ -8,6 +8,8 @@ Validate that skills effectively change agent behavior through systematic baseli
 
 ## Test Structure
 
+> **Current coverage (2026-05-24):** the framework is defined for all 8 scenarios, but only **Scenario 7** has actually been executed end-to-end and recorded under `baseline-results/`. Scenarios 1–6 and 8 are documented in `baseline-scenarios.md` and have rationalization tables in `rationalizations.md`, but no recorded baseline/target runs yet. The "Success Metrics" section below describes the target state, not the current state. Treat this as a test harness with one filled-in scenario, not a completed test suite.
+
 ### 1. Baseline Scenarios (`baseline-scenarios.md`)
 
 8 comprehensive scenarios testing each skill's core behaviors:
@@ -199,29 +201,35 @@ Agent WITH skills should:
 
 ### Success Metrics
 
-Skills are effective when:
-- ✅ All 8 baseline scenarios show behavior gaps
-- ✅ All 8 target scenarios pass success criteria
-- ✅ Pressure variations don't break compliance
-- ✅ Rationalizations are systematically countered
+Skills are considered effective once a scenario reaches all of:
+- baseline (no skill) shows the predicted behavior gap
+- target (with skill) passes every success criterion in the scenario
+- pressure variations don't break compliance
+- rationalizations are systematically countered
+
+Current status: only Scenario 7 has been taken through baseline + target + one pressure variation (all passed). Scenarios 1–6 and 8 still need their first runs before these metrics can be evaluated.
 
 ## File Structure
 
 ```
 tests/
 ├── README.md                    # This file
-├── baseline-scenarios.md        # 8 test scenarios
+├── QUICKSTART.md                # 5- and 30-minute test recipes
+├── baseline-scenarios.md        # 8 test scenarios (definitions)
 ├── rationalizations.md          # Rationalization tracking
-└── baseline-results/           # Test results
-    ├── scenario-1.md           # Architecture assessment
-    ├── scenario-2.md           # Repository anti-patterns
-    ├── scenario-3.md           # N+1 detection
-    ├── scenario-4.md           # Version enforcement
-    ├── scenario-5.md           # Migration discipline
-    ├── scenario-6.md           # CQRS decision
-    ├── scenario-7.md           # Review rigor
-    └── scenario-8.md           # DTO projections
+└── baseline-results/            # Recorded runs (currently only one)
+    ├── TEMPLATE.md              # Result template for new runs
+    ├── scenario-1.md            # ⏳ not yet recorded
+    ├── scenario-2.md            # ⏳ not yet recorded
+    ├── scenario-3.md            # ⏳ not yet recorded
+    ├── scenario-4.md            # ⏳ not yet recorded
+    ├── scenario-5.md            # ⏳ not yet recorded
+    ├── scenario-6.md            # ⏳ not yet recorded
+    ├── scenario-7.md            # ✅ recorded (code-reviewer review rigor)
+    └── scenario-8.md            # ⏳ not yet recorded
 ```
+
+The unrecorded files don't exist on disk yet — they're shown in the layout so contributors know where to drop results.
 
 ## Templates
 
@@ -354,6 +362,5 @@ If you run these tests, please contribute results:
 
 ## References
 
-- **TDD for Skills:** See `skills/writing-skills/SKILL.md`
 - **Original Approach:** Based on [antonbabenko/terraform-skill tests](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md)
-- **Skill Testing Methodology:** See writing-skills skill for complete testing framework
+- **Skill Testing Methodology:** See `baseline-scenarios.md` (scenarios) and `rationalizations.md` (findings log) in this directory.

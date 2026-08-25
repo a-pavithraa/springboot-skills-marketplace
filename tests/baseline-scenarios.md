@@ -216,7 +216,7 @@ Agent follows user's specified versions:
 
 Agent enforces mandatory versions:
 - **STOPS** and challenges version choice
-- States: "MANDATORY versions: Java 25 + Spring Boot 4.0.x"
+- States: "MANDATORY versions: Java 25 + Spring Boot 4.1.x"
 - Explains benefits:
   - Virtual threads for concurrency
   - RestTestClient for testing

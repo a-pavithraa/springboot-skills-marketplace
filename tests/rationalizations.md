@@ -81,7 +81,7 @@ This document tracks rationalizations (excuses/workarounds) that agents use when
 
 | Rationalization | Counter in Skill | Status |
 |----------------|------------------|--------|
-| "Spring Boot 3.2 is stable and widely used" | MANDATORY versions: Java 25 + Spring Boot 4.0.x | ⏳ |
+| "Spring Boot 3.2 is stable and widely used" | MANDATORY versions: Java 25 + Spring Boot 4.1.x | ⏳ |
 | "Java 17 is LTS, good choice" | Java 25 features: virtual threads, etc. | ⏳ |
 | "Following user's requirements" | Challenge outdated versions, explain benefits | ⏳ |
 | "Latest isn't always necessary" | Spring Boot 4 features reference | ⏳ |

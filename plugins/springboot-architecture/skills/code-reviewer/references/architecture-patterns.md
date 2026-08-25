@@ -45,7 +45,7 @@ This guide demonstrates five architectural approaches, progressively increasing 
 | **Data Types** | Primitives (`String`, `Integer`, `BigDecimal`) | Primitives | Primitives | **Value Objects** (`OrderCode`, `Money`, `Quantity`) | **Value Objects** |
 | **Domain/Persistence Separation** | ❌ JPA entities = Domain models | ❌ JPA entities = Domain models | ❌ JPA entities = Domain models | ❌ JPA entities (with embedded VOs) | ✅ Separate domain & persistence models |
 | **Business Logic Pattern** | Transaction Script (in Services) | Transaction Script | Transaction Script | Behavior in entities + Services | Rich domain models + Use Cases |
-| **Cross-Module Communication** | Spring Events (`@EventListener`) | Spring Events | **Spring Modulith Persistent Events** | Spring Modulith Persistent Events | Spring Events |
+| **Cross-Module Communication** | Spring Events (`@EventListener`) | Spring Events | **Spring Modulith Persistent Events**¹ | Spring Modulith Persistent Events¹ | Spring Events |
 | **Module Boundary Enforcement** | ❌ None | ❌ None | ✅ `modules.verify()` | ✅ Spring Modulith | ✅ ArchUnit for Hexagonal |
 | **CQRS Support** | ❌ No | ❌ No | ❌ No | ❌ No | ✅ Separate Command & Query |
 | **Validation** | In services (defensive coding everywhere) | In services | In services | **In Value Object constructors** (fail-fast) | In Value Object constructors |
@@ -56,6 +56,8 @@ This guide demonstrates five architectural approaches, progressively increasing 
 | **Best For** | Simple microservices, CRUD apps | Simple-to-medium apps with features | Apps needing module boundaries | Apps needing type safety & rich domain | Complex apps with subdomains |
 | **Team Size** | 1-3 | 3-10 | 5-15 | 5-15 | 10+ |
 | **Expected Lifespan** | Months | 1-2 years | 2-5 years | 3-5 years | 5+ years |
+
+> ¹ `@ApplicationModuleListener` is always `@Async + @Transactional(propagation = REQUIRES_NEW) + @TransactionalEventListener` — those semantics don't change with the registry. What the **Event Publication Registry** adds is **persistence and replay**: with one of `spring-modulith-starter-jdbc` / `-jpa` / `-mongodb` / `-neo4j` plus the backing storage (e.g. the `event_publication` table for JDBC/JPA), incomplete publications are durably tracked and can be resubmitted; without the registry, the listener still runs async-after-commit in its own transaction, but a crash between the original commit and the listener completing loses the event. See: https://docs.spring.io/spring-modulith/reference/events.html
 
 ---
 
@@ -88,10 +90,10 @@ DDD + Hexagonal Architecture
 
 **Key Improvements:**
 - ✅ Automated module boundary verification
-- ✅ Persistent events for reliable communication
-- ✅ Event replay capabilities
+- ✅ Persistent events for reliable communication — when the event registry starter is added (`spring-modulith-starter-jdbc` / `-jpa` / `-mongodb` / `-neo4j`)
+- ✅ Event replay capabilities (same starter requirement)
 
-**New Additions:** `@ApplicationModuleListener`, `ModularityTest.java`
+**New Additions:** `@ApplicationModuleListener`, `ModularityTest.java`, plus a Modulith event registry starter and `event_publication` table if persistence/replay is desired.
 
 ### Level 3: Simple Modular Monolith → Tomato Architecture
 
@@ -242,16 +244,16 @@ com.example.app
 
 ## Simple Modular Monolith
 
-Package-by-module architecture plus Spring Modulith boundary enforcement and persistent events.
+Package-by-module architecture plus Spring Modulith boundary enforcement and (optionally) persistent events when an event registry is configured.
 
 ### What's Added
 - `ApplicationModules.of(App.class).verify()` tests to prevent forbidden dependencies
-- `@ApplicationModuleListener` for transactional, persistent cross-module events (replayable, retried)
+- `@ApplicationModuleListener` for transactional cross-module events. The annotation always runs as `@Async + @Transactional(REQUIRES_NEW) + @TransactionalEventListener` — i.e. asynchronously after the publishing transaction commits, in a new transaction of its own. It becomes **persistent, replayable, and retried** only when an event registry starter is on the classpath (`spring-modulith-starter-jdbc` / `-jpa` / `-mongodb` / `-neo4j`) **and** the backing storage (e.g. the `event_publication` table for JDBC/JPA) exists. Without that registry, the async/transactional behaviour is unchanged, but in-flight publications are not durable across restarts and cannot be replayed.
 - Module metadata for visualization (optional)
 
 ### Choose When
 - Need reliable module isolation but still a monolith
-- Require durable cross-module messaging without a broker
+- Require durable cross-module messaging without a broker (add an event registry starter — see below)
 - Want an easy migration path toward microservices later
 
 ### Avoid When
@@ -276,7 +278,11 @@ public class OrderService {
 // Listening to events (in different module)
 @Service
 public class PaymentService {
-    @ApplicationModuleListener  // Spring Modulith annotation
+    // Transactional listener — runs after the publisher's transaction commits.
+    // Becomes persistent/replayable only with a Modulith event registry
+    // starter (spring-modulith-starter-jdbc/-jpa/-mongodb/-neo4j) and the
+    // event_publication table on the schema.
+    @ApplicationModuleListener
     public void onOrderCreated(OrderCreatedEvent event) {
         processPayment(event.orderId());
     }
@@ -301,6 +307,7 @@ class ModulithTest {
 - [ ] Cross-module communication uses `@ApplicationModuleListener` events
 - [ ] Internal types kept package-private or under `internal/`
 - [ ] Event publication is transactional
+- [ ] If durability/replay matters: a Modulith event registry starter (`spring-modulith-starter-jdbc` / `-jpa` / `-mongodb` / `-neo4j`) is on the classpath **and** the `event_publication` table is provisioned via Flyway/Liquibase
 
 ---
 
@@ -319,8 +326,15 @@ Value-object-heavy, richer domain within a modular monolith. JPA entities embed 
 ### Simple Example
 
 ```java
-// Value Object (see value-objects-patterns.md for full implementation)
+// Value Object — must be annotated @Embeddable to be usable in @Embedded
+// fields below. Jakarta Persistence 3.2 allows records as embeddable classes
+// (Hibernate 6.2+); the @Embeddable annotation on the record itself is still
+// required. See value-objects-patterns.md for the full pattern.
+@Embeddable
 public record OrderNumber(@JsonValue String value) { /* validation in constructor */ }
+
+@Embeddable
+public record Money(BigDecimal amount, Currency currency) { /* validation */ }
 
 // Rich Entity
 @Entity
@@ -615,7 +629,7 @@ public class OrderJpaAdapter implements OrderRepository {  // Implements out por
 
 ## Spring Modulith
 
-**Choose When:** Want module boundary enforcement and durable intra-monolith events.
+**Choose When:** Want module boundary enforcement, plus durable / replayable intra-monolith events when paired with a Modulith event registry starter (`spring-modulith-starter-jdbc` / `-jpa` / `-mongodb` / `-neo4j`) and the `event_publication` table.
 **Avoid When:** Boundaries aren't important or need full domain/infra separation.
 
 Spring Modulith enforces module boundaries at runtime.
@@ -661,7 +675,13 @@ public class OrderService {  // Public
 package com.example.app.order.internal;
 
 @Component
-class OrderValidator {  // Package-private - only accessible within 'order' module
+class OrderValidator {  // Package-private — only accessible within the
+                        // com.example.app.order.internal package itself.
+                        // Note: package-private is per-package, NOT
+                        // per-Modulith-module — code in
+                        // com.example.app.order (the parent) cannot see it
+                        // either. Modulith's broader module-level checks run
+                        // via ApplicationModules.verify() at test time.
     boolean isValid(Order order) { ... }
 }
 ```
@@ -669,7 +689,9 @@ class OrderValidator {  // Package-private - only accessible within 'order' modu
 ❌ **Violating module boundary**
 ```java
 // payment/PaymentService.java
-import com.example.app.order.internal.OrderValidator;  // Compile error!
+import com.example.app.order.internal.OrderValidator;  // Compile error
+// (Java accessibility: package-private types are not visible outside their
+//  declaring package; importing one from any other package fails at javac.)
 
 @Service
 public class PaymentService {
@@ -831,7 +853,7 @@ public class InventoryService {
 |---------|-------------------|-----------|-------------|-------------------|----------|
 | Layered | Low | 1–3 | Low | None | Small CRUD services, prototypes |
 | Package-By-Module | Low–Medium | 3–10 | Low | Soft | Feature-owned teams, clearer navigation |
-| Simple Modular Monolith | Low–Medium | 5–15 | Low | Hard | Monoliths needing enforced boundaries & durable events |
+| Simple Modular Monolith | Low–Medium | 5–15 | Low | Hard | Monoliths needing enforced boundaries; durable events with event registry starter |
 | Tomato | Medium | 5–15 | High | Hard | Type-safe domains with richer entities |
 | DDD + Hexagonal | High | 10+ | High | Hard | Complex, long-lived domains, infra swap/CQRS ready |
 
@@ -855,7 +877,7 @@ public class InventoryService {
 
 #### 🎯 Simple Modular Monolith
 
-**Choose When:** Need guaranteed module boundaries, durable cross-module events, event replay, team 5-15 people
+**Choose When:** Need guaranteed module boundaries; team 5-15 people. Add a Modulith event registry starter + `event_publication` table when you also need durable cross-module events and replay.
 
 **Example Use Cases:** Multi-tenant SaaS, enterprise apps with subdomains, systems needing audit trails, microservices migration candidates
 
@@ -894,7 +916,7 @@ public class InventoryService {
 |---------|-----------|-------------|
 | **Layered** | Quick and simple for basic CRUD | Small apps, prototypes, minimal domain logic |
 | **Package-By-Module** | Organized by features, easy to navigate | Medium apps with clear feature ownership |
-| **Simple Modulith** | Package-By-Module with guaranteed boundaries | Need module isolation and persistent events |
+| **Simple Modulith** | Package-By-Module with guaranteed boundaries | Need module isolation; add an event registry starter when you also need persistent / replayable cross-module events |
 | **Tomato** | Type-safe domain with Value Objects | Medium complexity, need type safety |
 | **DDD+Hexagonal** | Full domain independence for complex systems | Complex domains, long-lived, evolving |
 

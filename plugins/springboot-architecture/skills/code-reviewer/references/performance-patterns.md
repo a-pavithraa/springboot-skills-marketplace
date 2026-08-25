@@ -25,10 +25,14 @@ public class Order {
     @Id
     private Long id;
 
-    @ManyToOne  // Lazy by default
+    // @ManyToOne defaults to EAGER in JPA — left as default here, which is
+    // already loading 'user' with every query (one of the two N+1 sources).
+    @ManyToOne
     private User user;
 
-    @OneToMany(mappedBy = "order")  // Lazy by default
+    // @OneToMany defaults to LAZY — accessing it inside the loop below
+    // triggers a separate query per Order (the second N+1 source).
+    @OneToMany(mappedBy = "order")
     private List<OrderItem> items;
 }
 
@@ -120,24 +124,31 @@ spring:
 
 ### Spring Cache Abstraction
 
-✅ **Enable caching**
+✅ **Enable caching** — the `Caffeine` builder must be wired into `CaffeineCacheManager` via `setCaffeine(...)`. A free-standing `@Bean Caffeine<Object, Object>` next to a hand-built `CaffeineCacheManager` is a common mistake: the cache runs with Caffeine's defaults (unbounded, no TTL) and the builder bean is dead code.
+
 ```java
 @Configuration
 @EnableCaching
 public class CacheConfig {
+
     @Bean
-    public CacheManager cacheManager() {
-        return new CaffeineCacheManager("users", "products");
+    public CacheManager cacheManager(Caffeine<Object, Object> caffeine) {
+        CaffeineCacheManager manager =
+            new CaffeineCacheManager("users", "products");
+        manager.setCaffeine(caffeine); // <-- the wiring step
+        return manager;
     }
 
     @Bean
     public Caffeine<Object, Object> caffeineConfig() {
         return Caffeine.newBuilder()
             .maximumSize(1000)
-            .expireAfterWrite(10, TimeUnit.MINUTES);
+            .expireAfterWrite(Duration.ofMinutes(10));
     }
 }
 ```
+
+> **Alternative:** drop the manual `CacheManager` bean and let Spring Boot auto-configure it. With `spring-boot-starter-cache` + Caffeine on the classpath, set `spring.cache.type=caffeine` and `spring.cache.cache-names=users,products`, then expose only the `Caffeine` bean — Boot wires it for you.
 
 ✅ **Cache usage**
 ```java
@@ -181,10 +192,12 @@ public User findById(Long id) {
 @Bean
 public Caffeine<Object, Object> caffeineConfig() {
     return Caffeine.newBuilder()
-        .expireAfterWrite(10, TimeUnit.MINUTES)  // Absolute expiration
-        .expireAfterAccess(5, TimeUnit.MINUTES); // Sliding expiration
+        .expireAfterWrite(Duration.ofMinutes(10))   // Absolute expiration
+        .expireAfterAccess(Duration.ofMinutes(5));  // Sliding expiration
 }
 ```
+
+> **How the two clocks combine:** Caffeine evaluates both independently. An entry is evicted as soon as **either** deadline passes (the earlier of `write + 10m` and `lastAccess + 5m`), not the union. Setting both does not "extend" the TTL — it tightens it. Use one if you want one behavior, both only if you want "expire after 10m even if hot, sooner if idle." See: https://github.com/ben-manes/caffeine/wiki/Eviction#time-based
 
 ❌ **Caching large objects**
 ```java
@@ -431,7 +444,7 @@ public class DashboardService {
 
 ### Structured Concurrency (Java 25 Alternative)
 
-**New in Java 21+**: Structured Concurrency provides a cleaner alternative to CompletableFuture for parallel execution.
+**Preview in Java 25** (JEP 505 — compile and run with `--enable-preview`): Structured Concurrency is a cleaner alternative to CompletableFuture for parallel execution. The API below — `StructuredTaskScope.open(...)` driven by a `Joiner` — is the JDK 25 shape; the earlier previews (Java 21–23) used the now-removed `ShutdownOnFailure` / `ShutdownOnSuccess` classes.
 
 ✅ **Structured Concurrency approach**
 ```java
@@ -441,14 +454,13 @@ public class DashboardService {
     private final OrderService orderService;
     private final ProductService productService;
 
-    public Dashboard getDashboard(Long userId) throws ExecutionException, InterruptedException {
-        try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+    public Dashboard getDashboard(Long userId) throws InterruptedException {
+        try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) {
             Subtask<User> userTask = scope.fork(() -> userService.findById(userId));
             Subtask<List<Order>> ordersTask = scope.fork(() -> orderService.findByUserId(userId));
             Subtask<List<Product>> productsTask = scope.fork(() -> productService.findRecommended(userId));
 
-            scope.join()           // Wait for all subtasks
-                .throwIfFailed();  // Propagate exceptions
+            scope.join();  // Wait for all; allSuccessfulOrThrow propagates any failure
 
             return new Dashboard(
                 userTask.get(),
@@ -468,7 +480,7 @@ public class DashboardService {
 | **Complex composition chains** | CompletableFuture | `.thenCompose()`, `.thenApply()`, `.exceptionally()` provide fluent API |
 | **Parallel execution of independent tasks** | Structured Concurrency | Cleaner error handling, automatic cancellation, structured lifecycle |
 | **Simple blocking I/O with virtual threads** | Direct blocking calls | Virtual threads make blocking acceptable - no async wrapper needed |
-| **Timeout/cancellation requirements** | Structured Concurrency | Built-in timeout support with `ShutdownOnFailure` |
+| **Timeout/cancellation requirements** | Structured Concurrency | Built-in timeout support via the scope's timeout configuration |
 
 ### Migration Example
 
@@ -484,12 +496,12 @@ public Dashboard getDashboard(Long userId) {
 
 ✅ **Modern Structured Concurrency**
 ```java
-public Dashboard getDashboard(Long userId) throws ExecutionException, InterruptedException {
-    try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+public Dashboard getDashboard(Long userId) throws InterruptedException {
+    try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) {
         var userTask = scope.fork(() -> fetchUser(userId));
         var ordersTask = scope.fork(() -> fetchOrders(userId));
 
-        scope.join().throwIfFailed();
+        scope.join();  // allSuccessfulOrThrow propagates any subtask failure
         return new Dashboard(userTask.get(), ordersTask.get());
     }
 }

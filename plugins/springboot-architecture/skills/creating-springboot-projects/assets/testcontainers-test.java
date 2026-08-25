@@ -2,39 +2,37 @@ package {{PACKAGE}};
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpStatus;
-import org.springframework.test.context.TestConfiguration;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.springframework.test.web.servlet.client.RestTestClient;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration test with Testcontainers.
+ * Integration test with Testcontainers (Spring Boot 4).
  *
- * Uses real PostgreSQL container for realistic testing.
- * Spring Boot 4 pattern with @TestConfiguration and @ServiceConnection.
+ * Uses a real PostgreSQL container for realistic testing and the Spring
+ * Framework 7 RestTestClient for HTTP assertions.
  *
- * Note: TestRestTemplate is used here for compatibility, but Spring Boot 4
- * recommends RestTestClient for new code (more modern API with fluent interface).
+ * Spring Boot 4 requires @AutoConfigureRestTestClient to enable the
+ * RestTestClient bean — HTTP test clients are no longer auto-configured
+ * by @SpringBootTest alone.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureRestTestClient
 @Import({{NAME}}IntegrationTest.TestcontainersConfig.class)
 class {{NAME}}IntegrationTest {
 
     @Autowired
-    TestRestTemplate restTemplate;
-
-    // Alternative: Use RestTestClient (Spring Boot 4 recommended approach)
-    // @Autowired
-    // RestTestClient restClient;
+    RestTestClient client;
 
     @Test
     void contextLoads() {
@@ -43,22 +41,13 @@ class {{NAME}}IntegrationTest {
 
     @Test
     void healthEndpointReturnsUp() {
-        var response = restTemplate.getForEntity("/actuator/health", String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).contains("UP");
+        client.get()
+                .uri("/actuator/health")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .value(body -> assertThat(body).contains("UP"));
     }
-
-    // Example using RestTestClient (Spring Boot 4 recommended)
-    // @Test
-    // void healthEndpointReturnsUpUsingRestClient() {
-    //     String health = restClient.get()
-    //         .uri("/actuator/health")
-    //         .exchange((request, response) -> {
-    //             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-    //             return response.bodyTo(String.class);
-    //         });
-    //     assertThat(health).contains("UP");
-    // }
 
     // Add more integration tests here
 
@@ -71,12 +60,12 @@ class {{NAME}}IntegrationTest {
     static class TestcontainersConfig {
 
         @Container
-        static PostgreSQLContainer<?> postgres =
-            new PostgreSQLContainer<>(DockerImageName.parse("postgres:18-alpine"));
+        static PostgreSQLContainer postgres =
+            new PostgreSQLContainer(DockerImageName.parse("postgres:18-alpine"));
 
         @Bean
         @ServiceConnection
-        PostgreSQLContainer<?> postgresContainer() {
+        PostgreSQLContainer postgresContainer() {
             return postgres;
         }
     }
@@ -87,11 +76,12 @@ class {{NAME}}IntegrationTest {
 // ============================================================
 
 // @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// @AutoConfigureRestTestClient
 // @Import(ProductControllerIntegrationTest.TestcontainersConfig.class)
 // class ProductControllerIntegrationTest {
 //
 //     @Autowired
-//     TestRestTemplate restTemplate;
+//     RestTestClient client;
 //
 //     @Autowired
 //     ProductRepository productRepository;
@@ -107,36 +97,37 @@ class {{NAME}}IntegrationTest {
 //             ProductDetails.of("Test Product", "Description")
 //         );
 //
-//         var response = restTemplate.postForEntity(
-//             "/api/products",
-//             request,
-//             CreateProductResponse.class
-//         );
+//         CreateProductResponse response = client.post()
+//                 .uri("/api/products")
+//                 .bodyValue(request)
+//                 .exchange()
+//                 .expectStatus().isCreated()
+//                 .expectBody(CreateProductResponse.class)
+//                 .returnResult()
+//                 .getResponseBody();
 //
-//         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-//         assertThat(response.getBody().code()).isNotNull();
+//         assertThat(response.code()).isNotNull();
 //     }
 //
 //     @Test
 //     void shouldReturnNotFoundForMissingProduct() {
-//         var response = restTemplate.getForEntity(
-//             "/api/products/NONEXISTENT",
-//             ProblemDetail.class
-//         );
-//
-//         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+//         client.get()
+//                 .uri("/api/products/NONEXISTENT")
+//                 .exchange()
+//                 .expectStatus().isNotFound()
+//                 .expectBody(ProblemDetail.class);
 //     }
 //
 //     @TestConfiguration(proxyBeanMethods = false)
 //     @Testcontainers
 //     static class TestcontainersConfig {
 //         @Container
-//         static PostgreSQLContainer<?> postgres =
-//             new PostgreSQLContainer<>(DockerImageName.parse("postgres:18-alpine"));
+//         static PostgreSQLContainer postgres =
+//             new PostgreSQLContainer(DockerImageName.parse("postgres:18-alpine"));
 //
 //         @Bean
 //         @ServiceConnection
-//         PostgreSQLContainer<?> postgresContainer() {
+//         PostgreSQLContainer postgresContainer() {
 //             return postgres;
 //         }
 //     }
@@ -174,12 +165,12 @@ class {{NAME}}IntegrationTest {
 //     @Testcontainers
 //     static class TestcontainersConfig {
 //         @Container
-//         static PostgreSQLContainer<?> postgres =
-//             new PostgreSQLContainer<>(DockerImageName.parse("postgres:18-alpine"));
+//         static PostgreSQLContainer postgres =
+//             new PostgreSQLContainer(DockerImageName.parse("postgres:18-alpine"));
 //
 //         @Bean
 //         @ServiceConnection
-//         PostgreSQLContainer<?> postgresContainer() {
+//         PostgreSQLContainer postgresContainer() {
 //             return postgres;
 //         }
 //     }

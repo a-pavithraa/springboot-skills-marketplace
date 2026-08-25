@@ -7,7 +7,7 @@
 1. [Overview](#overview)
 2. [Version Update](#version-update)
 3. [Breaking Changes](#breaking-changes)
-4. [Event Store Schema Migration](#event-store-schema-migration)
+4. [Event Publication Table Migration](#event-publication-table-migration-required)
 5. [Configuration Changes](#configuration-changes)
 6. [Verification](#verification)
 
@@ -15,11 +15,11 @@
 
 ## Overview
 
-**IMPORTANT:** Spring Modulith 2.0 migration is **separate** from Spring Boot 4.0 migration. However, Spring Modulith 2.0 **requires** Spring Boot 4.0.
+**IMPORTANT:** Migrating to Spring Modulith 2.x is **separate** from the Spring Boot 4 migration, but the versions are paired: **Spring Modulith 2.1 requires Spring Boot 4.1** (the original 2.0.x line pairs with Spring Boot 4.0). Match the Modulith minor to your Boot minor.
 
 **Migration order:**
-1. Spring Boot 4.0 first
-2. Spring Modulith 2.0 second
+1. Spring Boot 4.1 first
+2. Spring Modulith 2.1 second
 
 ---
 
@@ -29,7 +29,7 @@
 
 ```xml
 <properties>
-    <spring-modulith.version>2.0.0</spring-modulith.version>
+    <spring-modulith.version>2.1.0</spring-modulith.version>
 </properties>
 ```
 
@@ -68,22 +68,24 @@
 
 **What changed:**
 - New event publication status model
-- Updated table structure with new columns:
-  - `STATUS` (VARCHAR 20) - new status tracking
-  - `COMPLETION_ATTEMPTS` (INT) - retry tracking
-  - `LAST_RESUBMISSION_DATE` (TIMESTAMP)
+- Updated table structure with three new columns (types are dialect-specific — use the shipped schema for your database from the [appendix](https://docs.spring.io/spring-modulith/reference/appendix.html)):
+  - `status` — H2 / HSQLDB / MySQL / MSSQL use `VARCHAR(20)`; PostgreSQL uses `TEXT`
+  - `completion_attempts` — `INT` (no DEFAULT in the shipped schema)
+  - `last_resubmission_date` — `TIMESTAMP WITH TIME ZONE` on dialects that support it, else `TIMESTAMP(6)`
 - Changes to how events transition between states
 
 **Impact:**
-- **CRITICAL:** You MUST create database migrations to update existing `event_publication` tables
-- Existing applications will fail to start without schema updates
-- Affects JDBC, JPA, MongoDB, and Neo4j event stores
+- **CRITICAL:** if your project uses the **JDBC/JPA** event publication registry, you MUST create database migrations to update the existing `event_publication` table to the 2.x shape.
+- The lifecycle changes (new `status` / `completion_attempts` / `last_resubmission_date` semantics) span all four supported registry backends — JDBC, JPA, MongoDB, and Neo4j — but the SQL `event_publication` table only exists for the JDBC/JPA backends. MongoDB and Neo4j backends use their own native storage shapes; consult the [appendix](https://docs.spring.io/spring-modulith/reference/appendix.html) for those.
+- Without the schema update, applications using the JDBC/JPA registry will fail to start.
 
 **Migration requirement:**
 ```sql
--- Example: Update existing event_publication table
+-- PostgreSQL example. Modulith 2.x ships PostgreSQL schemas that use TEXT
+-- for status / listener_id / event_type / serialized_event. Other dialects
+-- (H2, HSQLDB, MySQL, etc.) use VARCHAR — match your dialect's shipped schema.
 ALTER TABLE event_publication
-  ADD COLUMN status VARCHAR(20),
+  ADD COLUMN status TEXT,
   ADD COLUMN completion_attempts INT,
   ADD COLUMN last_resubmission_date TIMESTAMP WITH TIME ZONE;
 
@@ -92,20 +94,32 @@ ALTER TABLE event_publication
 
 **Reference:** [Spring Modulith Appendix - Event Publication Registry Schemas](https://docs.spring.io/spring-modulith/reference/appendix.html)
 
-### 2. Spring Boot 4.0 Baseline Requirement
+### 2. Spring Boot Baseline Requirement
 
-**CRITICAL:** Spring Modulith 2.0 requires Spring Boot 4.0+
+**CRITICAL:** Spring Modulith 2.1 requires Spring Boot 4.1 (the 2.0.x line pairs with Spring Boot 4.0). Keep the Modulith minor aligned with the Boot minor.
 
 **Migration order:**
-1. Migrate to Spring Boot 4.0 first
+1. Migrate to Spring Boot 4.1 first
 2. Update event publication table schema
-3. Upgrade Spring Modulith to 2.0
+3. Upgrade Spring Modulith to 2.1
 
 ### 3. Configuration Property Defaults
 
-**All event-related properties default to `false`** - no automatic behavior changes unless explicitly configured.
+Most event-related toggles **default off** so existing applications don't change behavior on upgrade — but a few defaults are deliberately `true` and one is a string:
 
-**Most applications:** No configuration changes needed unless you want to enable specific features.
+| Property | Default | Notes |
+|----------|---------|-------|
+| `spring.modulith.events.jdbc.schema-initialization.enabled` | `false` | Off by default; use Flyway/Liquibase in production |
+| `spring.modulith.events.republish-outstanding-events-on-restart` | `false` | Risky for multi-instance deployments |
+| `spring.modulith.runtime.flyway-enabled` | `false` | Module-ordered Flyway integration |
+| `spring.modulith.events.jdbc.schema` | _unset_ (string) | Schema name; unset means the table is **not** schema-qualified |
+| `spring.modulith.events.externalization.enabled` | `true` | Event externalization is enabled when the externalization starter is on the classpath |
+| `spring.modulith.events.kafka.enable-json` | `true` | JSON externalization with Kafka |
+| `spring.modulith.events.rabbitmq.enable-json` | `true` | JSON externalization with RabbitMQ |
+| `spring.modulith.events.mongodb.transaction-management.enabled` | `true` | Enables transactional event handling on MongoDB |
+| `spring.modulith.events.completion-mode` | `update` | One of `update` / `delete` / `archive` |
+
+**Most applications:** the schema migration is the only required step. The other properties are opt-in feature flags — review the appendix before turning them on.
 
 ---
 
@@ -123,26 +137,36 @@ ALTER TABLE event_publication
 **Migration example (adjust for your database):**
 
 ```sql
--- PostgreSQL example
+-- PostgreSQL example. Modulith's PostgreSQL v2 schema uses TEXT for the
+-- string columns (status / listener_id / event_type / serialized_event);
+-- check your dialect's shipped schema if you're not on PostgreSQL.
+-- The shipped schema declares completion_attempts as INT with NO DEFAULT —
+-- match the appendix exactly. Use the UPDATE below to backfill existing rows.
 ALTER TABLE event_publication
-  ADD COLUMN IF NOT EXISTS status VARCHAR(20),
-  ADD COLUMN IF NOT EXISTS completion_attempts INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS status TEXT,
+  ADD COLUMN IF NOT EXISTS completion_attempts INT,
   ADD COLUMN IF NOT EXISTS last_resubmission_date TIMESTAMP WITH TIME ZONE;
 
--- Update existing rows to set default status
-UPDATE event_publication SET status = 'PUBLISHED' WHERE status IS NULL;
+-- Backfill existing rows: legacy 1.x rows have neither a status nor a
+-- completion-attempt count. Modulith treats a completed publication as one
+-- whose completion_date is non-null; mark legacy rows as PUBLISHED with
+-- zero attempts. Verify against the official migration guidance for your
+-- exact 1.x → 2.x state if you are upgrading a real production table.
+UPDATE event_publication
+   SET status = COALESCE(status, 'PUBLISHED'),
+       completion_attempts = COALESCE(completion_attempts, 0);
 ```
 
 **Complete schema reference:** See [Spring Modulith Reference - Event Publication Registry](https://docs.spring.io/spring-modulith/reference/appendix.html)
 
-**Expected columns in event_publication table:**
-- `id` (UUID/VARCHAR primary key)
-- `listener_id` (VARCHAR 512)
-- `event_type` (VARCHAR 512)
-- `serialized_event` (TEXT/VARCHAR)
+**Expected columns in event_publication table** (types are dialect-specific — values shown are PostgreSQL; other dialects use sized VARCHAR — see the official schema files):
+- `id` (UUID primary key)
+- `listener_id` (TEXT)
+- `event_type` (TEXT)
+- `serialized_event` (TEXT)
 - `publication_date` (TIMESTAMP WITH TIME ZONE)
 - `completion_date` (TIMESTAMP WITH TIME ZONE, nullable)
-- `status` (VARCHAR 20) - **NEW in 2.0**
+- `status` (TEXT) - **NEW in 2.0**
 - `completion_attempts` (INT) - **NEW in 2.0**
 - `last_resubmission_date` (TIMESTAMP WITH TIME ZONE) - **NEW in 2.0**
 
@@ -190,7 +214,7 @@ spring.modulith.events.jdbc.schema=events
 
 ### No Configuration Required by Default
 
-**Spring Modulith 2.0 works out of the box with no configuration changes.** All event-related properties default to `false`.
+**Spring Modulith 2.0 works out of the box for the standard case.** Most opt-in toggles (schema init, restart republishing, module-ordered Flyway) default to `false`. A few defaults are deliberately set — see the table in [Configuration Property Defaults](#3-configuration-property-defaults) above before assuming a property is off.
 
 ### Optional Configurations
 
@@ -199,8 +223,9 @@ spring.modulith.events.jdbc.schema=events
 #### 1. Dedicated Schema (Optional)
 
 ```properties
-# Use a dedicated schema for event tables
-# Default: false (uses default schema)
+# Use a dedicated schema for event tables.
+# This property holds a schema NAME (string). If unset, the event_publication
+# table is NOT schema-qualified — it lives in the default schema.
 spring.modulith.events.jdbc.schema=events
 ```
 
@@ -387,12 +412,11 @@ ERROR: column "completion_attempts" does not exist
 
 **Cause:** Event publication table not migrated to Spring Modulith 2.0 schema
 
-**Solution:**
+**Solution:** (PostgreSQL — match your dialect's shipped schema for the string types; the shipped schema has no DEFAULT on `completion_attempts`)
 ```sql
--- Add missing columns
 ALTER TABLE event_publication
-  ADD COLUMN IF NOT EXISTS status VARCHAR(20),
-  ADD COLUMN IF NOT EXISTS completion_attempts INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS status TEXT,
+  ADD COLUMN IF NOT EXISTS completion_attempts INT,
   ADD COLUMN IF NOT EXISTS last_resubmission_date TIMESTAMP WITH TIME ZONE;
 ```
 
@@ -403,12 +427,12 @@ ALTER TABLE event_publication
 Failed to configure a DataSource: 'url' attribute is not specified
 ```
 
-**Cause:** Spring Boot 4.0 baseline - check Spring Boot migration first
+**Cause:** This is the generic Spring Boot DataSource auto-configuration failure — it fires whenever Boot finds JDBC on the classpath but no usable `spring.datasource.url` (and no embedded driver to fall back to). It is not specific to Spring Modulith 2 or the Boot 4 baseline, but Modulith projects hit it more often because adding `spring-modulith-starter-jdbc` pulls JDBC onto the classpath even when the rest of the application uses JPA or no DB at all.
 
 **Solution:**
-1. Complete Spring Boot 4.0 migration first
-2. Ensure database configuration is correct
-3. Update event_publication table schema
+1. Set `spring.datasource.url` (and credentials) for the database that should hold `event_publication`.
+2. If you do not want Modulith to need a DataSource at all, remove `spring-modulith-starter-jdbc` and switch to a different event registry starter (`-jpa`, `-mongodb`, `-neo4j`) or drop the registry entirely (`@ApplicationModuleListener` still works, just without durability — see the Best Practices section above).
+3. Once the DataSource resolves, apply the `event_publication` schema migration described in [Step 1](#step-1-update-event-publication-table-schema).
 
 ### Issue 3: Events Not Persisting
 
@@ -475,7 +499,7 @@ ERROR: relation "event_publication" does not exist
 ## Migration Checklist
 
 ### Prerequisites
-- [ ] Spring Boot 4.0 migration complete
+- [ ] Spring Boot 4.1 migration complete
 - [ ] Database migrations tool configured (Flyway/Liquibase)
 - [ ] Backup production database before migration
 
@@ -484,16 +508,16 @@ ERROR: relation "event_publication" does not exist
   - [ ] `event_publication` table exists
   - [ ] If using `spring.modulith.events.jdbc.schema=events`, the `events` schema exists
   - [ ] `spring-modulith-starter-jdbc` dependency is present
-- [ ] Create database migration to add new columns:
-  - `status` (VARCHAR 20)
-  - `completion_attempts` (INT)
-  - `last_resubmission_date` (TIMESTAMP WITH TIME ZONE)
+- [ ] Create database migration to add new columns (types are dialect-specific — match the [shipped schema](https://docs.spring.io/spring-modulith/reference/appendix.html)):
+  - `status` — PostgreSQL: `TEXT`; H2 / HSQLDB / MySQL / MSSQL: `VARCHAR(20)`
+  - `completion_attempts` (`INT`, no DEFAULT in the shipped schema)
+  - `last_resubmission_date` — `TIMESTAMP WITH TIME ZONE` (or `TIMESTAMP(6)` on dialects that lack `WITH TIME ZONE`)
 - [ ] Run migration on development database
 - [ ] Test event publication works
 - [ ] Run migration on staging/production
 
 ### Phase 2: Update Spring Modulith Version
-- [ ] Update `spring-modulith.version` to 2.0.0 in pom.xml
+- [ ] Update `spring-modulith.version` to 2.1.0 in pom.xml
 - [ ] Run `./mvnw clean install` to download new version
 - [ ] Verify no compilation errors
 

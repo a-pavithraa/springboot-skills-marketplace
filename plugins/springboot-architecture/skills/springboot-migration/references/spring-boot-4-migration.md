@@ -20,14 +20,22 @@
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
-| **Java** | 17 | 21+ (25 for latest features) |
-| **Spring Boot** | 4.0.0 | 4.0.x (latest stable) |
+| **Java** | 17 | 25 (current LTS). Java 26 is the newest feature release (GA March 2026) but is not an LTS — use it only when the project tracks non-LTS releases. |
+| **Spring Boot** | 4.0.0 | 4.1.x (latest stable) |
 | **Jakarta EE** | 11 | 11 |
 | **Servlet** | 6.1 | 6.1 |
 
 **Java Version Note:**
 - Minimum: Java 17
-- Recommended: Java 21 (LTS) or Java 25 (latest features)
+- Recommended: Java 25 (current LTS) for new compile targets; Java 21 (previous LTS) is still fully supported. Java 26 is the newest feature release (GA 2026-03-17) but is non-LTS.
+
+### Targeting 4.1 (current)
+
+This guide documents the Spring Boot 3 → 4 transition, but **4.1.x is the current target** — land on it rather than 4.0:
+
+- **4.1 removes everything that was deprecated in 4.0.** Coming from 3.x, migrate straight to 4.1 and clear any 4.0-era deprecations as you go; there is no reason to stop at 4.0 first.
+- **Spring Data JPA repository bootstrap.** Deferred (and lazy) repository bootstrap — `spring.data.jpa.repositories.bootstrap-mode=deferred` (or `lazy`) — initializes repositories on a background `AsyncTaskExecutor`, so make sure one is available; otherwise keep the default (eager) bootstrap.
+- Pair Boot 4.1 with Spring Modulith 2.1.x and Testcontainers 2.0.x (see the companion migration guides).
 
 ---
 
@@ -189,7 +197,7 @@ Source: [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spr
 </dependency>
 ```
 
-### 4. Security Test Starter
+### 5. Security Test Starter
 
 **Change:**
 
@@ -215,13 +223,13 @@ Source: [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spr
 </dependency>
 ```
 
-### 5. Retry/Resilience Annotations
+### 6. Retry/Resilience Annotations
 
 **Sample usage (from `sivaprasadreddy/spring-boot-4-features`):**
 - Package: `org.springframework.resilience.annotation.*`
 - Annotations: `@Retryable`, `@ConcurrencyLimit`
 - Enablement: `@EnableResilientMethods`
-- Parameters used: `includes`, `maxAttempts`, `delay`, `multiplier`
+- Parameters used: `includes`, `maxRetries`, `delay`, `multiplier`
 - Circuit breaker is still external (Resilience4j)
 
 Spring Retry is now maintenance-only, superseded by native resilience in Spring Framework 7.
@@ -242,7 +250,7 @@ Migrate to `org.springframework.resilience.annotation.*` and remove `spring-retr
 1. Remove `spring-retry` dependency from pom.xml
 2. Replace `@EnableRetry` with `@EnableResilientMethods`
 3. Change imports: `org.springframework.retry.annotation.*` → `org.springframework.resilience.annotation.*`
-4. Update annotation parameters: `retryFor` → `includes`, `backoff = @Backoff(delay = 1000)` → `delay = 1000`
+4. Update annotation parameters: `retryFor` → `includes`, `maxAttempts` → `maxRetries` (semantics changed: `maxRetries` counts retries after the initial call, so old `maxAttempts = 4` → new `maxRetries = 3`), `backoff = @Backoff(delay = 1000)` → `delay = 1000`
 5. Remove `@Recover` methods (use try-catch or programmatic `RetryTemplate` instead)
 
 **Code changes:**
@@ -258,9 +266,10 @@ public class ResilienceConfig {}
 // Service
 import org.springframework.resilience.annotation.Retryable;
 
+// 1 initial attempt + maxRetries = up to 4 total invocations
 @Retryable(
     includes = {SomeException.class},
-    maxAttempts = 4,
+    maxRetries = 3,
     delay = 1000,
     multiplier = 2
 )
@@ -271,7 +280,7 @@ public void methodWithRetry() {
 
 Reference: https://github.com/spring-projects/spring-retry (maintenance-only status)
 
-### 6. Web MVC Test Starter
+### 7. Web MVC Test Starter
 
 **New modular test starter:**
 
@@ -376,58 +385,59 @@ import org.springframework.boot.persistence.autoconfigure.EntityScan;
 
 ### 1. MockBean → MockitoBean
 
-**Change:** Migrate from **deprecated** to **standard** annotations
+**Change:** `@MockBean` and `@SpyBean` were **removed** in Spring Boot 4.0. The official migration guide says: *"Spring Boot's `@MockBean` and `@SpyBean` support has been removed in this release, in favor of `@MockitoBean` and `@MockitoSpyBean` support."* Migration is mandatory before upgrading.
 
-| Deprecated (still available in 4.0) | Standard (since 3.4) |
-|-----|-----|
-| `@MockBean` | `@MockitoBean` |
-| `@SpyBean` | `@MockitoSpyBean` |
+| Removed in 4.0 | Replacement (Spring Framework 6.2+) |
+|----------------|-------------------------------------|
+| `@MockBean` (`org.springframework.boot.test.mock.mockito`) | `@MockitoBean` (`org.springframework.test.context.bean.override.mockito`) |
+| `@SpyBean` (`org.springframework.boot.test.mock.mockito`) | `@MockitoSpyBean` (`org.springframework.test.context.bean.override.mockito`) |
 
 **Timeline:**
-- **Spring Boot 3.4** (Spring Framework 6.2): `@MockitoBean` introduced, `@MockBean` deprecated
-- **Spring Boot 4.0**: `@MockBean` **still available but deprecated** (will be removed in future version)
-- **Future Spring Boot version**: `@MockBean` will be removed completely
+- **Spring Boot 3.4** (Spring Framework 6.2): `@MockitoBean` / `@MockitoSpyBean` introduced; `@MockBean` / `@SpyBean` deprecated
+- **Spring Boot 4.0**: `@MockBean` and `@SpyBean` **removed** — code that still imports them will not compile
 
-**Migration urgency:** While `@MockBean` still works in Spring Boot 4.0, migrate to `@MockitoBean` now to avoid breaking changes in future releases.
+**Where you can place `@MockitoBean` / `@MockitoSpyBean`:**
 
-**CRITICAL CONSTRAINT:** `@MockitoBean` and `@MockitoSpyBean` can **ONLY** be used on test class fields, **NOT** in `@Configuration` or `@TestConfiguration` classes.
+`@MockitoBean` is `@Target({FIELD, TYPE})`. Field-level is the common case. Type-level is also supported (on the test class, on a superclass, on an enclosing class for `@Nested` tests, or on a meta-annotation) and requires the `types` attribute to name the bean type(s) to mock. The annotation is `@Repeatable`, so you can declare multiple at the type level.
+
+What `@MockitoBean` **cannot** do (the gotcha that broke the old `@MockBean` in `@TestConfiguration` pattern): you can't put it on a field inside a `@Configuration` / `@TestConfiguration` class and expect the mock to be created from there. Move the mocks to the test class field (or to a custom type-level meta-annotation).
 
 **Migration - Test Class Fields (Standard Case):**
 
 ```java
-// Before (Using deprecated annotations - still works in 4.0)
+// Before (Boot 3.x — does not compile in Boot 4)
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 
 @SpringBootTest
 class UserServiceTest {
-    @MockBean  // Deprecated since 3.4, still available in 4.0
+    @MockBean
     private UserRepository userRepository;
 
-    @SpyBean  // Deprecated since 3.4, still available in 4.0
+    @SpyBean
     private EmailService emailService;
 }
 
-// After (Recommended - using standard annotations)
-import org.springframework.boot.test.mock.mockito.MockitoBean;
-import org.springframework.boot.test.mock.mockito.MockitoSpyBean;
+// After (Boot 4)
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 @SpringBootTest
 class UserServiceTest {
-    @MockitoBean  // Standard since 3.4, recommended for 4.0+
+    @MockitoBean
     private UserRepository userRepository;
 
-    @MockitoSpyBean  // Standard since 3.4, recommended for 4.0+
+    @MockitoSpyBean
     private EmailService emailService;
 }
 ```
 
-**Migration - @TestConfiguration Classes (Special Handling Required):**
+**Migration - `@MockBean` inside `@TestConfiguration`:**
 
-If you were using `@MockBean` in `@TestConfiguration` classes, you **MUST** move them to test class fields:
+This pattern no longer works. Move declarations to the test class:
 
 ```java
-// Before (Spring Boot 3.x) - @MockBean in @TestConfiguration
+// Before (Boot 3.x) - @MockBean field on a @TestConfiguration class
 @TestConfiguration
 class TestConfig {
     @MockBean
@@ -436,61 +446,37 @@ class TestConfig {
 
 @SpringBootTest
 @Import(TestConfig.class)
-class UserServiceTest {
-    // Test uses mocked repository from config
-}
+class UserServiceTest { /* uses mock from TestConfig */ }
 
-// After (Spring Boot 4.0) - Move to test class field
+// After (Boot 4) - move to test class fields
 @SpringBootTest
 class UserServiceTest {
-    @MockitoBean  // Must be declared on test class field
+    @MockitoBean
     private UserRepository userRepository;
 }
 ```
 
-**Alternative for Complex Test Configurations:**
+**Alternative — share mocks via a type-level meta-annotation:**
 
-If you need to share mocks across multiple test classes, create a custom annotation:
+`@MockitoBean` works at the type level when the bean type is supplied via `types`. The annotation is repeatable, so multiple mocks can be declared on one composed annotation:
 
 ```java
-// Custom annotation combining multiple mocks
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
-@MockitoBean(UserRepository.class)
-@MockitoBean(OrderRepository.class)
-@MockitoSpyBean(EmailService.class)
-public @interface CommonTestMocks {
-}
+@MockitoBean(types = UserRepository.class)
+@MockitoBean(types = OrderRepository.class)
+@MockitoSpyBean(types = EmailService.class)
+public @interface CommonTestMocks {}
 
-// Use in test classes
 @SpringBootTest
 @CommonTestMocks
 class UserServiceTest {
     @Autowired
-    private UserRepository userRepository;  // Will be mocked
+    private UserRepository userRepository; // injected as a mock
 }
 ```
 
-**Temporary Workaround (Spring Boot 3.4+ including 4.0):**
-
-If you're not ready to migrate yet, suppress deprecation warnings:
-
-```java
-// Works in Spring Boot 3.4+ and 4.0 (deprecated but still available)
-// Will be removed in a future Spring Boot version
-@SpringBootTest
-@SuppressWarnings("removal")
-class UserServiceTest {
-    @MockBean  // Deprecated since 3.4, still works in 4.0
-    private UserRepository userRepository;
-}
-```
-
-**Important:**
-- `@MockBean` **still works** in Spring Boot 4.0, but is deprecated
-- It **will be removed** in a future Spring Boot version
-- Migrate to `@MockitoBean` soon to avoid future breaking changes
-- Per [official Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide): "@MockBean and @SpyBean support will be removed in the future"
+Source: [`@MockitoBean` Javadoc](https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/test/context/bean/override/mockito/MockitoBean.html).
 
 ### 2. WebMvcTest Package Relocation
 
@@ -527,12 +513,14 @@ class MyControllerTest {
 
 ### 4. TestRestTemplate → RestTestClient
 
-**Change:** `TestRestTemplate` is deprecated. Use `RestTestClient` from Spring Framework 7.
+**Change:** `TestRestTemplate` is not deprecated, but `@SpringBootTest` no longer auto-provides it. Existing usages keep working if you opt in with `@AutoConfigureTestRestTemplate` (and the `spring-boot-resttestclient` / `spring-boot-restclient` deps); for new code, prefer `RestTestClient` from Spring Framework 7 — it's the fluent replacement.
 
 | Old | New |
 |-----|-----|
 | `TestRestTemplate` | `RestTestClient` |
-| `@AutoConfigureWebTestClient` | `@AutoConfigureRestTestClient` |
+| `@AutoConfigureTestRestTemplate` (Boot 4 opt-in) | `@AutoConfigureRestTestClient` |
+
+> `@AutoConfigureWebTestClient` is for the **reactive** `WebTestClient` — it is unrelated to `TestRestTemplate` and is not what gets renamed here. Migrate `TestRestTemplate` tests by adding `@AutoConfigureRestTestClient` (and switching the type to `RestTestClient`).
 
 **Migration:**
 
@@ -628,13 +616,34 @@ public List<ProductEnrichedVM> searchV2(@RequestParam("q") String query) { ... }
 spring:
   mvc:
     apiversion:
-      enabled: true
-      strategy: header
-      default-version: "1.0"
-      header-name: "API-Version"
+      default: "1.0"
+      supported: "1.0,2.0"
+      use:
+        header: X-API-Version
+        # Alternative strategies (use only one resolver):
+        # query-parameter: version
+        # path-segment: 1
+        # media-type-parameter[application/json]: version
 ```
 
-**Migration:** Replace custom versioning interceptors/filters with native configuration above.
+**Java-based equivalent** (`WebMvcConfigurer.configureApiVersioning`):
+
+```java
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    @Override
+    public void configureApiVersioning(ApiVersionConfigurer configurer) {
+        configurer
+                .useRequestHeader("X-API-Version")
+                .addSupportedVersions("1.0", "2.0")
+                .setDefaultVersion("1.0");
+    }
+}
+```
+
+`ApiVersionConfigurer` lives in `org.springframework.web.servlet.config.annotation`. There are no static factories like `ApiVersionResolver.fromHeader(...)` — call the configurer methods directly (`useRequestHeader`, `useQueryParam`, `useMediaTypeParameter`, `usePathSegment`, or `useVersionResolver`). The default parser is `SemanticApiVersionParser` (`org.springframework.web.accept`).
+
+**Migration:** Replace custom versioning interceptors/filters with the native configuration above.
 
 Source: [API Versioning in Spring](https://spring.io/blog/2025/09/16/api-versioning-in-spring/)
 
@@ -662,15 +671,23 @@ Source: [Core Spring Resilience Features](https://spring.io/blog/2025/09/09/core
 
 ### 1. Jackson Properties
 
-```properties
-# Old
-spring.jackson.read.allow-trailing-comma=true
-spring.jackson.write.indent-output=true
+Spring Boot 4 exposes Jackson 3 configuration as **several distinct property families** (all valid in 4.1). These are *not* old-vs-new spellings of a single key — each family maps to a different Jackson feature enum, so pick the one that matches the feature you want:
 
-# New
+| Property family | Backing feature enum | Use for |
+|-----------------|----------------------|---------|
+| `spring.jackson.read.*` / `spring.jackson.write.*` | `StreamReadFeature` / `StreamWriteFeature` | Common, cross-format stream parsing/generation |
+| `spring.jackson.json.read.*` / `spring.jackson.json.write.*` | `JsonReadFeature` / `JsonWriteFeature` | JSON-specific tokens (e.g. trailing commas) |
+| `spring.jackson.serialization.*` / `spring.jackson.deserialization.*` | `SerializationFeature` / `DeserializationFeature` | Databind behavior (e.g. indent output) |
+
+```properties
+# JSON-specific read feature (JsonReadFeature.ALLOW_TRAILING_COMMA)
 spring.jackson.json.read.allow-trailing-comma=true
-spring.jackson.json.write.indent-output=true
+
+# Pretty-printing is a databind SerializationFeature, NOT a json.write feature
+spring.jackson.serialization.indent-output=true
 ```
+
+> Common pitfall: `INDENT_OUTPUT` is a `SerializationFeature`, so the key is `spring.jackson.serialization.indent-output` — **not** `spring.jackson.json.write.indent-output`.
 
 ### 2. Health Probes (New Default Behavior)
 
@@ -770,20 +787,21 @@ spring.devtools.livereload.enabled=true
 ## Migration Checklist
 
 ### Phase 1: Dependencies
-- [ ] Update Spring Boot version to 4.0.x
+- [ ] Update Spring Boot version to 4.1.x
 - [ ] Rename `spring-boot-starter-web` to `-webmvc` (or use classic)
 - [ ] Rename `spring-boot-starter-aop` to `-aspectj`
 - [ ] Add `spring-boot-starter-restclient` if using RestClient/RestTemplate
 - [ ] Add `spring-boot-starter-webclient` if using WebClient
 - [ ] Update `spring-security-test` to Spring Boot starter
-- [ ] Add Spring Retry with explicit version (if using Spring Retry directly)
+- [ ] Remove `spring-retry` dependency and migrate annotations to `org.springframework.resilience.annotation.*` (Spring Retry is maintenance-only; native resilience is the Boot 4 replacement). Only pin an explicit Spring Retry version if you have a temporary requirement that blocks the migration.
 - [ ] Add Flyway starter (if using database migrations)
 - [ ] Update Testcontainers dependencies (if used)
 
 ### Phase 2: Code
 - [ ] Update Jackson imports (if using custom ObjectMapper)
-- [ ] **Recommended:** Update `@MockBean` to `@MockitoBean` (deprecated but still works)
-- [ ] **Recommended:** Update `@SpyBean` to `@MockitoSpyBean` (deprecated but still works)
+- [ ] **Required:** Replace `@MockBean` with `@MockitoBean` (`@MockBean` is removed in Boot 4 — code that imports it will not compile)
+- [ ] **Required:** Replace `@SpyBean` with `@MockitoSpyBean` (same — removed in Boot 4)
+- [ ] Update import: `org.springframework.boot.test.mock.mockito.*` → `org.springframework.test.context.bean.override.mockito.*`
 - [ ] Update `@WebMvcTest` import
 - [ ] Add `@AutoConfigureMockMvc` where needed
 - [ ] Fix retry/resilience imports and annotations

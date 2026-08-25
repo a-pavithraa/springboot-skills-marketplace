@@ -1,9 +1,26 @@
+// ============================================================
+// BUNDLE TEMPLATE — split into separate .java files when applying.
+// Java only allows one public top-level type per source file, so the
+// public @Entity classes and repository declarations below must each
+// live in their own .java file with a matching filename. The
+// {{PACKAGE}} and {{MODULE}} placeholders resolve identically across
+// all of them. Each entity below illustrates a different relationship
+// pattern — pick the ones you need; you are not meant to apply all
+// of them in one project.
+// ============================================================
+
 package {{PACKAGE}}.{{MODULE}}.domain;
 
 import jakarta.persistence.*;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -14,7 +31,10 @@ import java.util.Set;
  * - Avoid bidirectional relationships when possible
  * - Use JOIN FETCH in queries instead of EAGER
  * - Prefer @ManyToOne over @OneToMany
- * - Never use @ManyToMany - use join entity
+ * - Prefer an explicit join entity over plain @ManyToMany when the
+ *   relationship has attributes or needs to be queried as an entity;
+ *   plain @ManyToMany is part of the JPA spec and is fine for pure
+ *   tagging-style links with no link data
  * - Consider using IDs instead of associations for loose coupling
  */
 
@@ -31,7 +51,8 @@ import java.util.Set;
  * - Examples: OrderItem -> Order, Product -> Category
  *
  * Best practices:
- * - ALWAYS use FetchType.LAZY (it's the default)
+ * - ALWAYS set fetch = FetchType.LAZY explicitly — the JPA default for
+ *   @ManyToOne is EAGER, which causes hidden N+1 queries
  * - Use optional = false if relationship is required
  * - Specify @JoinColumn name explicitly
  * - Consider using ID instead of entity reference
@@ -271,15 +292,16 @@ interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
 }
 
 // ============================================================
-// @MANYTOMANY - NEVER USE, CREATE JOIN ENTITY INSTEAD
+// @MANYTOMANY - FINE FOR PURE TAGGING; PREFER A JOIN ENTITY WHEN THE LINK HAS DATA
 // ============================================================
 
 /**
- * WRONG: Using @ManyToMany
- * Problems:
- * - Cannot add attributes to relationship
- * - Hard to maintain
- * - Performance issues
+ * Plain @ManyToMany is a valid JPA mapping, but it has no place to store
+ * data about the link itself. For an enrollment — which needs a date,
+ * status, and grade — that is a real limitation:
+ * - Nowhere to add relationship attributes (enrollmentDate, grade, status)
+ * - The join table is managed implicitly, so it is awkward to query directly
+ * For a pure tagging-style link with no extra columns, plain @ManyToMany is fine.
  */
 @Entity
 @Table(name = "students_wrong")
@@ -289,14 +311,14 @@ public class StudentWrong {
     @GeneratedValue(strategy = GenerationType.SEQUENCE)
     private Long id;
 
-    // WRONG: Direct @ManyToMany
+    // Plain @ManyToMany: no column for enrollment attributes (date, grade, status)
     @ManyToMany
     @JoinTable(
         name = "student_course",
         joinColumns = @JoinColumn(name = "student_id"),
         inverseJoinColumns = @JoinColumn(name = "course_id")
     )
-    private Set<CourseWrong> courses = new HashSet<>();
+    private Set<Course> courses = new HashSet<>();
 }
 
 /**
@@ -473,19 +495,26 @@ public class OrderCascadeExample {
 /**
  * FetchType - when to load related entities.
  *
- * LAZY (default for @ManyToOne, @OneToOne):
- * - Load only when accessed
- * - Better performance
- * - May cause LazyInitializationException
+ * Per the Jakarta Persistence specification:
+ *   @ManyToOne, @OneToOne  -> default EAGER (must override to LAZY)
+ *   @OneToMany, @ManyToMany -> default LAZY
  *
- * EAGER (default for @OneToMany, @ManyToMany):
+ * EAGER:
  * - Load immediately with parent
- * - Causes N+1 queries
- * - Avoid unless collection is tiny
+ * - Easy to forget; can fan out into N+1 queries
+ * - Cannot be downgraded to LAZY at query time
+ *
+ * LAZY:
+ * - Load only when first accessed
+ * - May throw LazyInitializationException if accessed outside a session
+ * - Pair with JOIN FETCH / @EntityGraph for paths that genuinely need the
+ *   association
  *
  * BEST PRACTICE:
- * - Always use LAZY
- * - Use JOIN FETCH in queries when needed
+ * - Explicitly set FetchType.LAZY on every @ManyToOne / @OneToOne (the
+ *   defaults are EAGER and almost always wrong for production code).
+ * - Leave @OneToMany / @ManyToMany at the LAZY default; never set them EAGER.
+ * - Use JOIN FETCH or @EntityGraph in queries when you need the association.
  */
 @Entity
 @Table(name = "fetch_example")
@@ -538,10 +567,10 @@ interface FetchExampleRepository extends JpaRepository<FetchExample, Long> {
    - Harder to maintain
    - Query from the owning side instead
 
-4. NEVER USE @MANYTOMANY:
-   - Create explicit join entity
-   - Allows adding attributes to relationship
-   - Better control and maintainability
+4. PREFER A JOIN ENTITY WHEN THE LINK HAS DATA:
+   - Plain @ManyToMany is valid JPA and fine for pure tagging-style links
+   - Use an explicit join entity when the link needs attributes or its own lifecycle
+   - A join entity gives better control, queryability, and maintainability
 
 5. USE IDS INSTEAD OF ENTITIES:
    - For loose coupling between modules
@@ -575,8 +604,8 @@ interface FetchExampleRepository extends JpaRepository<FetchExample, Long> {
 ❌ Bidirectional @OneToMany everywhere
    ✅ Query from many side
 
-❌ @ManyToMany relationships
-   ✅ Create join entity
+❌ @ManyToMany when the link needs attributes or lifecycle
+   ✅ Create a join entity (plain @ManyToMany is fine for pure tagging)
 
 ❌ Mapping every association
    ✅ Use IDs for loose coupling

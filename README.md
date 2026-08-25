@@ -22,7 +22,7 @@ Built on patterns from [spring-boot-application-architecture-patterns](https://g
 
 ## Installation
 
-> **Using Codex?** See [CODEX-COMPATIBILITY.md](./CODEX-COMPATIBILITY.md) for detailed Codex installation and usage instructions.
+> **Using Codex?** Codex installation and usage instructions are inline below — see [Codex (Manual Installation)](#codex-manual-installation) and [Usage → Codex](#codex).
 
 ### Claude Code (Plugin Marketplace)
 
@@ -144,7 +144,7 @@ Value Objects, Rich Entities, CQRS services, converters, REST controllers, Flywa
 **JPA templates** (`spring-data-jpa/assets/`)
 Query repositories, DTO projections, custom repos, CQRS query services, relationship patterns.
 
-**Reviewer references** (`java25-springboot4-reviewer/references/`)
+**Reviewer references** (`code-reviewer/references/`)
 Architecture patterns, decision matrices, performance checklists.
 
 **Reference guides** (`spring-data-jpa/references/`)
@@ -162,19 +162,21 @@ cat QUICKSTART.md
 ```
 
 **Full test suite:**
-- 8 baseline scenarios testing each skill's core behaviors
+- 8 baseline scenarios defined for each skill's core behaviors
 - RED-GREEN-REFACTOR methodology
 - Rationalization tracking
 - See `tests/README.md` for complete testing guide
+
+> **Current coverage:** the harness is set up for all 8 scenarios, but only Scenario 7 (`code-reviewer` review rigor) has actually been executed and recorded in `tests/baseline-results/scenario-7.md`. Scenarios 1–6 and 8 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
 
 Based on [terraform-skill testing approach](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md).
 
 ## Prerequisites
 
 - Claude Code CLI
-- Java 25
+- Java 17+ (Java 25 recommended for new projects)
 - Maven or Gradle
-- Spring Boot 4.0+ familiarity
+- Spring Boot 4.1+ familiarity
 
 ## Evolution Path
 

@@ -8,7 +8,7 @@
 4. [Test Annotations](#test-annotations)
 5. [Retry and Resilience](#retry-and-resilience)
 6. [Observability](#observability)
-7. [Problem Details (RFC 7807)](#problem-details)
+7. [Problem Details (RFC 7807)](#problem-details-rfc-7807)
 8. [Configuration](#configuration)
 9. [Virtual Threads Integration](#virtual-threads-integration)
 
@@ -23,7 +23,7 @@
 <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>4.0.0</version>
+    <version>4.1.0</version>
 </parent>
 ```
 
@@ -34,7 +34,7 @@ Or with dependency management:
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-dependencies</artifactId>
-            <version>4.0.0</version>
+            <version>4.1.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -217,14 +217,22 @@ public class JacksonConfig implements Jackson2ObjectMapperBuilderCustomizer {
 
 ✅ **Spring Boot 4**
 ```java
+import tools.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
+import org.springframework.stereotype.Component;
+
 @Component
 public class JacksonConfig implements JsonMapperBuilderCustomizer {
     @Override
-    public void customize(JsonMapperBuilder builder) {
-        builder.serializationInclusion(JsonInclude.Include.NON_NULL);
+    public void customize(JsonMapper.Builder jsonMapperBuilder) {
+        jsonMapperBuilder.changeDefaultPropertyInclusion(
+            incl -> incl.withValueInclusion(JsonInclude.Include.NON_NULL));
     }
 }
 ```
+
+> The parameter type is the `Builder` inner class on `tools.jackson.databind.json.JsonMapper`, not a top-level `JsonMapperBuilder`. Use the `changeDefaultPropertyInclusion(UnaryOperator)` builder method (Jackson 3 replacement for `serializationInclusion(...)`).
 
 ---
 
@@ -266,7 +274,7 @@ class UserControllerTest {
 
 ✅ **Spring Boot 4**
 ```java
-import org.springframework.boot.test.autoconfigure.webmvc.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 
 @WebMvcTest(UserController.class)
 class UserControllerTest {
@@ -336,9 +344,10 @@ import org.springframework.resilience.annotation.ConcurrencyLimit;
 
 @Service
 public class PaymentService {
+    // 1 initial attempt + maxRetries — up to 3 total invocations
     @Retryable(
         includes = {PaymentException.class},
-        maxAttempts = 3,
+        maxRetries = 2,
         delay = 1000,
         multiplier = 2
     )
@@ -661,7 +670,7 @@ spring:
 - 10,000+ concurrent requests
 - I/O-bound workload (database, HTTP, messaging)
 - Thread pool exhaustion observed in metrics
-- Java 21+ and Spring Boot 3.2+
+- Java 21+ on Spring Boot 4 (virtual threads have been GA since Java 21; Boot 4 enables them via `spring.threads.virtual.enabled=true`)
 
 ### Async Methods with Virtual Threads
 
@@ -733,14 +742,14 @@ Source: [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spr
 
 ### 2. Old Jackson Group IDs
 
-❌ `com.fasterxml.jackson.*` → Expected to change to `tools.jackson.*` (verify in your project)
-⚠️ Note: Jackson 3 packaging details may vary - check Spring Boot 4 BOM for actual group IDs
+❌ `com.fasterxml.jackson.core:jackson-core` / `jackson-databind` → moved to `tools.jackson.core:jackson-core` / `jackson-databind` in Jackson 3.
+✅ `jackson-annotations` intentionally stays on the legacy `com.fasterxml.jackson.core` group ID so projects can mix Jackson 2 and Jackson 3 during ecosystem migration. Source: [Introducing Jackson 3 support in Spring (2025-10-07)](https://spring.io/blog/2025/10/07/introducing-jackson-3-support-in-spring/).
 
 ### 3. Old Test Annotations
 
 ❌ `@MockBean` → Should be `@MockitoBean`
 ❌ `@SpyBean` → Should be `@MockitoSpyBean`
-❌ `import org.springframework.boot.test.autoconfigure.web.servlet.*` → Should be `.webmvc.*`
+❌ `import org.springframework.boot.test.autoconfigure.web.servlet.*` → Should be `org.springframework.boot.webmvc.test.autoconfigure.*`
 
 ### 4. Missing AOP for Retry/Resilience
 
@@ -771,7 +780,7 @@ Source: [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spr
 
 ### 8. TestRestTemplate in Boot 4
 
-❌ `TestRestTemplate` → Deprecated in Spring Boot 4
+❌ `TestRestTemplate` autowired by default → no longer auto-provided by `@SpringBootTest` in Boot 4 (the class itself is still supported, not deprecated)
 ✅ Use `RestTestClient` (`org.springframework.test.web.servlet.client.RestTestClient`)
 
 ```java
@@ -827,11 +836,16 @@ public List<ProductVM> searchV2(@RequestParam("q") String query) { ... }
 spring:
   mvc:
     apiversion:
-      enabled: true
-      strategy: header
-      default-version: "1.0"
-      header-name: "API-Version"
+      default: "1.0"
+      supported: "1.0,2.0"
+      use:
+        header: X-API-Version
+        # query-parameter: version
+        # path-segment: 1
+        # media-type-parameter[application/json]: version
 ```
+
+The Java-config equivalent uses `WebMvcConfigurer.configureApiVersioning(ApiVersionConfigurer)` with `useRequestHeader`/`useQueryParam`/`useMediaTypeParameter`/`usePathSegment`. The `ApiVersionConfigurer` class is in `org.springframework.web.servlet.config.annotation`; the default parser is `SemanticApiVersionParser` in `org.springframework.web.accept`.
 
 Source: [API Versioning in Spring](https://spring.io/blog/2025/09/16/api-versioning-in-spring/)
 

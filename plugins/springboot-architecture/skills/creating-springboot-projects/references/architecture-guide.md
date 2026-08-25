@@ -1,5 +1,16 @@
 # Spring Boot Architecture Patterns Guide
 
+## Table of Contents
+
+1. [Architecture Decision Matrix](#architecture-decision-matrix)
+2. [Package Structures](#package-structures)
+3. [Naming Conventions](#naming-conventions)
+4. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
+5. [Architecture Upgrade Path](#architecture-upgrade-path)
+6. [Best Practices](#best-practices)
+
+---
+
 ## Architecture Decision Matrix
 
 | Criteria | Layered | Package-by-Module | Modulith | Tomato | DDD+Hex |
@@ -128,7 +139,7 @@ com.example.app/
 
 ### General Conventions
 
-- Use singular names for packages: `product/` not `products/`
+- Use plural names for feature/module packages: `products/` not `product/`
 - Value Objects are immutable and use `of()` factory method
 - Commands are immutable records
 - View Models are immutable records for API responses

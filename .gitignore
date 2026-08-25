@@ -24,6 +24,8 @@ package-lock.json
 dist/
 build/
 target/
+__pycache__/
+*.py[cod]
 
 # Environment files
 .env
@@ -31,3 +33,6 @@ target/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Internal working doc (kept local, not part of the marketplace)
+MIGRATION_AUDIT.md

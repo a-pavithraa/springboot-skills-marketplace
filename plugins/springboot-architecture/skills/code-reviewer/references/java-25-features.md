@@ -103,7 +103,7 @@ public class UserService {
 - [ ] Application has 10,000+ concurrent tasks (measure actual concurrency, not daily totals)
 - [ ] Workload is primarily I/O-bound (database, HTTP, file operations)
 - [ ] Thread pool exhaustion is observed in production metrics
-- [ ] Using Java 21+ and Spring Boot 3.2+
+- [ ] Using Java 21+ on Spring Boot 4 (or Spring Boot 3.2+ on legacy stacks)
 
 **IF requirements met, then migrate:**
 - [ ] Replace `@Async` thread pools with virtual threads config
@@ -423,18 +423,23 @@ Collections.reverse(list); // Mutates!
 ```java
 String first = list.getFirst();
 String last = list.getLast();
-List<String> reversed = list.reversed(); // Immutable view
+List<String> reversed = list.reversed(); // Read-only view (writes throw UnsupportedOperationException)
 ```
 
 ---
 
 ## String Templates
 
-**Status:** ❌ WITHDRAWN (was JEP 430/459, removed in Java 23)
+**Status:** ❌ WITHDRAWN — not available in Java 25
 
 ⚠️ **String Templates were withdrawn from the Java language and are NOT available in Java 25.**
 
-The feature was previewed in Java 21-22 but was removed before becoming standard due to community feedback. Use traditional string formatting instead:
+Timeline:
+- JEP 430 — First Preview, delivered in JDK 21 (Status: Closed / Delivered)
+- JEP 459 — Second Preview, delivered in JDK 22 (Status: Closed / Delivered)
+- JEP 465 — proposed Third Preview, **Closed / Withdrawn** before JDK 23. No string-template feature shipped in JDK 23 or later.
+
+Use traditional string formatting instead:
 
 ```java
 String name = "Alice";
@@ -447,16 +452,18 @@ String msg = String.format("Hello, %s! You are %d years old.", name, age);
 String msg = "Hello, " + name + "! You are " + age + " years old.";
 
 // ✅ Or text blocks for multi-line
+// Note: closing """ on its own line keeps a trailing newline. Strip it
+// with .stripTrailing(), or put the """ right after the last character.
 String msg = """
     Hello, %s!
     You are %d years old.
-    """.formatted(name, age);
+    """.stripTrailing().formatted(name, age);
 
 // ❌ NOT AVAILABLE: String templates
 // String msg = STR."Hello, \{name}! You are \{age} years old.";
 ```
 
-**Reference:** [JEP 430 (Withdrawn)](https://openjdk.org/jeps/430)
+**References:** [JEP 430](https://openjdk.org/jeps/430), [JEP 459](https://openjdk.org/jeps/459), [JEP 465 (Withdrawn)](https://openjdk.org/jeps/465)
 
 ---
 
@@ -506,7 +513,7 @@ if (obj instanceof byte b) {  // Won't match - lossy conversion
 
 ## Module Import Declarations
 
-**Status:** Preview (Java 25)
+**Status:** Standard (JEP 511 - Java 25; previewed via JEP 476 in JDK 23 and JEP 494 in JDK 24)
 
 Simplifies importing all packages from a module.
 
@@ -531,7 +538,7 @@ ResultSet rs = ...;
 
 ## Flexible Constructor Bodies
 
-**Status:** Preview (Java 25)
+**Status:** Standard (JEP 513 - Java 25; previewed via JEP 447 in JDK 22 and JEP 492 in JDK 24)
 
 Allows statements before `this()` or `super()` calls in constructors.
 
@@ -567,9 +574,9 @@ public class User {
 
 ## Scoped Values API
 
-**Status:** Preview (Java 25)
+**Status:** Standard (JEP 506, finalized in Java 25)
 
-Thread-local-like values optimized for virtual threads and structured concurrency.
+Thread-local-like values optimized for virtual threads and structured concurrency. Finalized in JDK 25 with one behavior change: `ScopedValue.orElse` no longer accepts null as its argument.
 
 ```java
 public class RequestContext {
@@ -601,22 +608,30 @@ RequestContext.handleRequest("user123", () -> {
 
 ## Stable Values API
 
-**Status:** Preview (Java 25)
+**Status:** Preview (JEP 502 - Java 25)
 
-Provides values that are computed lazily and cached.
+Provides at-most-once initialization with deferred immutability — like `final` but initialized on demand. JEP 502 uses a no-arg factory `StableValue.of()` to create an unset holder, and `orElseSet(Supplier)` to initialize-or-read.
 
 ```java
 public class ConfigurationManager {
-    private final StableValue<DatabaseConfig> config = StableValue.of(() -> {
-        // Expensive computation, only runs once
-        return loadDatabaseConfig();
-    });
+    // Unset stable value
+    private final StableValue<DatabaseConfig> config = StableValue.of();
 
     public DatabaseConfig getConfig() {
-        return config.get();  // Cached after first call
+        // orElseSet returns the cached value if already set; otherwise it
+        // evaluates the supplier exactly once (even under concurrent calls)
+        // and caches the result.
+        return config.orElseSet(this::loadDatabaseConfig);
+    }
+
+    private DatabaseConfig loadDatabaseConfig() {
+        // Expensive initialization — runs at most once via orElseSet above.
+        return new DatabaseConfig(/* ... */);
     }
 }
 ```
+
+**Source:** [JEP 502](https://openjdk.org/jeps/502) — "stable value, created with the static factory method `StableValue.of()` ... `orElseSet` method guarantees that the provided lambda expression is evaluated only once, even when ... invoked concurrently."
 
 **Use cases:**
 - Expensive computations that should run at most once
@@ -627,32 +642,43 @@ public class ConfigurationManager {
 
 ## Key Derivation Function API
 
-**Status:** Preview (Java 25)
+**Status:** Standard (JEP 510 - Java 25; previewed via JEP 478 in JDK 24)
 
-Standard API for password-based key derivation (PBKDF2, bcrypt, scrypt, argon2).
+JEP 510 introduces `javax.crypto.KDF`, a unified API for Key Derivation Functions. **The only algorithm shipped in JDK 25 is HKDF** (HMAC-based, RFC 5869). PBKDF1 and PBKDF2 stay on the existing `SecretKeyFactory` API. Argon2 is listed as future work, and bcrypt/scrypt are not included.
 
 ```java
-// Generate key from password
-KeyDerivation kd = KeyDerivation.getInstance("PBKDF2WithHmacSHA256");
-KDFParameters params = KDFParameters.ofPBKDF2()
-    .salt(salt)
-    .iterations(100000)
-    .keyLength(256);
+import javax.crypto.KDF;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.HKDFParameterSpec;
+import java.security.spec.AlgorithmParameterSpec;
 
-SecretKey key = kd.deriveKey(password, params);
+// HKDF "extract then expand" mode — produce a 32-byte derived key
+KDF hkdf = KDF.getInstance("HKDF-SHA256");
 
-// For password hashing (bcrypt-style)
-KeyDerivation kd = KeyDerivation.getInstance("bcrypt");
-byte[] hash = kd.deriveKey(password, params).getEncoded();
+AlgorithmParameterSpec spec = HKDFParameterSpec
+        .ofExtract()
+        .addIKM(inputKeyMaterial)   // initial key material (byte[] or SecretKey)
+        .addSalt(salt)              // byte[]
+        .thenExpand(info, 32);      // info bytes + output length in bytes
+
+SecretKey derived = hkdf.deriveKey("AES", spec);
+
+// For raw bytes instead of a SecretKey
+byte[] keyBytes = hkdf.deriveData(spec);
 ```
 
-**Benefit:** Unified API for all KDF algorithms instead of provider-specific code.
+**Use cases:** session-key derivation in TLS 1.3-style protocols, deriving multiple keys from a master secret, PKCS#11-backed HKDF on hardware crypto devices.
+
+**Do NOT use this API for:**
+- **Password hashing.** JEP 510 explicitly leaves PBKDF1/PBKDF2 on `SecretKeyFactory`; bcrypt, scrypt, and Argon2 are not included in JDK 25.
+
+**Source:** [JEP 510](https://openjdk.org/jeps/510) — "We define a new class, `javax.crypto.KDF` ... The HKDF algorithm ... is the only KDF we intend to include at this time ... PBKDF1 and PBKDF2 ... will remain available via the existing `SecretKeyFactory` API."
 
 ---
 
 ## Foreign Function & Memory API
 
-**Status:** Preview (JEP 454 - Java 22+)
+**Status:** Standard (JEP 454 - Java 22+)
 
 **Use case:** Native library integration without JNI
 
@@ -690,14 +716,17 @@ byte[] hash = kd.deriveKey(password, params).getEncoded();
 8. **Switch Pattern Matching** - When working with type hierarchies
 9. **Primitive Patterns** - When pattern matching with primitives (preview)
 
+### Medium Priority (Standard but situational)
+
+10. **Scoped Values** - Standard in JDK 25 (JEP 506). Adopt for request-scoped context propagation in virtual-thread-heavy applications instead of `ThreadLocal`.
+11. **Module Import Declarations** - Standard in JDK 25 (JEP 511). Only worth adopting for module-heavy codebases.
+12. **Flexible Constructor Bodies** - Standard in JDK 25 (JEP 513). Adopt only when constructor validation logic is genuinely cleaner than helper-method workarounds.
+13. **Key Derivation Function API** - Standard in JDK 25 (JEP 510). Adopt `javax.crypto.KDF` for HKDF-based key derivation (e.g. deriving session or sub-keys from a master secret). It ships **only HKDF** — password hashing stays on `SecretKeyFactory` (PBKDF1/PBKDF2), and Argon2/scrypt/bcrypt are not included.
+
 ### Low Priority (Evaluate Carefully)
 
-10. **Module Import Declarations** - Preview, only for module-heavy codebases
-11. **Flexible Constructor Bodies** - Preview, only when needed for validation
-12. **Scoped Values** - Preview, only for virtual thread-heavy applications
-13. **Stable Values** - Preview, can use existing lazy initialization patterns
-14. **Key Derivation Function API** - Preview, only for new security code
-15. **FFM API** - Only if calling native libraries
+14. **Stable Values** - Preview in JDK 25 (JEP 502). Existing lazy-initialization patterns already cover most cases.
+15. **FFM API** - Standard since JDK 22 (JEP 454). Adopt only if calling native libraries; otherwise plain Java is simpler.
 
 ### Not Available
 
@@ -716,12 +745,12 @@ When reviewing Java code, check for:
 - [ ] Thread pools with metrics showing exhaustion → Evaluate virtual threads (requires 10,000+ concurrent tasks and I/O-bound workload)
 - [ ] `list.get(0)` / `list.get(list.size()-1)` → Use `getFirst()` / `getLast()`
 - [ ] Open-ended class hierarchies that should be sealed → Use sealed classes
-- [ ] Pattern matching with boxed primitives → Consider primitive patterns (preview)
-- [ ] Many imports from single module → Consider module import declarations (preview)
-- [ ] Complex constructor validation → Consider flexible constructor bodies (preview)
-- [ ] ThreadLocal for request context → Consider Scoped Values (preview)
-- [ ] Manual lazy initialization → Consider Stable Values (preview)
-- [ ] Custom KDF implementations → Consider Key Derivation Function API (preview)
+- [ ] Pattern matching with boxed primitives → Consider primitive patterns (preview in JDK 25, JEP 507)
+- [ ] Many imports from single module → Consider module import declarations (standard in JDK 25, JEP 511)
+- [ ] Complex constructor validation → Consider flexible constructor bodies (standard in JDK 25, JEP 513)
+- [ ] ThreadLocal for request context → Use Scoped Values (standard in JDK 25, JEP 506)
+- [ ] Manual lazy initialization → Consider Stable Values (preview in JDK 25, JEP 502)
+- [ ] Custom KDF implementations → Consider Key Derivation Function API (standard in JDK 25, JEP 510)
 
 ## Official Documentation
 

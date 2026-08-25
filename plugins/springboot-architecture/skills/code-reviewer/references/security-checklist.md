@@ -4,13 +4,11 @@
 
 1. [OWASP Top 10 (2021)](#owasp-top-10)
 2. [Spring Security Patterns](#spring-security-patterns)
-3. [Authentication](#authentication)
-4. [Authorization](#authorization)
-5. [Input Validation](#input-validation)
-6. [Cryptography](#cryptography)
-7. [Session Management](#session-management)
-8. [API Security](#api-security)
-9. [Logging and Monitoring](#logging-and-monitoring)
+3. [Input Validation](#input-validation)
+4. [Review Checklist](#review-checklist)
+5. [Official Documentation](#official-documentation)
+
+Authentication / authorization, cryptography, session management, API security, and logging are folded into the [OWASP Top 10](#owasp-top-10) subsections (A01–A10) below.
 
 ---
 
@@ -417,26 +415,37 @@ public String fetchContent(@RequestParam String url) {
     return restClient.get().uri(url).retrieve().body(String.class);
 }
 
+// Whitelist approach (preferred — fail closed):
+private static final Set<String> ALLOWED_HOSTS =
+    Set.of("api.example.com", "cdn.example.com");
+
 private boolean isAllowedUrl(String url) {
     try {
         URI uri = new URI(url);
         String host = uri.getHost();
-
-        // Whitelist approach
-        return ALLOWED_HOSTS.contains(host);
-
-        // Or blacklist localhost, private IPs
-        if (host.equals("localhost") ||
-            host.equals("127.0.0.1") ||
-            host.startsWith("192.168.") ||
-            host.startsWith("10.") ||
-            host.startsWith("172.16.")) {
+        if (host == null) {
             return false;
         }
-        return true;
+        return ALLOWED_HOSTS.contains(host);
     } catch (URISyntaxException e) {
         return false;
     }
+}
+```
+
+If you genuinely cannot enumerate allowed hosts (e.g., open-fetcher service), fall back to blocking localhost and RFC 1918 private ranges instead — but be aware blacklists miss IPv6 link-local, IPv4-mapped IPv6, hostname → private-IP DNS rebinding, and cloud metadata endpoints like `169.254.169.254`:
+
+```java
+private boolean isPublicHost(String host) {
+    if (host == null) {
+        return false;
+    }
+    return !(host.equals("localhost") ||
+             host.equals("127.0.0.1") ||
+             host.startsWith("192.168.") ||
+             host.startsWith("10.") ||
+             host.startsWith("172.16.") ||
+             host.equals("169.254.169.254")); // cloud metadata
 }
 ```
 
@@ -501,14 +510,14 @@ private String secret;  // From environment, at least 256 bits
 // Or better: use asymmetric keys (RS256)
 ```
 
-✅ **Secure: JWT validation**
+✅ **Secure: JWT validation (JJWT 0.12+)**
 ```java
 public boolean validateToken(String token) {
     try {
-        Jwts.parserBuilder()
-            .setSigningKey(key)
+        Jwts.parser()
+            .verifyWith(key)          // SecretKey or PublicKey
             .build()
-            .parseClaimsJws(token);
+            .parseSignedClaims(token);
         return true;
     } catch (JwtException | IllegalArgumentException e) {
         log.error("Invalid JWT token: {}", e.getMessage());
@@ -516,6 +525,8 @@ public boolean validateToken(String token) {
     }
 }
 ```
+
+> `Jwts.parserBuilder() / setSigningKey() / parseClaimsJws()` is the pre-0.12 API and is deprecated. Use `parser() / verifyWith() / parseSignedClaims()` on JJWT 0.12+.
 
 **Review Points:**
 - [ ] JWT secret at least 256 bits (or use RS256)

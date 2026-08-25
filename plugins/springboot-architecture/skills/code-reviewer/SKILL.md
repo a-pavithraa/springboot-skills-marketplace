@@ -1,19 +1,19 @@
 ---
 name: code-reviewer
-description: Reviews Java 25 and Spring Boot 4 codebases, pull requests, files, and modules for migration risks, architecture boundary violations, JSpecify null-safety issues, security flaws, performance regressions, and Spring Data pitfalls. Use when the task is a concrete Java or Spring code review with code context. Do not use for Kotlin-only code, non-Spring frameworks, or generic review advice without files or diffs.
+description: Use when reviewing Spring Boot 4 / Java 17+ code with concrete files or diffs — pull requests, modules, or pasted Java/Spring sources — for migration risks, architecture boundary leaks, JSpecify null-safety gaps, security flaws, performance regressions, or Spring Data pitfalls. Not for Kotlin-only code, non-Spring frameworks, or generic review advice without code context.
 ---
 
-# Java 25 and Spring Boot 4 Reviewer
+# Spring Boot 4 Reviewer (Java 17+)
 
 ## Purpose
 
-Use this skill to run a structured review of Java 25 and Spring Boot 4 code. Keep findings grounded in the actual codebase and use the reference files only for the focus areas that apply.
+Use this skill to run a structured review of Spring Boot 4 code on any supported Java version (17 minimum; 21 LTS and 25 are common in greenfield Boot 4 projects). Keep findings grounded in the actual codebase and use the reference files only for the focus areas that apply.
 
 ## Critical rules
 
 - Never review without code context. Ask for files, diffs, or the relevant module if none is provided.
 - Always cite file paths and line numbers for findings.
-- Treat Java 25 and Spring Boot 4 as the target baseline unless the build files show otherwise.
+- Treat Spring Boot 4 as the target. Read the project's `pom.xml` / `build.gradle` to determine the actual Java version (Boot 4 supports 17, 21, and 25). Do not flag Java 17 or 21 as "too old" — they are valid Boot 4 baselines.
 - Analyze workload before recommending virtual threads, reactive rewrites, or architecture changes.
 - Use JSpecify as the preferred null-safety baseline for new Boot 4 code, but confirm whether the codebase is still in transition before flagging every legacy annotation.
 - Prefer official Spring and Java guidance when a claim depends on framework behavior.

@@ -2,6 +2,17 @@
 
 Use for complex operations beyond standard JpaRepository.
 
+## Table of Contents
+
+1. [Structure](#structure)
+2. [Criteria API - Dynamic Queries](#criteria-api---dynamic-queries)
+3. [Bulk Operations](#bulk-operations)
+4. [Native Queries](#native-queries)
+5. [EntityManager Operations](#entitymanager-operations)
+6. [Best Practices](#best-practices)
+
+---
+
 ## Structure
 
 1. **Custom interface** - Define methods

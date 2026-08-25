@@ -312,6 +312,8 @@ A **Rich Domain Model** contains both **data AND behavior**. Business logic live
 
 ### Example: Rich Entity
 
+The value objects (`OrderId`, `OrderNumber`, `Money`, `Quantity`) are records declared with `@Embeddable` — required by Jakarta Persistence 3.2 §2.7 for any class used in `@Embedded` / `@EmbeddedId` fields. Records as embeddables work on Hibernate 6.2+ (Boot 4 ships Hibernate 7.x).
+
 ```java
 // ✅ RICH: Entity has behavior
 @Entity
@@ -319,16 +321,16 @@ A **Rich Domain Model** contains both **data AND behavior**. Business logic live
 public class Order extends BaseEntity {
 
     @EmbeddedId
-    private OrderId id;
+    private OrderId id;          // @Embeddable record
 
     @Embedded
-    private OrderNumber orderNumber;  // ✅ Value Object, not String
+    private OrderNumber orderNumber;  // ✅ @Embeddable record, not String
 
     @Embedded
-    private Money total;  // ✅ Value Object, not BigDecimal
+    private Money total;  // ✅ @Embeddable record, not BigDecimal
 
     @Embedded
-    private Quantity quantity;  // ✅ Value Object, not Integer
+    private Quantity quantity;  // ✅ @Embeddable record, not Integer
 
     @Enumerated(EnumType.STRING)
     private OrderStatus status;
@@ -627,7 +629,12 @@ private Money price;
 #### Step 2: Create Value Objects
 
 ```java
-// Example: OrderNumber as a Value Object
+// Example: OrderNumber as a Value Object.
+// If this VO will be embedded in a JPA entity (@Embedded / @EmbeddedId),
+// the record itself must carry @Embeddable — Jakarta Persistence 3.2 §2.7
+// allows records as embeddable classes (Hibernate 6.2+), but the annotation
+// declaration is still required.
+@Embeddable
 public record OrderNumber(String value) {
     public OrderNumber {
         // Validation in constructor (fail-fast)

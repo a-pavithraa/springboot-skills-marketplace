@@ -2,7 +2,8 @@ package {{PACKAGE}}.{{MODULE}}.domain;
 
 import {{PACKAGE}}.{{MODULE}}.domain.vo.*;
 import {{PACKAGE}}.{{MODULE}}.domain.models.{{NAME}}VM;
-import {{PACKAGE}}.shared.SpringEventPublisher;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,15 +18,22 @@ import java.util.List;
 
 // ============================================================
 // WRITE SERVICE - Commands, state changes
+// ------------------------------------------------------------
+// NOTE: this bundle template shows two services in one file for
+// readability. Java only allows one `public` top-level type per
+// source file, so both services are package-private (no `public`
+// modifier) — same convention as controller.java / repository.java.
+// If you need them to be `public`, split each class into its own
+// .java file before applying.
 // ============================================================
 
 @Service
 @Transactional
-public class {{NAME}}Service {
+class {{NAME}}Service {
     private final {{NAME}}Repository repository;
-    private final SpringEventPublisher eventPublisher;
+    private final ApplicationEventPublisher eventPublisher;
 
-    {{NAME}}Service({{NAME}}Repository repository, SpringEventPublisher eventPublisher) {
+    {{NAME}}Service({{NAME}}Repository repository, ApplicationEventPublisher eventPublisher) {
         this.repository = repository;
         this.eventPublisher = eventPublisher;
     }
@@ -34,7 +42,7 @@ public class {{NAME}}Service {
         var entity = {{NAME}}Entity.create(cmd.details());
         repository.save(entity);
 
-        eventPublisher.publish(new {{NAME}}Created(
+        eventPublisher.publishEvent(new {{NAME}}Created(
             entity.getCode().code(),
             entity.getDetails().name()
         ));
@@ -47,7 +55,7 @@ public class {{NAME}}Service {
         entity.activate();
         repository.save(entity);
 
-        eventPublisher.publish(new {{NAME}}Activated(code.code()));
+        eventPublisher.publishEvent(new {{NAME}}Activated(code.code()));
     }
 
     public void deactivate({{NAME}}Code code) {
@@ -63,7 +71,7 @@ public class {{NAME}}Service {
 
 @Service
 @Transactional(readOnly = true)
-public class {{NAME}}QueryService {
+class {{NAME}}QueryService {
     private final {{NAME}}Repository repository;
     private final {{NAME}}Mapper mapper;
 

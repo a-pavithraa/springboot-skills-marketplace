@@ -2,6 +2,20 @@
 
 Separate read operations from write operations for Tomato/DDD architectures.
 
+## Table of Contents
+
+1. [Pattern](#pattern)
+2. [Query Service Implementation](#query-service-implementation)
+3. [View Models (Records)](#view-models-records)
+4. [Complex Queries with JOINs](#complex-queries-with-joins)
+5. [Pagination](#pagination)
+6. [Dynamic Search](#dynamic-search)
+7. [RowMapper for Complex Mappings](#rowmapper-for-complex-mappings)
+8. [Usage Pattern](#usage-pattern)
+9. [Benefits](#benefits)
+
+---
+
 ## Pattern
 
 - **Repository** (package-private): Write operations, returns entities
@@ -107,11 +121,24 @@ public List<ProductWithStatsVM> findTopSelling(int limit) {
 }
 ```
 
+The matching view model:
+
+```java
+public record ProductWithStatsVM(
+    Long id,
+    String sku,
+    String name,
+    BigDecimal price,
+    int orderCount,
+    int totalSold
+) {}
+```
+
 ## Pagination
 
 ```java
 public Page<ProductVM> findPage(int page, int size) {
-    int offset = page * size;
+    Pageable pageable = PageRequest.of(page, size);
 
     Long total = jdbcTemplate.queryForObject(
         "SELECT COUNT(*) FROM products WHERE status = 'ACTIVE'",
@@ -126,13 +153,15 @@ public Page<ProductVM> findPage(int page, int size) {
         LIMIT ? OFFSET ?
         """,
         ps -> {
-            ps.setInt(1, size);
-            ps.setInt(2, offset);
+            ps.setInt(1, pageable.getPageSize());
+            ps.setInt(2, (int) pageable.getOffset());
         },
         (rs, rowNum) -> new ProductVM(/* ... */)
     );
 
-    return new Page<>(content, page, size, total);
+    // org.springframework.data.domain.Page is an interface — instantiate
+    // PageImpl (its standard implementation) instead.
+    return new PageImpl<>(content, pageable, total != null ? total : 0L);
 }
 ```
 

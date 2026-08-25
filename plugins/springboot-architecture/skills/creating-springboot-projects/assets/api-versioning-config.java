@@ -1,47 +1,47 @@
 package {{PACKAGE}}.config;
 
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.api.ApiVersionParser;
-import org.springframework.web.api.ApiVersionResolver;
+import org.springframework.web.accept.SemanticApiVersionParser;
+import org.springframework.web.servlet.config.annotation.ApiVersionConfigurer;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * API Versioning Configuration (Spring Boot 4).
+ * API Versioning Configuration (Spring Boot 4 / Spring Framework 7).
  *
- * Spring Boot 4 provides native API versioning support.
- * Configuration options:
+ * Two equivalent configuration options:
  * 1. Properties-based (recommended) - see application.yml below
- * 2. Bean-based (shown here) - for more control
+ * 2. Java configuration via WebMvcConfigurer.configureApiVersioning (shown here)
  *
- * Versioning strategies:
- * 1. Request Header (recommended) - API-Version: 2.0
- * 2. Query Parameter - /api/books?version=2.0
- * 3. Media Type Parameter - Accept: application/json;ver=2.0
- * 4. Path - /v2/api/books
+ * Versioning strategies (pick one, or combine resolvers via useVersionResolver):
+ * 1. Request Header  - useRequestHeader("X-API-Version")
+ * 2. Query Parameter - useQueryParam("version")
+ * 3. Media Type      - useMediaTypeParameter(MediaType.APPLICATION_JSON, "version")
+ * 4. Path Segment    - usePathSegment(index)
  *
- * Benefits:
- * - Clean URL structure (with header approach)
- * - Easy to test
- * - Works with HTTP Service Client (@HttpExchange)
+ * Reference: https://docs.spring.io/spring-framework/reference/web/webmvc-versioning.html
  */
 @Configuration
-public class ApiVersioningConfig {
+public class ApiVersioningConfig implements WebMvcConfigurer {
 
     /**
-     * Bean-based configuration (use this OR properties, not both).
+     * Java configuration (use this OR the properties below, not both).
+     *
+     * Spring Framework 7 wires the resolver, parser, supported versions, default
+     * version, and deprecation handler through ApiVersionConfigurer. There are no
+     * static factories like ApiVersionResolver.fromHeader(...) — call the
+     * configurer methods directly.
      */
-    @Bean
-    public ApiVersionResolver apiVersionResolver() {
-        // Choose ONE strategy:
-        return ApiVersionResolver.fromHeader("API-Version");     // Recommended
-        // return ApiVersionResolver.fromQueryParameter("version");
-        // return ApiVersionResolver.fromMediaType();
-        // return ApiVersionResolver.fromPath();
-    }
-
-    @Bean
-    public ApiVersionParser apiVersionParser() {
-        return ApiVersionParser.semantic();  // Supports semver (1.0.0, 2.1.3)
+    @Override
+    public void configureApiVersioning(ApiVersionConfigurer configurer) {
+        configurer
+                .useRequestHeader("X-API-Version")            // recommended strategy
+                // Alternative resolvers (uncomment one):
+                // .useQueryParam("version")
+                // .useMediaTypeParameter(MediaType.APPLICATION_JSON, "version")
+                // .usePathSegment(1)
+                .addSupportedVersions("1.0", "2.0")
+                .setDefaultVersion("1.0")
+                .setVersionParser(new SemanticApiVersionParser()); // optional — default
     }
 }
 
@@ -49,21 +49,23 @@ public class ApiVersioningConfig {
 // ALTERNATIVE: PROPERTIES-BASED CONFIGURATION (RECOMMENDED)
 // ============================================================
 //
-// Instead of the beans above, configure via application.yml:
+// Instead of the @Configuration class above, configure via application.yml:
 //
 // spring:
 //   mvc:
 //     apiversion:
-//       enabled: true
-//       strategy: header  # or: path, query-parameter, media-type
-//       default-version: "1.0"
-//       header-name: "API-Version"
+//       default: "1.0"
+//       supported: "1.0,2.0"
+//       use:
+//         header: X-API-Version
+//         # path-segment: 1
+//         # query-parameter: version
+//         # media-type-parameter[application/json]: version
 //
 // Or application.properties:
-// spring.mvc.apiversion.enabled=true
-// spring.mvc.apiversion.strategy=header
-// spring.mvc.apiversion.default-version=1.0
-// spring.mvc.apiversion.header-name=API-Version
+// spring.mvc.apiversion.default=1.0
+// spring.mvc.apiversion.supported=1.0,2.0
+// spring.mvc.apiversion.use.header=X-API-Version
 
 // ============================================================
 // CONTROLLER WITH VERSIONED ENDPOINTS
@@ -154,7 +156,7 @@ public class ApiVersioningConfig {
 //     @BeforeEach
 //     void setup() {
 //         client = RestTestClient.bindToApplicationContext(context)
-//                 .apiVersionInserter(ApiVersionInserter.useHeader("API-Version"))
+//                 .apiVersionInserter(ApiVersionInserter.useHeader("X-API-Version"))
 //                 .build();
 //     }
 //

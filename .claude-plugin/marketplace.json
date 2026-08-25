@@ -13,7 +13,7 @@
       "name": "springboot-architecture",
       "source": "./plugins/springboot-architecture",
       "description": "Skills for creating Spring Boot projects with architecture patterns (Layered to DDD+Hexagonal)",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Pavithra"
       },
@@ -21,10 +21,7 @@
       "category": "spring-boot",
       "tags": ["spring-boot", "java", "architecture", "ddd", "hexagonal", "spring-data-jpa", "jpa", "hibernate"],
       "strict": false,
-      "agents": [
-        "./skills/creating-springboot-projects/SKILL.md",
-        "./skills/spring-data-jpa/SKILL.md"
-      ]
+      "skills": "./skills"
     }
   ]
 }

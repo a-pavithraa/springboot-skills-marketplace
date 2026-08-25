@@ -1,6 +1,6 @@
 # Testcontainers 2.x Migration Guide
 
-> **Official Documentation**: [Testcontainers 2.0 Migration Guide](https://java.testcontainers.org/migrations/testcontainers-2/)
+> **Official sources**: [Testcontainers 2.0.0 release notes](https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0) and the [OpenRewrite Testcontainers 2.x migration recipe](https://docs.openrewrite.org/recipes/java/testing/testcontainers/testcontainers2migration). The Testcontainers project does not publish a separate "Migration Guide" page; the release notes and recipe enumerate every artifact rename, package relocation, and removed API.
 
 ## Table of Contents
 
@@ -79,9 +79,10 @@
 | `kafka` | `testcontainers-kafka` |
 | `rabbitmq` | `testcontainers-rabbitmq` |
 | `elasticsearch` | `testcontainers-elasticsearch` |
-| `redis` | `testcontainers-redis` |
 
-**Pattern:** Add `testcontainers-` prefix to all module artifacts
+**Pattern:** Add `testcontainers-` prefix to all module artifacts.
+
+> Note: there is no official `org.testcontainers:redis` (or `org.testcontainers:testcontainers-redis`) module in the Testcontainers Java project — the `modules/` directory in `testcontainers/testcontainers-java` at 2.0.0 has no `redis` entry. Most projects use the third-party `com.redis:testcontainers-redis` artifact, or a plain `GenericContainer(DockerImageName.parse("redis:7"))`.
 
 ---
 
@@ -160,14 +161,14 @@ LocalStackContainer localStackContainer() {
 import org.testcontainers.localstack.LocalStackContainer;
 
 LocalStackContainer localStackContainer() {
-    return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"));
+    return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"))
+            .withServices("s3", "sqs"); // strings, not Service.S3 / Service.SQS
 }
 ```
 
 **Changes:**
 - Package: `org.testcontainers.containers.localstack` → `org.testcontainers.localstack`
-- `.withServices()` **removed** (services auto-detected)
-- `LocalStackContainer.Service` **removed**
+- `LocalStackContainer.Service` enum **removed** — `.withServices(String...)` is the new API. Replace `Service.S3` with `"s3"`, `Service.SQS` with `"sqs"`, etc.
 - Image version: `3.0` → `latest`
 
 ### Other Common Containers
@@ -213,9 +214,9 @@ S3Client s3Client(LocalStackContainer localStackContainer) {
 ```
 
 **Changes:**
-- `getEndpointOverride(Service)` → `getEndpoint()`
-- No service parameter needed
-- Services auto-detected by LocalStack
+- `getEndpointOverride(Service)` → `getEndpoint()` (returns the single LocalStack edge endpoint; all services share it)
+- The endpoint accessor no longer takes a service parameter
+- `withServices(String...)` still declares which services to start — internally it sets the `SERVICES` environment variable on the container; LocalStack does not auto-detect what your test uses. Omit `withServices(...)` to let LocalStack start with its default service set instead.
 
 ### 2. Generic Type Removal
 
@@ -350,7 +351,8 @@ public class LocalStackConfig {
 
     @Bean(initMethod = "start", destroyMethod = "stop")
     public LocalStackContainer localStackContainer() {
-        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"));
+        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"))
+                .withServices("s3"); // string replaces Service.S3
     }
 
     @Bean
@@ -423,7 +425,8 @@ public class TestcontainersConfig {
 
     @Bean
     LocalStackContainer localstack() {
-        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"));
+        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"))
+                .withServices("s3", "sqs"); // strings instead of Service.S3, Service.SQS
     }
 }
 ```
@@ -545,15 +548,18 @@ PostgreSQLContainer container = ...
 error: cannot find symbol LocalStackContainer.Service.S3
 ```
 
-**Cause:** Service enum removed in 2.x
+**Cause:** Service enum removed in 2.x — but `withServices(String...)` still exists.
 
 **Solution:**
 ```java
-// Remove
-import static org.testcontainers.containers.localstack.LocalStackContainer.Service.S3;
-.withServices(S3)
+// Remove the enum import
+// import static org.testcontainers.containers.localstack.LocalStackContainer.Service.S3;
 
-// Services now auto-detected
+// Replace the call with a string service name:
+// before: .withServices(S3)
+// after:
+container.withServices("s3");
+// or for multiple: container.withServices("s3", "sqs");
 ```
 
 ### Issue 4: Container Fails to Start
@@ -592,7 +598,7 @@ DockerImageName.parse("localstack/localstack:latest")
 
 ### Phase 3: Code Changes
 - [ ] Remove generic types from container declarations
-- [ ] Remove `.withServices()` from LocalStack configuration
+- [ ] Replace `LocalStackContainer.Service` enum constants in `.withServices(...)` with strings (e.g. `Service.S3` → `"s3"`)
 - [ ] Update `getEndpointOverride(Service)` to `getEndpoint()`
 - [ ] Update container image versions
 
@@ -659,7 +665,8 @@ LocalStackContainer localstack() {
 
 ## References
 
-- [Testcontainers 2.0 Migration Guide](https://java.testcontainers.org/migrations/testcontainers-2/)
+- [Testcontainers 2.0.0 release notes](https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0)
+- [OpenRewrite Testcontainers 2.x migration recipe](https://docs.openrewrite.org/recipes/java/testing/testcontainers/testcontainers2migration)
 - [Testcontainers Documentation](https://java.testcontainers.org/)
 - [LocalStack Documentation](https://docs.localstack.cloud/)
 - [Spring Boot Testcontainers Support](https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.testing.testcontainers)

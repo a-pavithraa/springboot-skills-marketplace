@@ -6,10 +6,13 @@
 <!-- ============================================================ -->
 <!-- TSID - For application-generated IDs (Tomato/DDD patterns)   -->
 <!-- ============================================================ -->
+<!-- Spring Boot 4.1.x ships Hibernate 7.4.1.Final. hypersistence-utils has no -hibernate-74
+     module yet, so use the newest published one, -hibernate-73 (verify it runs against 7.4.1).
+     Confirm latest version: https://central.sonatype.com/artifact/io.hypersistence/hypersistence-utils-hibernate-73/versions -->
 <dependency>
     <groupId>io.hypersistence</groupId>
-    <artifactId>hypersistence-utils-hibernate-71</artifactId>
-    <version>3.14.1</version>
+    <artifactId>hypersistence-utils-hibernate-73</artifactId>
+    <version>3.15.3</version>
 </dependency>
 
 <!-- Usage:
@@ -49,7 +52,7 @@ public class TSIDUtil {
         <dependency>
             <groupId>org.springframework.modulith</groupId>
             <artifactId>spring-modulith-bom</artifactId>
-            <version>2.0.1</version>
+            <version>2.1.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -86,8 +89,15 @@ void shouldVerifyHexagonalArchitecture(String moduleName) {
 
 
 <!-- ============================================================ -->
-<!-- Testcontainers - For integration tests                       -->
+<!-- Testcontainers 2.x - For integration tests                   -->
 <!-- ============================================================ -->
+<!--
+  Testcontainers 2.0 (GA Oct 14, 2025) renamed all module artifacts with the
+  `testcontainers-` prefix and relocated container classes to
+  `org.testcontainers.<module>` packages. Update imports accordingly:
+    org.testcontainers.containers.PostgreSQLContainer
+      -> org.testcontainers.postgresql.PostgreSQLContainer
+-->
 <dependency>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-testcontainers</artifactId>
@@ -95,13 +105,18 @@ void shouldVerifyHexagonalArchitecture(String moduleName) {
 </dependency>
 <dependency>
     <groupId>org.testcontainers</groupId>
-    <artifactId>postgresql</artifactId>
+    <artifactId>testcontainers-junit-jupiter</artifactId>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.testcontainers</groupId>
+    <artifactId>testcontainers-postgresql</artifactId>
     <scope>test</scope>
 </dependency>
 <!-- Or for MySQL:
 <dependency>
     <groupId>org.testcontainers</groupId>
-    <artifactId>mysql</artifactId>
+    <artifactId>testcontainers-mysql</artifactId>
     <scope>test</scope>
 </dependency>
 -->
@@ -154,9 +169,11 @@ Spring Boot 4 highlights (see release notes and reference docs):
 8. JSpecify null-safety improvements
    - Template: package-info-jspecify.java
 
-External reference (non-official):
-- Resilience features example (annotations + @EnableResilientMethods):
-  https://github.com/sivaprasadreddy/spring-boot-4-features/tree/main/resilience-features
+Native resilience (@Retryable, @ConcurrencyLimit, RetryTemplate) is official in
+Spring Framework 7 — see https://spring.io/blog/2025/09/09/core-spring-resilience-features/
+and the EnableResilientMethods Javadoc. A community sample sits at
+https://github.com/sivaprasadreddy/spring-boot-4-features/tree/main/resilience-features
+for additional patterns, but Spring's blog and Javadoc are the primary references.
 -->
 
 

@@ -1,5 +1,17 @@
+// ============================================================
+// BUNDLE TEMPLATE — split into separate .java files when applying.
+// Java only allows one public top-level type per source file, so the
+// public records, classes, and the query service below must each live
+// in their own .java file with a matching filename. The {{PACKAGE}},
+// {{MODULE}}, {{NAME}}, and {{TABLE_NAME}} placeholders resolve
+// identically across all of them.
+// ============================================================
+
 package {{PACKAGE}}.{{MODULE}}.domain;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -7,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -247,7 +260,7 @@ public class {{NAME}}QueryService {
             )
         );
 
-        return new Page<>(content, page, size, total);
+        return new PageImpl<>(content, PageRequest.of(page, size), total != null ? total : 0L);
     }
 
     // ==================== EXISTS CHECKS ====================
@@ -353,24 +366,6 @@ class {{NAME}}DetailsMapper implements RowMapper<{{NAME}}DetailsVM> {
 // ============================================================
 // SUPPORTING CLASSES
 // ============================================================
-
-/**
- * Simple Page wrapper.
- */
-public record Page<T>(
-    List<T> content,
-    int page,
-    int size,
-    long total
-) {
-    public int totalPages() {
-        return (int) Math.ceil((double) total / size);
-    }
-
-    public boolean hasNext() {
-        return page < totalPages() - 1;
-    }
-}
 
 /**
  * Search criteria.

@@ -121,7 +121,16 @@ class ModularityTest {
 // // Listening module (orders)
 // @Service
 // public class OrderEventListener {
-//     @ApplicationModuleListener  // Persistent, reliable
+//     // @ApplicationModuleListener always runs as:
+//     //   @Async + @Transactional(REQUIRES_NEW) + @TransactionalEventListener
+//     // — async, after the publishing transaction commits, in its own new
+//     // transaction. Publications become PERSISTENT and REPLAYABLE only when
+//     // a Modulith event registry starter (spring-modulith-starter-jdbc /
+//     // -jpa / -mongodb / -neo4j) is on the classpath and its backing storage
+//     // (e.g. the event_publication table for JDBC/JPA) is present. Without
+//     // the registry the listener still runs, but a crash between commit and
+//     // listener completion loses the event.
+//     @ApplicationModuleListener
 //     public void on(StockReserved event) {
 //         // Handle event
 //     }
@@ -153,7 +162,7 @@ class ModularityTest {
 // <dependency>
 //     <groupId>org.springframework.modulith</groupId>
 //     <artifactId>spring-modulith-bom</artifactId>
-//     <version>1.2.0</version>
+//     <version>2.1.0</version>
 //     <type>pom</type>
 //     <scope>import</scope>
 // </dependency>

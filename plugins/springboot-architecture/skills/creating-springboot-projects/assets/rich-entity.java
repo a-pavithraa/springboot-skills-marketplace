@@ -14,6 +14,13 @@ import jakarta.persistence.*;
  * - Business logic methods (not just getters/setters)
  * - Protected no-arg constructor for JPA
  * - @Version for optimistic locking
+ *
+ * Compatibility note: when the ID and embedded value objects are Java
+ * records (as in `value-object.java`), record-as-@Embeddable requires
+ * Hibernate 6.2+. Spring Boot 4 ships Hibernate 7.x, so this works out
+ * of the box. Known tooling gotchas: QueryDSL APT (querydsl#3695) does
+ * not accept record embeddables; some MapStruct setups need explicit
+ * @Mapping overrides for nested embeddable records.
  */
 @Entity
 @Table(name = "{{TABLE_NAME}}")

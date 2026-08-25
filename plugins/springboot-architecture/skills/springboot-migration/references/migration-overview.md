@@ -1,5 +1,14 @@
 # Migration Overview
 
+## Table of Contents
+
+1. [Common Migration Scenarios](#common-migration-scenarios)
+2. [Critical Migration Issues](#critical-migration-issues)
+3. [Migration Strategies](#migration-strategies)
+4. [References](#references)
+
+---
+
 ## Common Migration Scenarios
 
 ### Scenario 1: Spring Boot 3 → 4 Only
@@ -80,9 +89,10 @@
 
 **Reference:** `spring-modulith-2-migration.md`
 
-### Issue 4: TestRestTemplate Deprecated
-- `TestRestTemplate` → `RestTestClient` (Spring Framework 7.0)
-- Use `@AutoConfigureRestTestClient` for auto-wiring
+### Issue 4: TestRestTemplate no longer auto-provided
+- `TestRestTemplate` is **not deprecated** in Boot 4, but `@SpringBootTest` no longer auto-configures it.
+- Opt in with `@AutoConfigureTestRestTemplate` to keep existing tests working.
+- For new tests, prefer `RestTestClient` (Spring Framework 7.0) with `@AutoConfigureRestTestClient`.
 
 **Reference:** `spring-boot-4-migration.md` → "TestRestTemplate → RestTestClient"
 
@@ -128,6 +138,6 @@ Use `spring-boot-starter-classic` and `spring-boot-starter-test-classic` tempora
 
 - [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide)
 - [Spring Modulith 2.0 Reference](https://docs.spring.io/spring-modulith/reference/)
-- [Testcontainers 2.0 Migration Guide](https://java.testcontainers.org/migrations/testcontainers-2/)
+- [Testcontainers 2.0.0 release notes](https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0) and [OpenRewrite Testcontainers 2.x migration recipe](https://docs.openrewrite.org/recipes/java/testing/testcontainers/testcontainers2migration)
 - [spring-boot-4-features (sample repo)](https://github.com/sivaprasadreddy/spring-boot-4-features)
 - [Vlad Mihalcea's Blog](https://vladmihalcea.com/blog/) - JPA/Hibernate best practices

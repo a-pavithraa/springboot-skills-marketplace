@@ -17,7 +17,11 @@ import java.util.Optional;
  * Requires @EnableResilientMethods on @Configuration class.
  * Circuit breaker requires Resilience4j (NOT native).
  *
- * Reference: https://github.com/sivaprasadreddy/spring-boot-4-features/tree/main/resilience-features
+ * Primary references (official):
+ *   https://spring.io/blog/2025/09/09/core-spring-resilience-features/
+ *   https://docs.spring.io/spring-framework/reference/core/resilience.html
+ * Community sample for additional patterns:
+ *   https://github.com/sivaprasadreddy/spring-boot-4-features/tree/main/resilience-features
  */
 @Service
 public class {{NAME}}Service {
@@ -28,9 +32,10 @@ public class {{NAME}}Service {
         this.client = client;
     }
 
+    // 1 initial attempt + maxRetries — up to 4 total invocations
     @Retryable(
             includes = {RuntimeException.class},
-            maxAttempts = 4,
+            maxRetries = 3,
             delay = 1000,
             multiplier = 2
     )

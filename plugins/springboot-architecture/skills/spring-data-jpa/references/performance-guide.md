@@ -1,5 +1,24 @@
 # Performance Optimization Guide
 
+## Table of Contents
+
+1. [N+1 Query Problem](#n1-query-problem)
+2. [Batch Operations](#batch-operations)
+3. [Pagination](#pagination)
+4. [Query Hints](#query-hints)
+5. [Read-Only Optimization](#read-only-optimization)
+6. [Connection Pooling](#connection-pooling)
+7. [Database Indexes](#database-indexes)
+8. [Use Projections for Lists](#use-projections-for-lists)
+9. [Avoid SELECT All Columns](#avoid-select-all-columns)
+10. [Stream Large Result Sets](#stream-large-result-sets)
+11. [Lazy Loading Best Practices](#lazy-loading-best-practices)
+12. [Enable SQL Logging (Development)](#enable-sql-logging-development)
+13. [Performance Checklist](#performance-checklist)
+14. [Monitoring](#monitoring)
+
+---
+
 ## N+1 Query Problem
 
 **The Issue:**
@@ -60,8 +79,15 @@ spring:
 ### Use saveAll()
 ```java
 List<Product> products = createManyProducts();
-productRepository.saveAll(products); // Uses batch insert
+productRepository.saveAll(products); // Iterates and calls save() per entity
 ```
+
+> **Important:** `SimpleJpaRepository#saveAll` is implemented as a loop over `save(entity)` — it does **not** automatically batch on its own. To get real JDBC batch inserts you need to:
+> 1. Set `hibernate.jdbc.batch_size` (e.g. `25`–`50`) and ideally `hibernate.order_inserts=true` / `order_updates=true`.
+> 2. Use a non-IDENTITY ID strategy — `GenerationType.IDENTITY` forces a per-row round trip and disables batching; prefer `SEQUENCE` (allocation-size > 1) or an application-generated ID (TSID/UUID).
+> 3. Avoid intervening flushes inside the loop.
+>
+> Without those, `saveAll` issues one INSERT per row regardless of the call shape.
 
 ### Flush & Clear for Large Batches
 ```java
@@ -144,7 +170,7 @@ List<Product> products = productRepository.findAll(); // Fetches all columns
 List<ProductSummary> summaries = productRepository.findAllSummaries(); // Only needed columns
 ```
 
-## Avoid SELECT *
+## Avoid SELECT All Columns
 
 **DON'T:**
 ```sql
@@ -189,7 +215,10 @@ spring:
 logging:
   level:
     org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    # Hibernate 6+ logger for bound parameter values.
+    # (Pre-6 used org.hibernate.type.descriptor.sql.BasicBinder — that name is
+    # silently ignored on Hibernate 6/7, so logs go quiet without warning.)
+    org.hibernate.orm.jdbc.bind: TRACE
 ```
 
 ## Performance Checklist

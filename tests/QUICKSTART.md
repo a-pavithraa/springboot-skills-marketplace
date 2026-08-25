@@ -1,6 +1,6 @@
 # Quick Start: Testing Spring Boot Skills
 
-Run baseline tests to validate skill effectiveness in under 30 minutes.
+Run baseline tests to validate skill effectiveness in about 35 minutes.
 
 ## Prerequisites
 
@@ -75,7 +75,7 @@ Run one scenario to understand the process:
 | Generic advice | References architecture-guide.md |
 | No assessment | Assessment-driven recommendation |
 
-## 30-Minute Full Test Run
+## 35-Minute Full Test Run
 
 ### Phase 1: Baseline All Scenarios (15 minutes)
 

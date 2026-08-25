@@ -1,5 +1,17 @@
 # Query Patterns Reference
 
+## Table of Contents
+
+1. [Simple Query Methods](#simple-query-methods)
+2. [@Query with JPQL](#query-with-jpql)
+3. [Pagination & Sorting](#pagination-sorting)
+4. [Bulk Operations](#bulk-operations)
+5. [Native Queries](#native-queries)
+6. [Convenience Default Methods](#convenience-default-methods)
+7. [N+1 Query Prevention](#n1-query-prevention)
+
+---
+
 ## Simple Query Methods
 
 Use derived query methods for simple lookups (1-2 properties):
@@ -26,7 +38,7 @@ List<OrderEntity> findUserOrders(@Param("userId") Long userId,
 
 **Key points:**
 - Use text blocks `"""` for readability
-- Always use `@Param` for parameter binding
+- Prefer `@Param` for named parameter binding. When the code is compiled with `-parameters` (Spring Boot's default since 3.2 with the spring-boot-maven-plugin / spring-boot-gradle-plugin), Spring Data can match `:name` placeholders to method parameter names without `@Param` — keep using `@Param` if you can't guarantee that flag (older builds, custom toolchains, obfuscation/shading).
 - Use `LEFT JOIN FETCH` to prevent N+1
 - Use `DISTINCT` when fetching collections
 

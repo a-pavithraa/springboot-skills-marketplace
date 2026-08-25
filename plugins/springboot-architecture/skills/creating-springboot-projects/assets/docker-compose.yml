@@ -1,8 +1,9 @@
 # Docker Compose for local development
 #
-# Usage: docker-compose up -d
-
-version: '3.8'
+# Usage: docker compose up -d
+#
+# The legacy top-level `version:` key has been removed — the Compose Spec
+# (used by `docker compose`) ignores it and emits a deprecation warning.
 
 services:
   # ============================================================
@@ -14,7 +15,9 @@ services:
     environment:
       POSTGRES_DB: {{PROJECT_NAME}}db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # Set POSTGRES_PASSWORD in a git-ignored .env file (Compose loads it
+      # automatically) or your shell; no default is committed.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -33,9 +36,9 @@ services:
   #   container_name: {{PROJECT_NAME}}-mysql
   #   environment:
   #     MYSQL_DATABASE: {{PROJECT_NAME}}db
-  #     MYSQL_ROOT_PASSWORD: root
+  #     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
   #     MYSQL_USER: app
-  #     MYSQL_PASSWORD: password
+  #     MYSQL_PASSWORD: ${MYSQL_PASSWORD}
   #   ports:
   #     - "3306:3306"
   #   volumes:
@@ -57,7 +60,7 @@ volumes:
 #   datasource:
 #     url: jdbc:postgresql://localhost:5432/{{PROJECT_NAME}}db
 #     username: postgres
-#     password: postgres
+#     password: ${POSTGRES_PASSWORD}
 #   jpa:
 #     hibernate:
 #       ddl-auto: validate

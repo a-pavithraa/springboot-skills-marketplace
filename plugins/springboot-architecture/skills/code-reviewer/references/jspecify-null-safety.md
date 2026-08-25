@@ -1,5 +1,18 @@
 # JSpecify Null-Safety (Spring Boot 4 / Spring Framework 7)
 
+## Table of Contents
+
+1. [Purpose](#purpose)
+2. [Important: Optional for Applications](#important-optional-for-applications)
+3. [Core Rules](#core-rules)
+4. [Annotation Placement (Type-Use)](#annotation-placement-type-use)
+5. [Migration from org.springframework.lang](#migration-from-orgspringframeworklang)
+6. [NullAway (Build-Time Checking)](#nullaway-build-time-checking)
+7. [Tooling Guidance](#tooling-guidance)
+8. [Official Documentation](#official-documentation)
+
+---
+
 ## Purpose
 
 Use JSpecify annotations to make nullability explicit in Spring applications and libraries. Spring Framework 7 and the Spring Boot 4 portfolio expose null-safe APIs with JSpecify; application code should align with those contracts and avoid deprecated Spring null-safety annotations.

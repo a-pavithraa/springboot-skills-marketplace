@@ -1,6 +1,6 @@
 ---
 name: creating-springboot-projects
-description: Creates Java 25 and Spring Boot 4 project structures, scaffolds, and implementation starting points for new services, REST APIs, and modular backends. Use when the task is to initialize a Spring Boot project, choose an architecture, select Spring Boot 4 features, or apply the bundled templates and references in this skill. Do not use for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
+description: Use when starting a new Spring Boot 4 project — scaffolding a service, REST API, or modular backend; picking an architecture (layered, package-by-module, modular-monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
 ---
 
 # Creating Spring Boot Projects
@@ -13,7 +13,7 @@ Use this skill to create new Spring Boot 4 projects or define their structure be
 
 - Never jump straight to implementation before assessing project complexity.
 - Default to the simplest architecture that fits the domain.
-- Treat Java 25 and Spring Boot 4 as the target stack for this skill.
+- Treat Spring Boot 4 as the target. Default new projects to Java 25 (current LTS). Boot 4's official baseline is Java 17 — accept Java 21 (previous LTS) or Java 17 when the user asks for them. Java 26 is the newest feature release (GA 2026-03-17) but is non-LTS; only pick it if the project tracks non-LTS Java.
 - Read the reference files before choosing a higher-complexity architecture or optional framework feature.
 - Reuse the templates in `assets/` instead of rewriting the same scaffolding from scratch.
 
@@ -42,14 +42,16 @@ Use this matrix as the default decision aid. If the choice is not obvious, read 
 | `tomato` | Rich domain modeling, value objects, stronger type safety | Medium-High |
 | `ddd-hexagonal` | Complex domains, CQRS, strong infrastructure isolation | High |
 
+> `tomato` is a value-object-heavy modular monolith: JPA entities embed VOs, validation lives in VO constructors, and Spring converters bind VOs at the request boundary. See `references/architecture-guide.md` for the full definition.
+
 ### Step 3: Define the initial Boot 4 setup
 
 Use Spring Initializr and capture the baseline:
 
 - Project: Maven or Gradle
 - Language: Java
-- Spring Boot: 4.0.x
-- Java: 25
+- Spring Boot: 4.1.x
+- Java: 25 (recommended — current LTS). Boot 4's minimum is Java 17; use 21 for the previous LTS, or 17 for stricter compatibility. Java 26 (GA 2026-03-17) is the latest feature release but is non-LTS.
 
 Baseline dependencies for most projects:
 
@@ -79,12 +81,32 @@ Read `references/spring-boot-4-features.md` before selecting:
 
 Use the bundled templates from `assets/` and replace placeholders only after the package and module names are settled.
 
+#### Placeholder convention
+
+Every template uses `{{TOKEN}}` placeholders. Resolve all of them before applying — templates do not compile until every placeholder is replaced. The full set used across `assets/`:
+
+| Placeholder | Replace with | Example |
+|-------------|--------------|---------|
+| `{{PACKAGE}}` | Base Java package | `com.acme.shop` |
+| `{{MODULE}}` | Feature/module name (lowercase) | `orders` |
+| `{{NAME}}` | Domain type name (PascalCase) | `Order`, `ProductSKU` |
+| `{{TYPE}}` | Wrapped scalar type inside a value object | `String`, `Long`, `BigDecimal` |
+| `{{FIELD}}` | Record field name (camelCase) | `code`, `amount` |
+| `{{TABLE_NAME}}` | Database table name (used in JPA `@Table`) | `orders` |
+| `{{TABLE}}` | Same meaning as `{{TABLE_NAME}}` — legacy variant kept only in `flyway-migration.sql` | `orders` |
+| `{{PROJECT_NAME}}` | Project artifactId / docker prefix (used only in `docker-compose.yml`) | `shop-api` |
+| `{{name}}` | HTTP service group identifier — **not** a lowercase variant of `{{NAME}}`. Appears only in commented `@ImportHttpServices(group = "...")` examples. | `orders` |
+
+If a template uses a placeholder not listed here, treat it as a typo and confirm the intended value before applying.
+
 Core project templates:
 
 - `assets/controller.java`
 - `assets/repository.java`
+- `assets/base-entity.java`
 - `assets/rich-entity.java`
 - `assets/value-object.java`
+- `assets/spring-converter.java`
 - `assets/service-cqrs.java`
 - `assets/exception-handler.java`
 - `assets/flyway-migration.sql`

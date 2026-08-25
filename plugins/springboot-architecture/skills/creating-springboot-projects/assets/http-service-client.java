@@ -92,16 +92,24 @@ public interface {{NAME}}Client {
 // ============================================================
 // CONFIGURING BASE URL (application.yml)
 // ============================================================
-
+//
+// Spring Boot 4 property structure:
+//   spring.http.clients.*                  - global defaults for every HTTP client
+//   spring.http.serviceclient.<group>.*    - per-@ImportHttpServices-group config
+// Group name = the `group` attribute on @ImportHttpServices (defaults to "default").
+//
 // spring:
-//   web:
-//     client:
+//   http:
+//     clients:                       # global defaults
 //       connect-timeout: 5s
 //       read-timeout: 10s
-//   http:
-//     services:
-//       {{MODULE}}-service:
-//         url: http://localhost:8080
+//     serviceclient:
+//       {{name}}:                    # group name from @ImportHttpServices(group = "{{name}}")
+//         base-url: http://localhost:8080
+//         connect-timeout: 2s        # overrides global for this group
+//         read-timeout: 10s
+//         default-header:            # HttpClientProperties.defaultHeader (singular)
+//           X-Client-Version: "1.0"
 
 // ============================================================
 // USAGE IN SERVICE

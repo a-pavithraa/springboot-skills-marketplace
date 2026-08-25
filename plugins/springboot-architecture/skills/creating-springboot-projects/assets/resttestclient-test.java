@@ -9,9 +9,9 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.web.client.ApiVersionInserter;
 import org.springframework.web.context.WebApplicationContext;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.List;
@@ -41,13 +41,13 @@ class {{NAME}}ControllerIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer<?> postgres =
-            new PostgreSQLContainer<>(DockerImageName.parse("postgres:18-alpine"));
+    static PostgreSQLContainer postgres =
+            new PostgreSQLContainer(DockerImageName.parse("postgres:18-alpine"));
 
     @BeforeEach
     void setup() {
         client = RestTestClient.bindToApplicationContext(context)
-                .apiVersionInserter(ApiVersionInserter.useHeader("API-Version"))
+                .apiVersionInserter(ApiVersionInserter.useHeader("X-API-Version"))
                 .build();
     }
 
@@ -258,7 +258,7 @@ class {{NAME}}ControllerIntegrationTest {
 // import org.springframework.beans.factory.annotation.Autowired;
 // import org.springframework.boot.test.context.SpringBootTest;
 // import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-// import org.springframework.boot.test.mock.mockito.MockBean;
+// import org.springframework.test.context.bean.override.mockito.MockitoBean;
 // import org.springframework.test.web.servlet.assertj.MockMvcTester;
 // import org.springframework.test.web.servlet.assertj.MvcTestResult;
 //
@@ -280,7 +280,7 @@ class {{NAME}}ControllerIntegrationTest {
 //     @Autowired
 //     MockMvcTester mvc;
 //
-//     @MockBean
+//     @MockitoBean
 //     {{NAME}}Service service;
 //
 //     @Test
