@@ -559,7 +559,7 @@ Boot 4 uses modular starters. Add only what you need:
 | `spring-boot-starter-webmvc` | Spring MVC (replaces `spring-boot-starter-web`) |
 | `spring-boot-starter-restclient` | RestClient / RestTemplate |
 | `spring-boot-starter-webclient` | WebClient (reactive) |
-| `spring-boot-starter-aspectj` | AOP / `@Retryable` / `@ConcurrencyLimit` support |
+| `spring-boot-starter-aspectj` | AspectJ `@Aspect` support, Micrometer `@Timed`/`@Observed`, Resilience4j annotations. Not needed for native `@Retryable`/`@ConcurrencyLimit` |
 
 **Verify versions:**
 ```xml

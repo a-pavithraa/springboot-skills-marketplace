@@ -72,7 +72,7 @@ Use the bundled templates in `assets/` instead of rebuilding the pattern from sc
 - `assets/query-service.java`
 - `assets/relationship-patterns.java`
 
-> Templates use the same placeholder convention as `creating-springboot-projects` — `{{PACKAGE}}`, `{{MODULE}}`, `{{NAME}}`, `{{TABLE_NAME}}`, `{{TYPE}}`, `{{FIELD}}`. See `creating-springboot-projects/SKILL.md#placeholder-convention` for the full table.
+> Templates use the same placeholder convention as `creating-springboot-projects` — `{{PACKAGE}}`, `{{MODULE}}`, `{{NAME}}`, `{{TABLE_NAME}}`, `{{TYPE}}`, `{{FIELD}}`. See `../creating-springboot-projects/SKILL.md#placeholder-convention` for the full table.
 
 ### Step 5: Validate relationships and transaction boundaries
 

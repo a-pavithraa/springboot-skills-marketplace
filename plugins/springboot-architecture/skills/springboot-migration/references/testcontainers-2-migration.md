@@ -1,672 +1,115 @@
-# Testcontainers 2.x Migration Guide
+# Testcontainers 1.x → 2.x Migration
 
-> **Official sources**: [Testcontainers 2.0.0 release notes](https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0) and the [OpenRewrite Testcontainers 2.x migration recipe](https://docs.openrewrite.org/recipes/java/testing/testcontainers/testcontainers2migration). The Testcontainers project does not publish a separate "Migration Guide" page; the release notes and recipe enumerate every artifact rename, package relocation, and removed API.
+Official: [2.0.0 release notes](https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0), [OpenRewrite recipe](https://docs.openrewrite.org/recipes/java/testing/testcontainers/testcontainers2migration). Checked against Testcontainers 2.0.5 (the version Boot 4.1.1 manages) on 2026-10-17.
 
-## Table of Contents
+Boot 4 manages Testcontainers 2 versions, so this migration is part of the Boot 4 upgrade when the project uses Testcontainers.
 
-1. [Overview](#overview)
-2. [Artifact Name Changes](#artifact-name-changes)
-3. [Package Structure Changes](#package-structure-changes)
-4. [API Changes](#api-changes)
-5. [Migration Examples](#migration-examples)
-6. [Verification](#verification)
+## 1. Artifacts (required)
 
----
+Every module artifact gets the `testcontainers-` prefix. The core artifact `testcontainers` keeps its name.
 
-## Overview
+| 1.x | 2.x |
+|-----|-----|
+| `org.testcontainers:junit-jupiter` | `org.testcontainers:testcontainers-junit-jupiter` |
+| `org.testcontainers:postgresql`, `mysql`, `mariadb`, `mongodb`, `kafka`, `rabbitmq`, `localstack`, `elasticsearch`, `jdbc`, ... | `org.testcontainers:testcontainers-<same name>` |
 
-**IMPORTANT:** Testcontainers 2.x migration is **separate** from Spring Boot 4.0 migration, though they can be done concurrently.
+Boot 4's BOM manages only the 2.x names. Old artifact IDs lose their managed version, and Maven fails with "version is missing" (or Gradle with "could not find").
 
-**Key changes:**
-- Artifact names now use `testcontainers-` prefix
-- Package structure reorganized (module-specific packages)
-- API simplifications (removed unnecessary generics, service parameters)
-- Image version updates
+There is no official Redis module. Use `GenericContainer` with `redis:<tag>` (Boot's `@ServiceConnection` supports it with `name = "redis"`), or the third-party `com.redis:testcontainers-redis`.
 
----
+## 2. Classes (recommended)
 
-## Artifact Name Changes
+Module containers moved to `org.testcontainers.<module>` packages. The old classes in `org.testcontainers.containers` still exist in 2.0.x but are **deprecated**, so the code still compiles. Move to the new classes now; the old ones will be removed later.
 
-### Before (Testcontainers 1.x)
+| Deprecated (1.x location) | New |
+|---------------------------|-----|
+| `org.testcontainers.containers.PostgreSQLContainer<?>` | `org.testcontainers.postgresql.PostgreSQLContainer` |
+| `org.testcontainers.containers.MySQLContainer<?>` | `org.testcontainers.mysql.MySQLContainer` |
+| `org.testcontainers.containers.MariaDBContainer<?>` | `org.testcontainers.mariadb.MariaDBContainer` |
+| `org.testcontainers.containers.MongoDBContainer` | `org.testcontainers.mongodb.MongoDBContainer` |
+| `org.testcontainers.containers.RabbitMQContainer` | `org.testcontainers.rabbitmq.RabbitMQContainer` |
+| `org.testcontainers.containers.localstack.LocalStackContainer` | `org.testcontainers.localstack.LocalStackContainer` |
+| `org.testcontainers.containers.KafkaContainer` (image `confluentinc/cp-kafka`) | `org.testcontainers.kafka.ConfluentKafkaContainer` (same image) or `org.testcontainers.kafka.KafkaContainer` (image `apache/kafka`) |
+| `org.testcontainers.elasticsearch.ElasticsearchContainer` | unchanged |
 
-```xml
-<dependency>
-    <groupId>org.testcontainers</groupId>
-    <artifactId>junit-jupiter</artifactId>
-    <scope>test</scope>
-</dependency>
-<dependency>
-    <groupId>org.testcontainers</groupId>
-    <artifactId>postgresql</artifactId>
-    <scope>test</scope>
-</dependency>
-<dependency>
-    <groupId>org.testcontainers</groupId>
-    <artifactId>localstack</artifactId>
-    <scope>test</scope>
-</dependency>
-```
+The new JDBC containers are not generic: write `PostgreSQLContainer`, not `PostgreSQLContainer<?>`.
 
-### After (Testcontainers 2.x)
+**Kafka trap:** the new `org.testcontainers.kafka.KafkaContainer` accepts only `apache/kafka` images. With `confluentinc/cp-kafka`, it fails at construction: "Failed to verify that image 'confluentinc/cp-kafka:...' is a compatible substitute for 'apache/kafka'". Use `ConfluentKafkaContainer` for Confluent images.
 
-```xml
-<dependency>
-    <groupId>org.testcontainers</groupId>
-    <artifactId>testcontainers-junit-jupiter</artifactId>
-    <scope>test</scope>
-</dependency>
-<dependency>
-    <groupId>org.testcontainers</groupId>
-    <artifactId>testcontainers-postgresql</artifactId>
-    <scope>test</scope>
-</dependency>
-<dependency>
-    <groupId>org.testcontainers</groupId>
-    <artifactId>testcontainers-localstack</artifactId>
-    <scope>test</scope>
-</dependency>
-```
-
-### Mapping Table
-
-| Old (1.x) | New (2.x) |
-|-----------|-----------|
-| `junit-jupiter` | `testcontainers-junit-jupiter` |
-| `postgresql` | `testcontainers-postgresql` |
-| `mysql` | `testcontainers-mysql` |
-| `mongodb` | `testcontainers-mongodb` |
-| `localstack` | `testcontainers-localstack` |
-| `kafka` | `testcontainers-kafka` |
-| `rabbitmq` | `testcontainers-rabbitmq` |
-| `elasticsearch` | `testcontainers-elasticsearch` |
-
-**Pattern:** Add `testcontainers-` prefix to all module artifacts.
-
-> Note: there is no official `org.testcontainers:redis` (or `org.testcontainers:testcontainers-redis`) module in the Testcontainers Java project — the `modules/` directory in `testcontainers/testcontainers-java` at 2.0.0 has no `redis` entry. Most projects use the third-party `com.redis:testcontainers-redis` artifact, or a plain `GenericContainer(DockerImageName.parse("redis:7"))`.
-
----
-
-## Package Structure Changes
-
-### PostgreSQL Container
-
-#### Before (1.x)
+**Kafka + `@ServiceConnection`:** Boot 4 has connection factories only for the new `org.testcontainers.kafka.KafkaContainer` and `ConfluentKafkaContainer`. A deprecated `org.testcontainers.containers.KafkaContainer` bean with `@ServiceConnection` gets no connection details, so Kafka tests fail even though the code compiles. JDBC, MongoDB, and RabbitMQ factories accept both old and new classes.
 
 ```java
-import org.testcontainers.containers.PostgreSQLContainer;
-
-PostgreSQLContainer<?> postgresContainer() {
-    return new PostgreSQLContainer<>(DockerImageName.parse("postgres:latest"));
-}
-```
-
-#### After (2.x)
-
-```java
-import org.testcontainers.postgresql.PostgreSQLContainer;
-
-PostgreSQLContainer postgresContainer() {
-    return new PostgreSQLContainer(DockerImageName.parse("postgres:latest"));
-}
-```
-
-**Changes:**
-- Package: `org.testcontainers.containers` → `org.testcontainers.postgresql`
-- Generic type: `PostgreSQLContainer<?>` → `PostgreSQLContainer` (raw type)
-
-### MySQL Container
-
-#### Before (1.x)
-
-```java
-import org.testcontainers.containers.MySQLContainer;
-
-MySQLContainer<?> mysqlContainer() {
-    return new MySQLContainer<>(DockerImageName.parse("mysql:8.0"));
-}
-```
-
-#### After (2.x)
-
-```java
-import org.testcontainers.mysql.MySQLContainer;
-
-MySQLContainer mysqlContainer() {
-    return new MySQLContainer(DockerImageName.parse("mysql:8.0"));
-}
-```
-
-**Changes:**
-- Package: `org.testcontainers.containers` → `org.testcontainers.mysql`
-- Generic type removed
-
-### LocalStack Container
-
-#### Before (1.x)
-
-```java
-import org.testcontainers.containers.localstack.LocalStackContainer;
-import static org.testcontainers.containers.localstack.LocalStackContainer.Service.S3;
-import static org.testcontainers.containers.localstack.LocalStackContainer.Service.SQS;
-
-LocalStackContainer localStackContainer() {
-    return new LocalStackContainer(DockerImageName.parse("localstack/localstack:3.0"))
-            .withServices(S3, SQS);
-}
-```
-
-#### After (2.x)
-
-```java
-import org.testcontainers.localstack.LocalStackContainer;
-
-LocalStackContainer localStackContainer() {
-    return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"))
-            .withServices("s3", "sqs"); // strings, not Service.S3 / Service.SQS
-}
-```
-
-**Changes:**
-- Package: `org.testcontainers.containers.localstack` → `org.testcontainers.localstack`
-- `LocalStackContainer.Service` enum **removed** — `.withServices(String...)` is the new API. Replace `Service.S3` with `"s3"`, `Service.SQS` with `"sqs"`, etc.
-- Image version: `3.0` → `latest`
-
-### Other Common Containers
-
-| Container | Old Package | New Package |
-|-----------|-------------|-------------|
-| MongoDB | `org.testcontainers.containers` | `org.testcontainers.mongodb` |
-| Kafka | `org.testcontainers.containers` | `org.testcontainers.kafka` |
-| RabbitMQ | `org.testcontainers.containers` | `org.testcontainers.rabbitmq` |
-| Elasticsearch | `org.testcontainers.elasticsearch` | `org.testcontainers.elasticsearch` (no change) |
-| Redis | `org.testcontainers.containers` | `org.testcontainers.redis` |
-
-**Pattern:** Module-specific packages under `org.testcontainers.<module>`
-
----
-
-## API Changes
-
-### 1. LocalStack Service Configuration
-
-#### Before (1.x)
-
-```java
-import static org.testcontainers.containers.localstack.LocalStackContainer.Service.S3;
-
-S3Client s3Client(LocalStackContainer localStackContainer) {
-    return S3Client.builder()
-            .endpointOverride(localStackContainer.getEndpointOverride(S3))
-            .credentialsProvider(...)
-            .build();
-}
-```
-
-#### After (2.x)
-
-```java
-S3Client s3Client(LocalStackContainer localStackContainer) {
-    return S3Client.builder()
-            .endpointOverride(localStackContainer.getEndpoint())
-            .credentialsProvider(...)
-            .build();
-}
-```
-
-**Changes:**
-- `getEndpointOverride(Service)` → `getEndpoint()` (returns the single LocalStack edge endpoint; all services share it)
-- The endpoint accessor no longer takes a service parameter
-- `withServices(String...)` still declares which services to start — internally it sets the `SERVICES` environment variable on the container; LocalStack does not auto-detect what your test uses. Omit `withServices(...)` to let LocalStack start with its default service set instead.
-
-### 2. Generic Type Removal
-
-**Before:**
-```java
-PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:16");
-```
-
-**After:**
-```java
-PostgreSQLContainer container = new PostgreSQLContainer("postgres:16");
-```
-
-**Why:** Simplified API, generic types were unnecessary complexity
-
-### 3. Image Version Updates
-
-**LocalStack:**
-```java
-// Before
-DockerImageName.parse("localstack/localstack:3.0")
-
-// After
-DockerImageName.parse("localstack/localstack:latest")
-```
-
-**PostgreSQL:**
-```java
-// Before
-DockerImageName.parse("postgres:15-alpine")
-
-// After
-DockerImageName.parse("postgres:16-alpine")  // or latest
-```
-
----
-
-## Migration Examples
-
-### Complete PostgreSQL Migration
-
-#### Before (1.x)
-
-```java
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Bean;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
-
 @TestConfiguration(proxyBeanMethods = false)
-public class TestcontainersConfiguration {
-
+class TestcontainersConfig {
     @Bean
     @ServiceConnection
-    PostgreSQLContainer<?> postgresContainer() {
-        return new PostgreSQLContainer<>(DockerImageName.parse("postgres:15-alpine"));
-    }
-}
-```
-
-#### After (2.x)
-
-```java
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Bean;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
-
-@TestConfiguration(proxyBeanMethods = false)
-public class TestcontainersConfiguration {
-
-    @Bean
-    @ServiceConnection
-    PostgreSQLContainer postgresContainer() {
-        return new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
-    }
-}
-```
-
-### Complete LocalStack Migration
-
-#### Before (1.x)
-
-```java
-import org.testcontainers.containers.localstack.LocalStackContainer;
-import static org.testcontainers.containers.localstack.LocalStackContainer.Service.S3;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-
-@TestConfiguration
-public class LocalStackConfig {
-
-    @Bean(initMethod = "start", destroyMethod = "stop")
-    public LocalStackContainer localStackContainer() {
-        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:3.0"))
-                .withServices(S3);
-    }
-
-    @Bean
-    public S3Client s3Client(LocalStackContainer localStackContainer) {
-        return S3Client.builder()
-                .endpointOverride(localStackContainer.getEndpointOverride(S3))
-                .credentialsProvider(
-                        StaticCredentialsProvider.create(
-                                AwsBasicCredentials.create(
-                                        localStackContainer.getAccessKey(),
-                                        localStackContainer.getSecretKey()
-                                )
-                        )
-                )
-                .region(Region.of(localStackContainer.getRegion()))
-                .build();
-    }
-}
-```
-
-#### After (2.x)
-
-```java
-import org.testcontainers.localstack.LocalStackContainer;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-
-@TestConfiguration
-public class LocalStackConfig {
-
-    @Bean(initMethod = "start", destroyMethod = "stop")
-    public LocalStackContainer localStackContainer() {
-        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"))
-                .withServices("s3"); // string replaces Service.S3
-    }
-
-    @Bean
-    public S3Client s3Client(LocalStackContainer localStackContainer) {
-        return S3Client.builder()
-                .endpointOverride(localStackContainer.getEndpoint())
-                .credentialsProvider(
-                        StaticCredentialsProvider.create(
-                                AwsBasicCredentials.create(
-                                        localStackContainer.getAccessKey(),
-                                        localStackContainer.getSecretKey()
-                                )
-                        )
-                )
-                .region(Region.of(localStackContainer.getRegion()))
-                .build();
-    }
-}
-```
-
-### Multi-Container Test Configuration
-
-#### Before (1.x)
-
-```java
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.containers.localstack.LocalStackContainer;
-import org.testcontainers.containers.RabbitMQContainer;
-
-@TestConfiguration
-public class TestcontainersConfig {
-
-    @Bean
-    PostgreSQLContainer<?> postgres() {
-        return new PostgreSQLContainer<>("postgres:15");
-    }
-
-    @Bean
-    RabbitMQContainer<?> rabbitmq() {
-        return new RabbitMQContainer<>("rabbitmq:3.12-alpine");
-    }
-
-    @Bean
-    LocalStackContainer localstack() {
-        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:3.0"))
-                .withServices(S3, SQS);
-    }
-}
-```
-
-#### After (2.x)
-
-```java
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.localstack.LocalStackContainer;
-import org.testcontainers.rabbitmq.RabbitMQContainer;
-
-@TestConfiguration
-public class TestcontainersConfig {
-
-    @Bean
     PostgreSQLContainer postgres() {
-        return new PostgreSQLContainer("postgres:16");
+        return new PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"));
     }
 
     @Bean
-    RabbitMQContainer rabbitmq() {
-        return new RabbitMQContainer("rabbitmq:3.13-alpine");
-    }
-
-    @Bean
-    LocalStackContainer localstack() {
-        return new LocalStackContainer(DockerImageName.parse("localstack/localstack:latest"))
-                .withServices("s3", "sqs"); // strings instead of Service.S3, Service.SQS
+    @ServiceConnection
+    ConfluentKafkaContainer kafka() {
+        return new ConfluentKafkaContainer("confluentinc/cp-kafka:7.8.0");
     }
 }
 ```
 
----
+## 3. LocalStack
+
+| 1.x (deprecated class) | 2.x (`org.testcontainers.localstack.LocalStackContainer`) |
+|------------------------|-----------------------------------------------------------|
+| `.withServices(Service.S3, Service.SQS)` | `.withServices("s3", "sqs")`. The new class has no `Service` enum |
+| `getEndpointOverride(Service.S3)` | `getEndpoint()`. One endpoint for all services |
+| `getAccessKey()`, `getSecretKey()`, `getRegion()` | unchanged |
+
+```java
+LocalStackContainer localstack = new LocalStackContainer(DockerImageName.parse("localstack/localstack:<pinned-tag>"))
+        .withServices("s3", "sqs");
+
+S3Client s3 = S3Client.builder()
+        .endpointOverride(localstack.getEndpoint())
+        .credentialsProvider(StaticCredentialsProvider.create(
+                AwsBasicCredentials.create(localstack.getAccessKey(), localstack.getSecretKey())))
+        .region(Region.of(localstack.getRegion()))
+        .build();
+```
+
+**Image licensing (2026):** from LocalStack 2026.03 (March 23, 2026), `localstack/localstack` is a single image that requires an auth token. Without `LOCALSTACK_AUTH_TOKEN` in the container environment, startup fails. Do not move to `latest` as part of this migration. Either keep a pinned pre-2026.03 tag, or pass the token (`.withEnv("LOCALSTACK_AUTH_TOKEN", System.getenv("LOCALSTACK_AUTH_TOKEN"))`) and configure it in CI. Ask the user which option fits. Source: [LocalStack single-image announcement](https://blog.localstack.cloud/localstack-single-image-next-steps/).
+
+## 4. JUnit 4 (required if used)
+
+Containers no longer implement JUnit 4's `TestRule`, and Testcontainers no longer brings `junit:junit` as a dependency. Code that used JUnit 4 only through Testcontainers stops compiling (`org.junit.Rule` not found). If JUnit 4 is declared directly, `@Rule` / `@ClassRule` container fields compile but fail at run time with an `initializationError` ("must implement MethodRule or TestRule"). Move to JUnit 5 (`@Testcontainers` + `@Container`) or, in Spring Boot, to `@ServiceConnection` beans as above.
+
+## 5. Images
+
+Testcontainers 2 does not require new image versions. Keep pinned tags and upgrade images separately, so a failing test points to one change.
 
 ## Verification
 
-### 1. Dependency Verification
-
 ```bash
-# Check Testcontainers version
-./mvnw dependency:tree | grep testcontainers
-
-# Expected: org.testcontainers:testcontainers-<module>:2.x
+./mvnw dependency:tree -Dincludes=org.testcontainers   # all 2.0.x, no 1.x artifacts
+./mvnw clean test-compile -Dmaven.compiler.showDeprecation=true   # remaining deprecated classes
+./mvnw verify                                           # container tests (needs Docker)
 ```
 
-### 2. Import Verification
+## Common failures
 
-**Run tests and check for compilation errors:**
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `'dependencies.dependency.version' for org.testcontainers:postgresql:jar is missing` | 1.x artifact ID under the Boot 4 BOM | Use `testcontainers-postgresql` |
+| `package org.junit does not exist`, or `initializationError: ... must implement MethodRule or TestRule` | JUnit 4 rules | Move to JUnit 5 or `@ServiceConnection` |
+| Kafka tests cannot connect; no `KafkaConnectionDetails` from the container | Deprecated `org.testcontainers.containers.KafkaContainer` with `@ServiceConnection` | `ConfluentKafkaContainer` or the new `KafkaContainer` |
+| `Failed to verify that image 'confluentinc/cp-kafka...' is a compatible substitute for 'apache/kafka'` | New `KafkaContainer` with a Confluent image | `ConfluentKafkaContainer` |
+| `cannot find symbol: Service` with the new `LocalStackContainer` | Enum exists only on the deprecated class | `.withServices("s3")`, `getEndpoint()` |
+| LocalStack container exits with an authentication error | 2026.03+ image without auth token | Pin an older tag, or set `LOCALSTACK_AUTH_TOKEN` |
+| `Could not find a valid Docker environment` | Docker not running or not reachable | Start Docker; Boot 4.1 prints a failure analysis with details |
 
-```bash
-./mvnw clean test-compile
-```
+## Checklist
 
-**Common errors:**
-```
-error: package org.testcontainers.containers does not exist
-error: cannot find symbol PostgreSQLContainer<?>
-```
-
-**Solution:** Update imports and remove generics
-
-### 3. Runtime Verification
-
-```bash
-# Run container tests
-./mvnw test -Dtest=*ContainerTest
-
-# Check container startup logs
-```
-
-**Expected logs:**
-```
-Creating container for image: postgres:16-alpine
-Container started: postgres
-Creating container for image: localstack/localstack:latest
-Container started: localstack
-```
-
-### 4. LocalStack Service Verification
-
-**Test S3 operations:**
-
-```java
-@Test
-void testS3Operations() {
-    s3Client.createBucket(b -> b.bucket("test-bucket"));
-
-    // Upload file
-    s3Client.putObject(
-        PutObjectRequest.builder().bucket("test-bucket").key("test.txt").build(),
-        RequestBody.fromString("test content")
-    );
-
-    // Download file
-    String content = s3Client.getObjectAsBytes(
-        GetObjectRequest.builder().bucket("test-bucket").key("test.txt").build()
-    ).asUtf8String();
-
-    assertThat(content).isEqualTo("test content");
-}
-```
-
----
-
-## Common Issues
-
-### Issue 1: ClassNotFoundException
-
-**Error:**
-```
-java.lang.ClassNotFoundException: org.testcontainers.containers.PostgreSQLContainer
-```
-
-**Cause:** Old import path
-
-**Solution:**
-```java
-// Change
-import org.testcontainers.containers.PostgreSQLContainer;
-
-// To
-import org.testcontainers.postgresql.PostgreSQLContainer;
-```
-
-### Issue 2: Cannot Resolve Generic Type
-
-**Error:**
-```
-incompatible types: PostgreSQLContainer cannot be converted to PostgreSQLContainer<?>
-```
-
-**Cause:** Using old generic syntax
-
-**Solution:**
-```java
-// Change
-PostgreSQLContainer<?> container = ...
-
-// To
-PostgreSQLContainer container = ...
-```
-
-### Issue 3: LocalStack Service Not Found
-
-**Error:**
-```
-error: cannot find symbol LocalStackContainer.Service.S3
-```
-
-**Cause:** Service enum removed in 2.x — but `withServices(String...)` still exists.
-
-**Solution:**
-```java
-// Remove the enum import
-// import static org.testcontainers.containers.localstack.LocalStackContainer.Service.S3;
-
-// Replace the call with a string service name:
-// before: .withServices(S3)
-// after:
-container.withServices("s3");
-// or for multiple: container.withServices("s3", "sqs");
-```
-
-### Issue 4: Container Fails to Start
-
-**Error:**
-```
-Could not start container: localstack/localstack:3.0
-```
-
-**Cause:** Old image version
-
-**Solution:**
-```java
-// Change
-DockerImageName.parse("localstack/localstack:3.0")
-
-// To
-DockerImageName.parse("localstack/localstack:latest")
-```
-
----
-
-## Migration Checklist
-
-### Phase 1: Dependencies
-- [ ] Update artifact names with `testcontainers-` prefix
-- [ ] Verify all test dependencies use Testcontainers 2.x
-- [ ] Remove old Testcontainers 1.x dependencies
-
-### Phase 2: Imports
-- [ ] Update PostgreSQL imports to `org.testcontainers.postgresql`
-- [ ] Update MySQL imports to `org.testcontainers.mysql`
-- [ ] Update LocalStack imports to `org.testcontainers.localstack`
-- [ ] Update other container imports to module-specific packages
-- [ ] Remove LocalStack Service enum imports
-
-### Phase 3: Code Changes
-- [ ] Remove generic types from container declarations
-- [ ] Replace `LocalStackContainer.Service` enum constants in `.withServices(...)` with strings (e.g. `Service.S3` → `"s3"`)
-- [ ] Update `getEndpointOverride(Service)` to `getEndpoint()`
-- [ ] Update container image versions
-
-### Phase 4: Testing
-- [ ] Run compilation: `./mvnw clean test-compile`
-- [ ] Run all container tests
-- [ ] Verify PostgreSQL integration tests
-- [ ] Verify LocalStack integration tests (S3, SQS, etc.)
-- [ ] Verify other container tests
-- [ ] Check container startup performance
-
----
-
-## Best Practices
-
-### 1. Use Latest Stable Images
-
-```java
-// Prefer specific versions for reproducibility
-PostgreSQLContainer container = new PostgreSQLContainer("postgres:16-alpine");
-
-// Or use latest for development
-PostgreSQLContainer container = new PostgreSQLContainer("postgres:latest");
-```
-
-### 2. Reuse Containers Across Tests
-
-```java
-@Testcontainers
-@SpringBootTest
-class IntegrationTests {
-
-    @Container
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16");
-
-    // Container reused across all test methods
-}
-```
-
-### 3. Use @ServiceConnection
-
-```java
-@TestConfiguration
-class TestConfig {
-
-    @Bean
-    @ServiceConnection  // Auto-configures DataSource
-    PostgreSQLContainer postgres() {
-        return new PostgreSQLContainer("postgres:16");
-    }
-}
-```
-
-### 4. Cleanup Resources
-
-```java
-@Bean(initMethod = "start", destroyMethod = "stop")
-LocalStackContainer localstack() {
-    return new LocalStackContainer("localstack/localstack:latest");
-}
-```
-
----
-
-## References
-
-- [Testcontainers 2.0.0 release notes](https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0)
-- [OpenRewrite Testcontainers 2.x migration recipe](https://docs.openrewrite.org/recipes/java/testing/testcontainers/testcontainers2migration)
-- [Testcontainers Documentation](https://java.testcontainers.org/)
-- [LocalStack Documentation](https://docs.localstack.cloud/)
-- [Spring Boot Testcontainers Support](https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.testing.testcontainers)
+- [ ] All `org.testcontainers` artifacts use the `testcontainers-` prefix (except core `testcontainers`)
+- [ ] Imports moved to `org.testcontainers.<module>`; no `<?>` on JDBC containers
+- [ ] Kafka: `ConfluentKafkaContainer` for `cp-kafka`, `KafkaContainer` for `apache/kafka` (required for `@ServiceConnection`)
+- [ ] LocalStack: string services, `getEndpoint()`, image tag and auth token decided with the user
+- [ ] No JUnit 4 `@Rule`/`@ClassRule` containers
+- [ ] Image tags unchanged in this step

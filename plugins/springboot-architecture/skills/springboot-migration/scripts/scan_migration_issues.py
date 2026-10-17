@@ -20,6 +20,12 @@ from typing import List, Dict, Set
 from dataclasses import dataclass, field
 
 
+def _is_old_testcontainers_artifact(artifact_id: str) -> bool:
+    """1.x module artifacts lack the testcontainers- prefix used in 2.x."""
+    return artifact_id not in ('testcontainers', 'testcontainers-bom') \
+        and not artifact_id.startswith('testcontainers-')
+
+
 @dataclass
 class Issue:
     """Represents a migration issue"""
@@ -51,6 +57,7 @@ class MigrationScanner:
         self.project_path = Path(project_path)
         self.result = ScanResult()
         self.modulith_schema_configured = False
+        self.modulith_schema_name = None
         self.modulith_in_use = False
         self.has_restclient_starter = False
         self.has_webclient_starter = False
@@ -264,22 +271,23 @@ class MigrationScanner:
                         "Change to: spring-boot-starter-security-test"
                     )
 
-        # Check for Testcontainers 1.x artifacts
-        tc_old_artifacts = ['junit-jupiter', 'postgresql', 'mysql', 'localstack', 'mongodb']
+        # Check for Testcontainers 1.x artifacts: in 2.x every module artifact
+        # has the testcontainers- prefix, and Boot 4 only manages the new names
         for i, line in enumerate(lines, 1):
-            for artifact in tc_old_artifacts:
-                if f'<artifactId>{artifact}</artifactId>' in line:
-                    # Check if it's under org.testcontainers
-                    context = '\n'.join(lines[max(0, i-3):min(len(lines), i+2)])
-                    if '<groupId>org.testcontainers</groupId>' in context:
-                        self.result.add_issue(
-                            "Testcontainers 2.x - Dependencies",
-                            "WARNING",
-                            str(pom_path),
-                            i,
-                            f"Old Testcontainers artifact: {artifact}",
-                            f"Change to: testcontainers-{artifact}"
-                        )
+            match = re.search(r'<artifactId>([^<]+)</artifactId>', line)
+            if not match or not _is_old_testcontainers_artifact(match.group(1)):
+                continue
+            context = '\n'.join(lines[max(0, i-3):min(len(lines), i+2)])
+            if '<groupId>org.testcontainers</groupId>' in context:
+                artifact = match.group(1)
+                self.result.add_issue(
+                    "Testcontainers 2.x - Dependencies",
+                    "CRITICAL",
+                    str(pom_path),
+                    i,
+                    f"Old Testcontainers artifact: {artifact}",
+                    f"Change to: testcontainers-{artifact} (Boot 4 manages only the 2.x names)"
+                )
 
         # Track modular HTTP client starters
         self.has_restclient_starter = 'spring-boot-starter-restclient' in content
@@ -413,7 +421,6 @@ class MigrationScanner:
             'spring-boot-starter-web': 'spring-boot-starter-webmvc',
             'spring-boot-starter-aop': 'spring-boot-starter-aspectj',
         }
-        tc_old_artifacts = {'junit-jupiter', 'postgresql', 'mysql', 'localstack', 'mongodb'}
 
         spring_retry_reported = False
         for i, line in enumerate(lines, 1):
@@ -444,14 +451,14 @@ class MigrationScanner:
                         "Change to: spring-boot-starter-security-test"
                     )
 
-                if group_id == 'org.testcontainers' and artifact_id in tc_old_artifacts:
+                if group_id == 'org.testcontainers' and _is_old_testcontainers_artifact(artifact_id):
                     self.result.add_issue(
                         "Testcontainers 2.x - Dependencies",
-                        "WARNING",
+                        "CRITICAL",
                         str(gradle_path),
                         i,
                         f"Old Testcontainers artifact: {artifact_id}",
-                        f"Change to: testcontainers-{artifact_id}"
+                        f"Change to: testcontainers-{artifact_id} (Boot 4 manages only the 2.x names)"
                     )
 
                 # Legacy spring-retry — coordinate-based, not substring, so
@@ -581,8 +588,16 @@ class MigrationScanner:
                 'org.testcontainers.mysql.MySQLContainer',
             'org.testcontainers.containers.MongoDBContainer':
                 'org.testcontainers.mongodb.MongoDBContainer',
+            'org.testcontainers.containers.MariaDBContainer':
+                'org.testcontainers.mariadb.MariaDBContainer',
+            'org.testcontainers.containers.RabbitMQContainer':
+                'org.testcontainers.rabbitmq.RabbitMQContainer',
             'org.testcontainers.containers.localstack.LocalStackContainer':
                 'org.testcontainers.localstack.LocalStackContainer',
+            'org.testcontainers.containers.KafkaContainer':
+                'org.testcontainers.kafka.ConfluentKafkaContainer (same confluentinc/cp-kafka image) '
+                'or org.testcontainers.kafka.KafkaContainer (apache/kafka image only); '
+                'required for @ServiceConnection in Boot 4',
         }
 
         for i, line in enumerate(lines, 1):
@@ -592,10 +607,10 @@ class MigrationScanner:
                 if f'import {old_import}' in line:
                     self.result.add_issue(
                         "Testcontainers 2.x - Package Changes",
-                        "CRITICAL",
+                        "WARNING",
                         str(rel_path),
                         i,
-                        f"Old Testcontainers import: {old_import}",
+                        f"Deprecated Testcontainers class: {old_import}",
                         f"Change to: {new_import}"
                     )
 
@@ -608,9 +623,37 @@ class MigrationScanner:
                         "CRITICAL",
                         str(rel_path),
                         i,
-                        "LocalStackContainer.Service enum removed in Testcontainers 2.x",
-                        "Replace enum constants with string service names: .withServices(LocalStackContainer.Service.S3) -> .withServices(\"s3\"). The withServices(String...) method itself still exists."
+                        "LocalStackContainer.Service exists only on the deprecated org.testcontainers.containers.localstack class",
+                        "With org.testcontainers.localstack.LocalStackContainer use strings: .withServices(\"s3\") and getEndpoint()"
                     )
+
+        # JUnit 4 rules: GenericContainer no longer implements TestRule in 2.x
+        if any(i in ('org.junit.Rule', 'org.junit.ClassRule') for i in imports) and 'Container' in content:
+            for i, line in enumerate(lines, 1):
+                if re.search(r'@(Class)?Rule\b', line) and not line.strip().startswith('//'):
+                    self.result.add_issue(
+                        "Testcontainers 2.x - JUnit 4",
+                        "CRITICAL",
+                        str(rel_path),
+                        i,
+                        "JUnit 4 @Rule/@ClassRule container: containers are no longer TestRules, and junit:junit is no longer transitive in 2.x",
+                        "Move to JUnit 5 (@Testcontainers/@Container) or Spring Boot @ServiceConnection beans"
+                    )
+                    break
+
+        # LocalStack images from 2026.03 need an auth token
+        if 'localstack/localstack' in content:
+            for i, line in enumerate(lines, 1):
+                if 'localstack/localstack' in line and not line.strip().startswith('//'):
+                    self.result.add_issue(
+                        "Testcontainers 2.x - LocalStack Image",
+                        "INFO",
+                        str(rel_path),
+                        i,
+                        "LocalStack images from 2026.03 require LOCALSTACK_AUTH_TOKEN",
+                        "Pin a tag; with 2026.03+ (and latest) set LOCALSTACK_AUTH_TOKEN in CI"
+                    )
+                    break
 
         # Note: org.springframework.resilience.* is used in the external sample repo.
         # Keep this as informational instead of treating it as invalid.
@@ -623,7 +666,7 @@ class MigrationScanner:
                         str(rel_path),
                         i,
                         "Using org.springframework.resilience annotations",
-                        "Native retry detected; ensure @EnableResilientMethods + spring-boot-starter-aspectj"
+                        "Native retry detected; ensure @EnableResilientMethods on a @Configuration class"
                     )
 
         # Check for @Retryable usage and align suggestion with imports
@@ -634,13 +677,13 @@ class MigrationScanner:
             for i, line in enumerate(lines, 1):
                 if '@Retryable' in line and not line.strip().startswith('//'):
                     if uses_resilience:
-                        suggestion = "Ensure @EnableResilientMethods + spring-boot-starter-aspectj"
+                        suggestion = "Ensure @EnableResilientMethods on a @Configuration class"
                         category = "Spring Boot 4 - Retry/Resilience"
                     elif uses_spring_retry:
                         suggestion = "Migrate to native org.springframework.resilience.annotation.* — Spring Retry is maintenance-only"
                         category = "Spring Boot 4 - Legacy Spring Retry"
                     else:
-                        suggestion = "Add imports from org.springframework.resilience.annotation.* + @EnableResilientMethods + aspectj starter"
+                        suggestion = "Add imports from org.springframework.resilience.annotation.* + @EnableResilientMethods"
                         category = "Spring Boot 4 - Retry/Resilience"
 
                     self.result.add_issue(
@@ -759,6 +802,7 @@ class MigrationScanner:
         props_paths = [
             self.project_path / "src/main/resources/application.properties",
             self.project_path / "src/main/resources/application.yml",
+            self.project_path / "src/main/resources/application.yaml",
         ]
 
         for props_path in props_paths:
@@ -779,9 +823,15 @@ class MigrationScanner:
 
         content = ''.join(lines)
 
-        # Check for Spring Modulith event store config
-        has_modulith_jdbc = 'spring.modulith.events.jdbc.schema' in content
-        return has_modulith_jdbc
+        # Spring Modulith dedicated event schema: match the exact key, not
+        # spring.modulith.events.jdbc.schema-initialization.enabled
+        match = re.search(r'^\s*spring\.modulith\.events\.jdbc\.schema\s*[=:]\s*(\S+)', content, re.M)
+        if not match and file_path.suffix in ('.yml', '.yaml'):
+            match = re.search(r'^\s*jdbc:\s*\n(?:\s+[\w-]+:.*\n)*?\s+schema:\s*(\S+)', content, re.M)
+        if match:
+            self.modulith_schema_name = match.group(1).strip('"\'')
+            return True
+        return False
 
     def _scan_flyway_migrations(self):
         """Scan Flyway migrations for Spring Modulith event schema"""
@@ -794,19 +844,26 @@ class MigrationScanner:
 
         # Check for events schema migration only if configured
         if self.modulith_in_use and self.modulith_schema_configured:
-            events_schema_files = list(migration_dir.glob("V*__*events*.sql"))
-            root_migrations = migration_dir / "__root"
-            if root_migrations.exists():
-                events_schema_files += list(root_migrations.glob("V*__*events*.sql"))
+            schema = re.escape(self.modulith_schema_name or 'events')
+            create_schema = re.compile(rf'CREATE\s+SCHEMA\s+(IF\s+NOT\s+EXISTS\s+)?"?{schema}"?\b', re.I)
+            found = False
+            for sql in migration_dir.rglob("*.sql"):
+                try:
+                    if create_schema.search(sql.read_text(encoding='utf-8')):
+                        found = True
+                        break
+                except Exception:
+                    continue
 
-            if not events_schema_files:
+            if not found:
                 self.result.add_issue(
                     "Spring Modulith 2.0 - Database",
                     "CRITICAL",
                     "src/main/resources/db/migration/",
                     0,
-                    "Missing events schema migration",
-                    "Create: V1__create_events_schema.sql with 'CREATE SCHEMA events;'"
+                    f"No migration creates the '{self.modulith_schema_name}' schema set in spring.modulith.events.jdbc.schema",
+                    f"Add a migration with 'CREATE SCHEMA IF NOT EXISTS {self.modulith_schema_name};' "
+                    "(schema names work only on PostgreSQL, H2, HSQLDB)"
                 )
 
     def print_report(self):

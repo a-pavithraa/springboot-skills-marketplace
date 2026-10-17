@@ -108,6 +108,7 @@ Changes needed for this skill's patterns:
 ### Other differences
 
 - Progen creates `V001__create_users_table.sql`. Start new Flyway files at `V002__`. Flyway reads `V1` and `V001` as the same version and fails.
+- Progen sets `spring.modulith.events.republish-outstanding-events-on-restart=true` and `spring.modulith.events.jdbc.schema-initialization.enabled=true`. Spring Modulith advises against both for production: republishing duplicates events when several instances run, and the table should come from a Flyway migration. Tell the user before production use.
 - Progen sets `spring.threads.virtual.enabled=true`. This skill enables virtual threads only with workload evidence. Tell the user, and keep or remove it based on their answer.
 - Progen adds BootUI, devtools, springdoc, JWT (for REST), Spotless, JaCoCo, and git-commit-id. Remove what the user does not want.
 

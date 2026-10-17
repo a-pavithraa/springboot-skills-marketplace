@@ -26,7 +26,7 @@ Use the Spring Boot BOM: `spring-boot-starter-parent` or an imported `spring-boo
 | Flag | Fix |
 |------|-----|
 | `spring-boot-starter-web` (deprecated) | `spring-boot-starter-webmvc` |
-| `spring-boot-starter-aop` | `spring-boot-starter-aspectj` |
+| `spring-boot-starter-aop` | `spring-boot-starter-aspectj` if the app uses AspectJ (`@Aspect`, Micrometer `@Timed`, Resilience4j annotations); otherwise remove it |
 | `RestClient` / `RestTemplate` used, no `spring-boot-starter-restclient` | Add it. `spring-boot-starter-webmvc` no longer includes RestClient auto-configuration |
 | `WebClient` used, no `spring-boot-starter-webclient` | Add it |
 | `spring-boot-starter-test` alone, but tests use MockMvc, security, or JPA test slices | Add the matching `*-test` starters (for example `spring-boot-starter-webmvc-test`), or use `spring-boot-starter-test-classic` |
@@ -75,7 +75,8 @@ Spring Framework 7 has native `@Retryable` and `@ConcurrencyLimit` (`org.springf
 | Flag | Fix |
 |------|-----|
 | `@Retryable` or `@ConcurrencyLimit` without `@EnableResilientMethods` on a `@Configuration` class | Add `@EnableResilientMethods`. Without it, the annotations do nothing |
-| Annotation-based resilience (native or Resilience4j) without `spring-boot-starter-aspectj` | Add the starter |
+| Resilience4j annotations without `spring-boot-starter-aspectj` | Add the starter. Native `@Retryable`/`@ConcurrencyLimit` do NOT need it (Spring AOP proxies) |
+| `@Retryable` method called from the same class | Self-invocation skips the proxy; no retries | Call it through another bean |
 | `spring-retry` dependency or `@EnableRetry` | Move to native annotations. `maxRetries` counts retries, not attempts (`maxRetries = 2` means up to 3 calls) |
 | Circuit breaker built by hand | Use Resilience4j (`resilience4j-spring-boot4`). Circuit breakers are NOT native in Spring 7 |
 | Retries on non-idempotent calls, or no backoff | Check `includes`, `delay`, `multiplier` against the call's semantics |
@@ -124,7 +125,7 @@ Example of a wrong recommendation: a service with 100 requests per day and a poo
 - [ ] Starters use Boot 4 names (webmvc, aspectj, restclient, webclient)
 - [ ] Jackson uses `tools.jackson.*`, except `jackson-annotations`
 - [ ] `@MockitoBean` / `@MockitoSpyBean`; MockMvc and TestRestTemplate auto-configuration is explicit
-- [ ] Native `@Retryable` / `@ConcurrencyLimit` have `@EnableResilientMethods` and `spring-boot-starter-aspectj`
+- [ ] Native `@Retryable` / `@ConcurrencyLimit` have `@EnableResilientMethods`; AspectJ starter only for real AspectJ use
 - [ ] HTTP service clients use `@ImportHttpServices`
 - [ ] API versioning uses native `spring.mvc.apiversion.*`
 - [ ] Errors use `ProblemDetail`; configuration uses `@ConfigurationProperties`

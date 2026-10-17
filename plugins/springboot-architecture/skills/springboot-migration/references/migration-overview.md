@@ -1,143 +1,43 @@
 # Migration Overview
 
-## Table of Contents
+Use this file to route scanner findings to the right guide. The guides hold the details.
 
-1. [Common Migration Scenarios](#common-migration-scenarios)
-2. [Critical Migration Issues](#critical-migration-issues)
-3. [Migration Strategies](#migration-strategies)
-4. [References](#references)
+## Order
 
----
+1. Spring Boot 4 (`spring-boot-4-migration.md`)
+2. Spring Modulith 2 (`spring-modulith-2-migration.md`). Boot 4 needs Modulith 2; Modulith 1.x does not run on it.
+3. Testcontainers 2 (`testcontainers-2-migration.md`). Boot 4 manages Testcontainers 2 versions, so test code must move too.
 
-## Common Migration Scenarios
+Steps 2 and 3 are part of the same upgrade when the project uses them. Build and test after each step.
 
-### Scenario 1: Spring Boot 3 → 4 Only
+## Scanner finding → where to look
 
-**Scan output shows:** Spring Boot dependency updates only
+| Finding | Guide section |
+|---------|---------------|
+| Starter renames, missing restclient/flyway starters | `spring-boot-4-migration.md#phase-1-dependencies` |
+| `com.fasterxml.jackson.databind` imports, Jackson 2 customizers | `spring-boot-4-migration.md#jackson-3` |
+| `@MockBean` / `@SpyBean`, old `WebMvcTest` package, `TestRestTemplate` | `spring-boot-4-migration.md#phase-3-tests` |
+| `spring-retry`, `@EnableRetry`, `org.springframework.retry` imports | `spring-boot-4-migration.md#spring-retry--native-resilience` |
+| Manual `HttpServiceProxyFactory` | `spring-boot-4-migration.md#optional-modernization` |
+| Renamed properties | `spring-boot-4-migration.md#phase-4-configuration` |
+| Modulith 1.x dependencies, `event_publication` table | `spring-modulith-2-migration.md` |
+| Testcontainers 1.x artifacts, `org.testcontainers.containers.*` imports, `<?>` generics | `testcontainers-2-migration.md` |
+| `StableValue` / `StructuredTaskScope` preview APIs | `../../creating-springboot-projects/references/java-version-policy.md` |
 
-**Steps:**
-1. Read `spring-boot-4-migration.md`
-2. Follow dependency updates section
-3. Apply code changes (annotations, imports)
-4. Update configuration if needed
-5. Test thoroughly
+## Strategy
 
-### Scenario 2: Full Stack Migration (Boot + Modulith + Testcontainers)
+- **Direct** (small and medium apps): move to modular starters and new APIs in one pass.
+- **Classic starters** (large apps): `spring-boot-starter-classic` + `spring-boot-starter-test-classic` first, then modular starters later.
 
-**Scan output shows:** All three components need updates
+## Automated help (optional)
 
-**Steps:**
-1. Read all three migration guides
-2. Start with Spring Boot 4 migration
-3. Apply Spring Modulith 2 changes (event store schema!)
-4. Apply Testcontainers 2 changes (package renames)
-5. Test at each step
-
-### Scenario 3: TestRestTemplate → RestTestClient
-
-**Scan output shows:** `TestRestTemplate` usage
-
-**Steps:**
-1. Replace `TestRestTemplate` with `RestTestClient` in test classes
-2. Add `@AutoConfigureRestTestClient` annotation
-3. Rewrite assertions to use fluent API (`.expectStatus()`, `.expectBody()`)
-4. See `spring-boot-4-migration.md` → "TestRestTemplate → RestTestClient" section
-
-### Scenario 4: HTTP Service Client Migration
-
-**Scan output shows:** Manual `HttpServiceProxyFactory` setup
-
-**Steps:**
-1. Keep existing `@HttpExchange` interfaces unchanged
-2. Replace manual `HttpServiceProxyFactory` bean with `@ImportHttpServices`
-3. Move base URL and timeout config to `spring.http.serviceclient.<group>.*` properties
-4. See `spring-boot-4-migration.md` → "HTTP Service Client" section
-
-### Scenario 5: Fixing Retry/Resilience Logic
-
-**Scan output shows:** `@Retryable` / `@ConcurrencyLimit` usage
-
-**Critical fix:**
-- Ensure AOP support via `spring-boot-starter-aspectj`
-- Migrate from Spring Retry (`spring-retry`) to native `org.springframework.resilience.annotation.*` — Spring Retry is maintenance-only
-- Replace `@EnableRetry` with `@EnableResilientMethods`
-- Remove `spring-retry` dependency from pom.xml
-- See `spring-boot-4-migration.md` → "Retry/Resilience Annotations" section
-
-## Critical Migration Issues
-
-### Issue 1: Jackson 3 Breaking Changes
-- Group ID changed: `com.fasterxml.jackson` → `tools.jackson`
-- Exception: `jackson-annotations` stays with old group ID
-- Class renames: `Jackson2ObjectMapperBuilderCustomizer` → `JsonMapperBuilderCustomizer`
-
-**Reference:** `spring-boot-4-migration.md` → "Jackson 3 Migration"
-
-### Issue 2: Test Annotation Renames
-- `@MockBean` → `@MockitoBean`
-- `@SpyBean` → `@MockitoSpyBean`
-- `@WebMvcTest` package relocated
-- `@SpringBootTest` may need `@AutoConfigureMockMvc`
-
-**Reference:** `spring-boot-4-migration.md` → "Test Changes"
-
-### Issue 3: Spring Modulith Event Store Schema
-- Spring Modulith 2.0 REQUIRES updating the `event_publication` table schema
-- Dedicated `events` schema is optional (use for larger apps if desired)
-- For a dedicated schema, create a Flyway migration like `V1__create_events_schema.sql`
-- Configure `spring.modulith.events.jdbc.schema=events` only if using a dedicated schema
-
-**Reference:** `spring-modulith-2-migration.md`
-
-### Issue 4: TestRestTemplate no longer auto-provided
-- `TestRestTemplate` is **not deprecated** in Boot 4, but `@SpringBootTest` no longer auto-configures it.
-- Opt in with `@AutoConfigureTestRestTemplate` to keep existing tests working.
-- For new tests, prefer `RestTestClient` (Spring Framework 7.0) with `@AutoConfigureRestTestClient`.
-
-**Reference:** `spring-boot-4-migration.md` → "TestRestTemplate → RestTestClient"
-
-### Issue 5: Manual HttpServiceProxyFactory Unnecessary
-- `@ImportHttpServices` replaces manual proxy factory wiring (Framework 7.0)
-- `@HttpExchange` interfaces remain unchanged (existed since Framework 6.0)
-
-**Reference:** `spring-boot-4-migration.md` → "HTTP Service Client"
-
-### Issue 6: RestClient/WebClient Modular Starters
-- `spring-boot-starter-webmvc` no longer includes RestClient auto-configuration
-- Add `spring-boot-starter-restclient` for RestClient/RestTemplate
-- Add `spring-boot-starter-webclient` for WebClient
-
-**Reference:** `spring-boot-4-migration.md` → "RestClient / WebClient Modular Starters"
-
-### Issue 7: Testcontainers Package Changes
-- Artifacts renamed with `testcontainers-` prefix
-- Container classes relocated to `org.testcontainers.<module>` packages (e.g., `org.testcontainers.postgresql`)
-- JUnit 4 support removed
-
-**Reference:** `testcontainers-2-migration.md` (module-specific changes like LocalStack)
-
-## Migration Strategies
-
-### Strategy A: Direct Migration (Recommended)
-Update directly to new starters and APIs.
-
-**Pros:** Clean, modern codebase
-**Cons:** More changes at once
-**Best for:** Small-medium projects, green field migrations
-
-### Strategy B: Classic Starters (Gradual)
-Use `spring-boot-starter-classic` and `spring-boot-starter-test-classic` temporarily.
-
-**Pros:** Fewer breaking changes, easier rollback
-**Cons:** Eventually need to migrate anyway
-**Best for:** Large projects, risk-averse migrations
-
-**Reference:** `spring-boot-4-migration.md` → "Migration Strategy"
+- OpenRewrite has `org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0` in `org.openrewrite.recipe:rewrite-spring`. It is under the Moderne Source Available License and needs extra Maven repository setup. Ask the user before using it, and review its changes like any other diff.
+- OpenRewrite also has a [Testcontainers 2 recipe](https://docs.openrewrite.org/recipes/java/testing/testcontainers/testcontainers2migration).
+- `spring-boot-properties-migrator` reports renamed properties at startup. Remove it after the upgrade.
 
 ## References
 
 - [Spring Boot 4.0 Migration Guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide)
-- [Spring Modulith 2.0 Reference](https://docs.spring.io/spring-modulith/reference/)
-- [Testcontainers 2.0.0 release notes](https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0) and [OpenRewrite Testcontainers 2.x migration recipe](https://docs.openrewrite.org/recipes/java/testing/testcontainers/testcontainers2migration)
-- [spring-boot-4-features (sample repo)](https://github.com/sivaprasadreddy/spring-boot-4-features)
-- [Vlad Mihalcea's Blog](https://vladmihalcea.com/blog/) - JPA/Hibernate best practices
+- [Spring Modulith Reference](https://docs.spring.io/spring-modulith/reference/)
+- [Testcontainers 2.0.0 release notes](https://github.com/testcontainers/testcontainers-java/releases/tag/2.0.0)
+- [spring-boot-4-features sample repo](https://github.com/sivaprasadreddy/spring-boot-4-features)
