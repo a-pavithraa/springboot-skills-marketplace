@@ -578,29 +578,4 @@ Boot 4 uses modular starters. Add only what you need:
 
 ## Migration from Spring Boot 3
 
-| Spring Boot 3 | Spring Boot 4 | Notes |
-|---------------|---------------|-------|
-| TestRestTemplate (auto-wired in Boot 3) | RestTestClient + `@AutoConfigureRestTestClient` (Boot 4) | `TestRestTemplate` is still supported; opt in with `@AutoConfigureTestRestTemplate`. New tests should prefer `RestTestClient`. |
-| Resilience4j @Retry | @Retryable (native) | Now built into Spring Framework 7 |
-| Manual concurrency control | @ConcurrencyLimit (native) | Now built into Spring Framework 7 |
-| Resilience4j @CircuitBreaker | Still Resilience4j | Circuit breaker NOT native, still requires external library |
-| Manual HttpServiceProxyFactory | @ImportHttpServices | Auto-configuration, zero boilerplate |
-| Custom versioning | spring.mvc.apiversion.* | Native support via properties or beans |
-| Spring Nullability | JSpecify @NullMarked | Better IDE support, standard annotations |
-
-**Breaking Changes:**
-
-- TestRestTemplate still works (not deprecated) but is no longer auto-provided by `@SpringBootTest` — opt in with `@AutoConfigureTestRestTemplate`; prefer `RestTestClient` for new tests
-- @Retryable API different from Resilience4j version (different package and parameters)
-- HttpServiceProxyFactory manual setup still works but unnecessary
-- Circuit breaker still requires Resilience4j (check compatibility with Spring Boot 4)
-
-**Migration Strategy:**
-
-1. For tests still using `TestRestTemplate`, either add `@AutoConfigureTestRestTemplate` (minimum change) or migrate the test to `RestTestClient` + `@AutoConfigureRestTestClient`. `TestRestTemplate` itself is not deprecated.
-2. Replace Resilience4j @Retry with native @Retryable (requires @EnableResilientMethods)
-   - Change package: `org.springframework.resilience.annotation.*`
-   - Update parameters: `retryFor` → `includes`; `maxAttempts` (total) → `maxRetries` (retries after the first call — subtract 1, so `maxAttempts = 4` becomes `maxRetries = 3`)
-3. Keep Resilience4j for circuit breaker and advanced patterns
-4. Replace manual HTTP client setup with @ImportHttpServices
-5. Configure API versioning via spring.mvc.apiversion.* properties
+This file covers new projects. For upgrades, use the `springboot-migration` skill and `../../springboot-migration/references/spring-boot-4-migration.md`.

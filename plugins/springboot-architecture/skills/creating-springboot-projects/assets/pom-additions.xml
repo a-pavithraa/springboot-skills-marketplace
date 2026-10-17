@@ -6,8 +6,8 @@
 <!-- ============================================================ -->
 <!-- TSID - For application-generated IDs (Tomato/DDD patterns)   -->
 <!-- ============================================================ -->
-<!-- Spring Boot 4.1.x ships Hibernate 7.4.1.Final. hypersistence-utils has no -hibernate-74
-     module yet, so use the newest published one, -hibernate-73 (verify it runs against 7.4.1).
+<!-- Spring Boot 4.1.x ships Hibernate 7.4.x. hypersistence-utils has no -hibernate-74
+     module yet, so use the newest published one, -hibernate-73 (verify it runs against 7.4.x).
      Confirm latest version: https://central.sonatype.com/artifact/io.hypersistence/hypersistence-utils-hibernate-73/versions -->
 <dependency>
     <groupId>io.hypersistence</groupId>

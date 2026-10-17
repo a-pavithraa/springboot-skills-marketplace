@@ -1,916 +1,141 @@
-# Value Objects Patterns
+# Value Objects: Review Rules
 
-This guide provides practical patterns and examples for implementing Value Objects in Spring Boot applications.
+A value object (VO) is an immutable, self-validating type for a domain concept (`OrderNumber`, `Money`, `EmailAddress`). It has no identity. Two VOs with the same values are equal.
 
-## Table of Contents
+Full template: `../../creating-springboot-projects/assets/value-object.java`. Converter template: `../../creating-springboot-projects/assets/spring-converter.java`.
 
-1. [What are Value Objects?](#what-are-value-objects)
-2. [Core Value Object Patterns](#core-value-object-patterns)
-3. [Embedding Value Objects](#embedding-value-objects)
-4. [Spring Integration](#spring-integration)
-5. [Best Practices](#best-practices)
+## Contents
 
----
-
-## What are Value Objects?
-
-**Value Objects** are immutable objects representing domain concepts, defined by their values (not identity).
-
-### Characteristics
-
-- **Immutable** - Cannot be changed after creation
-- **Self-validating** - Invalid VOs cannot exist
-- **Equality by value** - Two VOs with same values are equal
-- **No identity** - No ID field; defined by attributes
-- **Rich behavior** - Can have domain-specific methods
-
-### Why Use Value Objects?
-
-| Problem with Primitives | Solution with Value Objects |
-|-------------------------|------------------------------|
-| No type safety (`String` orderNumber vs `String` email) | Compiler catches type mismatches |
-| Validation scattered everywhere | Validation in VO constructor (once) |
-| No domain meaning (`BigDecimal` could be price or discount) | Clear intent (`Money`, `Percentage`) |
-| No domain behavior (util classes) | Behavior in VO methods |
-| Easy to pass wrong values | Impossible to create invalid VOs |
+1. [Rules](#rules)
+2. [Single-value and multi-value VOs](#single-value-and-multi-value-vos)
+3. [JPA](#jpa)
+4. [Spring MVC and Jackson 3](#spring-mvc-and-jackson-3)
+5. [Review checklist](#review-checklist)
 
 ---
 
-## Core Value Object Patterns
+## Rules
 
-### 1. Simple Identity Value Object
+| Rule | Flag this |
+|------|-----------|
+| Immutable | Setters, non-final fields. Use a `record` or a final class with final fields |
+| Validate in the constructor | A VO that accepts any value; the same checks repeated in services |
+| Factory methods | Optional: `of(...)`, `generate()`, `zero(currency)` make intent clear |
+| Equality by value | Hand-written `equals` that compares an ID. Records do value equality for free |
+| Domain behavior belongs on the VO | Utility classes like `MoneyUtils.add(a, b)` |
+| Meaningful names | `OrderNumberVO` (no suffix), `Email` when other emails exist, `Price(BigDecimal)` without currency |
+| Keep it small | A VO with `createdAt`/`createdBy`: that is an entity |
+| Make invalid states impossible | Separate `start`/`end` fields that can be reversed. Use `DateRange` that rejects `end < start` |
 
-Wrapping IDs for type safety.
+Typical VOs: typed IDs (`OrderId`, `CustomerId`, so arguments cannot be swapped), constrained strings (`OrderNumber`, `EmailAddress`), `Money` (amount + currency), `Quantity`, `Percentage` (0-100), `DateRange`, `Address`.
 
-```java
-public record OrderId(Long id) {
+**`BigDecimal` equality trap:** records use `BigDecimal.equals`, which compares scale. `new BigDecimal("19.99")` and `new BigDecimal("19.990")` are NOT equal. In `Money`, normalize the scale in the constructor (`amount.setScale(2, RoundingMode.HALF_EVEN)`) or override `equals`/`hashCode` with `compareTo`. Use `compareTo`, not `equals`, for comparisons.
 
-    public OrderId {
-        if (id == null || id < 0) {
-            throw new IllegalArgumentException("Invalid order ID");
-        }
-    }
+**`Money` rules:** reject a null amount or currency; refuse to add, subtract, or compare different currencies; decide whether negative amounts are allowed (refunds) and enforce it.
 
-    public static OrderId of(Long id) {
-        return new OrderId(id);
-    }
+---
 
-    public static OrderId generate() {
-        return new OrderId(generateId());  // Your ID generation logic
-    }
-}
-
-public record CustomerId(Long id) {
-    public CustomerId {
-        if (id == null || id < 0) {
-            throw new IllegalArgumentException("Invalid customer ID");
-        }
-    }
-}
-
-public record ProductId(Long id) {
-    public ProductId {
-        if (id == null || id < 0) {
-            throw new IllegalArgumentException("Invalid product ID");
-        }
-    }
-}
-```
-
-**Usage:**
-```java
-// ❌ Before - all Longs, easy to mix up
-void processOrder(Long orderId, Long customerId, Long productId) {
-    // processOrder(customerId, orderId, productId);  // Compiles! Wrong order!
-}
-
-// ✅ After - type-safe
-void processOrder(OrderId orderId, CustomerId customerId, ProductId productId) {
-    // processOrder(customerId, orderId, productId);  // ❌ Compiler error!
-}
-```
-
-### 2. Constrained String Value Object
-
-Wrapping strings with validation.
+## Single-value and multi-value VOs
 
 ```java
+// Single value: JSON is a plain string ("ORD-1")
+@Embeddable
 public record OrderNumber(@JsonValue String value) {
-
     @JsonCreator
     public OrderNumber {
-        if (value == null || value.trim().isEmpty()) {
+        if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Order number cannot be empty");
         }
-        // Optional: add format validation
-        if (!value.matches("^ORD-\\d{8}$")) {
-            throw new IllegalArgumentException("Invalid order number format");
-        }
-    }
-
-    public static OrderNumber of(String value) {
-        return new OrderNumber(value);
-    }
-
-    public static OrderNumber generate() {
-        // 8-digit zero-padded value, matching the ORD-\d{8} format enforced above.
-        // Use a database sequence for collision-free numbers in production.
-        int n = ThreadLocalRandom.current().nextInt(100_000_000);
-        return new OrderNumber("ORD-%08d".formatted(n));
     }
 }
-```
 
-**Usage:**
-```java
-// ❌ Before
-String orderNum = "";  // Empty allowed!
-String orderNum = "invalid";  // Any format allowed!
-
-// ✅ After
-// OrderNumber orderNum = OrderNumber.of("");  // ❌ Exception!
-// OrderNumber orderNum = OrderNumber.of("invalid");  // ❌ Exception!
-OrderNumber orderNum = OrderNumber.generate();  // ✅ Valid
-```
-
-### 3. Email Address Value Object
-
-```java
-// Prefer Jakarta Bean Validation's @Email at the request-boundary DTO and
-// keep the VO check lightweight. The Jakarta regex covers RFC 5321 / 5322
-// shape requirements (presence of `@`, a domain part with at least one dot,
-// no whitespace) far more correctly than a one-line regex — the regex below
-// is intentionally minimal and should be paired with @Email upstream.
-public record EmailAddress(@JsonValue String value) {
-
-    private static final Pattern EMAIL_PATTERN =
-        Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
-
-    @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
-    public EmailAddress {
-        if (value == null || !EMAIL_PATTERN.matcher(value).matches()) {
-            throw new IllegalArgumentException("Invalid email address: " + value);
-        }
-    }
-
-    public static EmailAddress of(String value) {
-        return new EmailAddress(value);
-    }
-
-    public String domain() {
-        return value.substring(value.indexOf('@') + 1);
-    }
-
-    public String localPart() {
-        return value.substring(0, value.indexOf('@'));
-    }
-}
-```
-
-### 4. Quantity Value Object with Business Logic
-
-```java
-public record Quantity(@JsonValue Integer value) {
-
-    public static final Quantity ZERO = new Quantity(0);
-
-    @JsonCreator
-    public Quantity {
-        if (value == null || value < 0) {
-            throw new IllegalArgumentException("Quantity cannot be negative");
-        }
-        if (value > 10000) {
-            throw new IllegalArgumentException("Quantity cannot exceed 10,000");
-        }
-    }
-
-    public static Quantity of(Integer value) {
-        return new Quantity(value);
-    }
-
-    public boolean isZero() {
-        return value == 0;
-    }
-
-    public boolean isPositive() {
-        return value > 0;
-    }
-
-    public Quantity add(Quantity other) {
-        return new Quantity(this.value + other.value);
-    }
-
-    public Quantity subtract(Quantity other) {
-        int result = this.value - other.value;
-        if (result < 0) {
-            throw new IllegalArgumentException("Cannot have negative quantity");
-        }
-        return new Quantity(result);
-    }
-}
-```
-
-**Usage:**
-```java
-// ❌ Before
-Integer qty1 = 5;
-Integer qty2 = 3;
-Integer total = qty1 + qty2;  // Just numbers, no domain meaning
-
-// ✅ After
-Quantity qty1 = Quantity.of(5);
-Quantity qty2 = Quantity.of(3);
-Quantity total = qty1.add(qty2);  // Domain operation
-if (total.isPositive()) { ... }
-```
-
-### 5. Money Value Object
-
-```java
-// Money has two components, so it must NOT use @JsonValue on a single field —
-// @JsonValue is single-value serialization and would silently drop the other
-// component. Jackson's record auto-detection serializes this as an object:
-//   { "amount": 19.99, "currency": "USD" }
-// If you need a different wire shape (e.g., "19.99 USD"), pair an explicit
-// @JsonSerialize/@JsonDeserialize like the MoneySerializer example below.
-public record Money(
-    BigDecimal amount,
-    Currency currency) {
-
-    public static final Money ZERO_USD = Money.usd(BigDecimal.ZERO);
-
+// Two values: JSON is an object {"amount": 19.99, "currency": "USD"} by default
+@Embeddable
+public record Money(BigDecimal amount, Currency currency) {
     public Money {
-        if (amount == null) {
-            throw new IllegalArgumentException("Amount cannot be null");
-        }
-        if (amount.compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("Amount cannot be negative");
-        }
-        if (currency == null) {
-            throw new IllegalArgumentException("Currency cannot be null");
-        }
+        Objects.requireNonNull(amount, "amount");
+        Objects.requireNonNull(currency, "currency");
+        amount = amount.setScale(2, RoundingMode.HALF_EVEN);  // fixed scale keeps equals() sane
     }
-
-    public static Money of(BigDecimal amount, Currency currency) {
-        return new Money(amount, currency);
-    }
-
-    public static Money usd(BigDecimal amount) {
-        return new Money(amount, Currency.getInstance("USD"));
-    }
-
-    public static Money eur(BigDecimal amount) {
-        return new Money(amount, Currency.getInstance("EUR"));
-    }
-
-    public boolean isFree() {
-        return amount.compareTo(BigDecimal.ZERO) == 0;
-    }
-
     public Money add(Money other) {
-        ensureSameCurrency(other);
+        if (!currency.equals(other.currency)) {
+            throw new IllegalArgumentException("Currency mismatch");
+        }
         return new Money(amount.add(other.amount), currency);
     }
-
-    public Money subtract(Money other) {
-        ensureSameCurrency(other);
-        BigDecimal result = amount.subtract(other.amount);
-        if (result.compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("Cannot have negative money");
-        }
-        return new Money(result, currency);
-    }
-
-    public Money multiply(int multiplier) {
-        return new Money(
-            amount.multiply(BigDecimal.valueOf(multiplier)),
-            currency
-        );
-    }
-
-    public Money multiply(BigDecimal multiplier) {
-        return new Money(amount.multiply(multiplier), currency);
-    }
-
-    public boolean isGreaterThan(Money other) {
-        ensureSameCurrency(other);
-        return amount.compareTo(other.amount) > 0;
-    }
-
-    public boolean isLessThan(Money other) {
-        ensureSameCurrency(other);
-        return amount.compareTo(other.amount) < 0;
-    }
-
-    private void ensureSameCurrency(Money other) {
-        if (!currency.equals(other.currency)) {
-            throw new IllegalArgumentException(
-                "Cannot operate on different currencies: " +
-                currency.getCurrencyCode() + " vs " + other.currency.getCurrencyCode()
-            );
-        }
-    }
-
-    public String format() {
-        return currency.getSymbol() +
-               amount.setScale(2, RoundingMode.HALF_UP).toString();
-    }
 }
 ```
 
-**Usage:**
-```java
-// ❌ Before
-BigDecimal price = new BigDecimal("19.99");
-BigDecimal total = price.multiply(new BigDecimal(5));
-// What currency? Can add different currencies by mistake!
-
-// ✅ After
-Money price = Money.usd(new BigDecimal("19.99"));
-Money total = price.multiply(5);
-if (total.isGreaterThan(Money.usd(new BigDecimal("100")))) {
-    applyDiscount();
-}
-System.out.println(total.format());  // $99.95
-```
-
-### 6. Date Range Value Object
-
-```java
-public record DateRange(
-    LocalDate startDate,
-    LocalDate endDate) {
-
-    public DateRange {
-        if (startDate == null || endDate == null) {
-            throw new IllegalArgumentException("Dates cannot be null");
-        }
-        // ✅ BUSINESS RULE: end must be after or equal to start
-        if (endDate.isBefore(startDate)) {
-            throw new IllegalArgumentException(
-                "End date cannot be before start date");
-        }
-    }
-
-    public static DateRange of(LocalDate startDate, LocalDate endDate) {
-        return new DateRange(startDate, endDate);
-    }
-
-    public static DateRange ofDays(LocalDate startDate, int days) {
-        return new DateRange(startDate, startDate.plusDays(days));
-    }
-
-    public boolean contains(LocalDate date) {
-        return !date.isBefore(startDate) && !date.isAfter(endDate);
-    }
-
-    public long durationInDays() {
-        return ChronoUnit.DAYS.between(startDate, endDate);
-    }
-
-    public boolean overlaps(DateRange other) {
-        return !endDate.isBefore(other.startDate) &&
-               !other.endDate.isBefore(startDate);
-    }
-
-    public boolean isCurrentlyActive() {
-        LocalDate today = LocalDate.now();
-        return contains(today);
-    }
-}
-```
-
-**Usage:**
-```java
-// ❌ Before - separate fields, no validation
-reservation.setStartDate(LocalDate.of(2024, 12, 31));
-reservation.setEndDate(LocalDate.of(2024, 1, 1));  // ❌ Before start! No error!
-
-// Must validate everywhere:
-if (reservation.getEndDate().isBefore(reservation.getStartDate())) {
-    throw new IllegalArgumentException("Invalid range");
-}
-
-// ✅ After - DateRange VO
-// DateRange range = DateRange.of(
-//     LocalDate.of(2024, 12, 31),
-//     LocalDate.of(2024, 1, 1)  // ❌ Exception! Can't create invalid
-// );
-
-DateRange range = DateRange.of(
-    LocalDate.of(2024, 1, 1),
-    LocalDate.of(2024, 12, 31)
-);
-if (range.contains(LocalDate.now())) {
-    // Currently active
-}
-```
-
-### 7. Address Value Object
-
-```java
-@Embeddable
-public record Address(
-    @Column(name = "street")
-    @NotBlank(message = "Street is required")
-    String street,
-
-    @Column(name = "city")
-    @NotBlank(message = "City is required")
-    String city,
-
-    @Column(name = "state")
-    @Size(min = 2, max = 2, message = "State must be 2 characters")
-    String state,
-
-    @Column(name = "zip_code")
-    @Pattern(regexp = "\\d{5}(-\\d{4})?", message = "Invalid ZIP code")
-    String zipCode
-) {
-
-    @JsonCreator(mode = JsonCreator.Mode.PROPERTIES)
-    public Address {
-        if (street == null || city == null || state == null || zipCode == null) {
-            throw new IllegalArgumentException("All address fields are required");
-        }
-    }
-
-    public static Address of(String street, String city, String state, String zipCode) {
-        return new Address(street, city, state, zipCode);
-    }
-
-    public String fullAddress() {
-        return street + ", " + city + ", " + state + " " + zipCode;
-    }
-}
-```
-
-### 8. Percentage Value Object
-
-```java
-public record Percentage(@JsonValue BigDecimal value) {
-
-    public Percentage {
-        if (value == null) {
-            throw new IllegalArgumentException("Percentage cannot be null");
-        }
-        if (value.compareTo(BigDecimal.ZERO) < 0 ||
-            value.compareTo(new BigDecimal("100")) > 0) {
-            throw new IllegalArgumentException("Percentage must be between 0 and 100");
-        }
-    }
-
-    public static Percentage of(BigDecimal value) {
-        return new Percentage(value);
-    }
-
-    public static Percentage of(int value) {
-        return new Percentage(BigDecimal.valueOf(value));
-    }
-
-    public BigDecimal asDecimal() {
-        return value.divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP);
-    }
-
-    public Money applyTo(Money amount) {
-        BigDecimal result = amount.amount().multiply(asDecimal());
-        return Money.of(result, amount.currency());
-    }
-
-    public String format() {
-        return value.setScale(2, RoundingMode.HALF_UP) + "%";
-    }
-}
-```
-
-**Usage:**
-```java
-// ✅ Calculate discount
-Money price = Money.usd(new BigDecimal("100"));
-Percentage discount = Percentage.of(15);  // 15%
-Money discountAmount = discount.applyTo(price);  // $15.00
-Money finalPrice = price.subtract(discountAmount);  // $85.00
-```
+Do NOT put `@JsonValue` on one component of a multi-value VO. Jackson then writes only that component and drops the others.
 
 ---
 
-## Embedding Value Objects
+## JPA
 
-### In JPA Entities
+- Use `@Embedded` fields. The VO type needs `@Embeddable`, also when it is a record.
+- Records as `@Embeddable` and `@EmbeddedId` need Hibernate 6.2+. Boot 4 ships Hibernate 7, so they work.
+- For a typed ID as primary key: `@EmbeddedId private OrderId id;` with `@Embeddable record OrderId(Long id) implements Serializable`.
+- Two fields of the same VO type (billing and shipping `Address`) need `@AttributeOverrides` with distinct column names.
+- For a single-value VO, name the column with `@AttributeOverride(name = "value", column = @Column(name = "email"))`.
+- Use a JPA `AttributeConverter<Money, String>` only when the VO must fit one column. Prefer two columns for `Money`, so the database can sort and sum amounts.
 
-```java
-@Entity
-@Table(name = "customers")
-public class Customer {
+Tooling caveats:
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
-    // Simple embedded VO
-    @Embedded
-    @AttributeOverride(name = "value", column = @Column(name = "email"))
-    private EmailAddress email;
-
-    // Embedded VO with multiple fields
-    @Embedded
-    private Address billingAddress;
-
-    // Multiple instances of same VO type
-    @Embedded
-    @AttributeOverrides({
-        @AttributeOverride(name = "street", column = @Column(name = "shipping_street")),
-        @AttributeOverride(name = "city", column = @Column(name = "shipping_city")),
-        @AttributeOverride(name = "state", column = @Column(name = "shipping_state")),
-        @AttributeOverride(name = "zipCode", column = @Column(name = "shipping_zip"))
-    })
-    private Address shippingAddress;
-
-    // Embedded VO with currency
-    @Embedded
-    @AttributeOverrides({
-        @AttributeOverride(name = "amount", column = @Column(name = "credit_limit_amount")),
-        @AttributeOverride(name = "currency", column = @Column(name = "credit_limit_currency"))
-    })
-    private Money creditLimit;
-}
-```
-
-### Using EmbeddedId
-
-> **Compatibility note:** Records as `@Embeddable` / `@EmbeddedId` require Hibernate 6.2+. Spring Boot 4 ships Hibernate 7.x, so this works out of the box. Two caveats to know before adopting widely:
->
-> - **QueryDSL APT** does not accept `@Embeddable` records and will fail annotation processing — see [querydsl#3695](https://github.com/querydsl/querydsl/issues/3695). Pin a workaround or use `Q*` classes generated from non-record stand-ins if you use QueryDSL.
-> - **MapStruct** is fine for records as targets/sources, but its default constructor-based mapping for nested embeddable records sometimes requires `@Mapping(target = "...", source = "...")` overrides — verify generated code before relying on it.
->
-> If your toolchain doesn't support record embeddables yet, fall back to a plain class with `private final` fields + canonical constructor.
-
-```java
-@Embeddable
-public record OrderId(@Column(name = "id") Long id) implements Serializable {
-    public OrderId {
-        if (id == null || id < 0) {
-            throw new IllegalArgumentException("Invalid order ID");
-        }
-    }
-
-    public static OrderId of(Long id) {
-        return new OrderId(id);
-    }
-
-    public static OrderId generate() {
-        return new OrderId(generateId());
-    }
-}
-
-@Entity
-@Table(name = "orders")
-public class Order {
-
-    @EmbeddedId
-    private OrderId id;
-
-    @Embedded
-    private OrderNumber orderNumber;
-
-    @Embedded
-    private Money total;
-
-    // Constructor
-    private Order(OrderId id, OrderNumber orderNumber, Money total) {
-        this.id = id;
-        this.orderNumber = orderNumber;
-        this.total = total;
-    }
-
-    // Factory method
-    public static Order createNew(Money total) {
-        return new Order(
-            OrderId.generate(),
-            OrderNumber.generate(),
-            total
-        );
-    }
-
-    // Getters only, no setters
-    public OrderId getId() { return id; }
-    public OrderNumber getOrderNumber() { return orderNumber; }
-    public Money getTotal() { return total; }
-}
-```
+- QueryDSL APT does not accept `@Embeddable` records ([querydsl#3695](https://github.com/querydsl/querydsl/issues/3695)). With QueryDSL, use a final class with `private final` fields instead of a record.
+- MapStruct sometimes needs explicit `@Mapping(target = ..., source = ...)` for nested embeddable records. Check the generated code.
 
 ---
 
-## Spring Integration
+## Spring MVC and Jackson 3
 
-### 1. Spring Converters for REST Endpoints
+**Spring `Converter<String, VO>` applies only to `@PathVariable`, `@RequestParam`, and `@RequestHeader`.** It does NOT apply to JSON request bodies. Jackson handles bodies.
 
-```java
-@Component
-public class StringToOrderNumberConverter implements Converter<String, OrderNumber> {
-    @Override
-    public OrderNumber convert(String source) {
-        return OrderNumber.of(source);
-    }
-}
+| Input | Mechanism |
+|-------|-----------|
+| `@PathVariable OrderNumber number` | `@Component class StringToOrderNumberConverter implements Converter<String, OrderNumber>` |
+| JSON body field of a single-value VO | `@JsonValue` on the component + `@JsonCreator` on the constructor |
+| JSON body field of a multi-value VO | Default record mapping (JSON object), or a custom serializer for another shape |
 
-@Component
-public class StringToEmailAddressConverter implements Converter<String, EmailAddress> {
-    @Override
-    public EmailAddress convert(String source) {
-        return EmailAddress.of(source);
-    }
-}
-
-@Component
-public class StringToMoneyConverter implements Converter<String, Money> {
-    @Override
-    public Money convert(String source) {
-        // Parse format: "19.99 USD"
-        String[] parts = source.split(" ");
-        return Money.of(
-            new BigDecimal(parts[0]),
-            Currency.getInstance(parts[1])
-        );
-    }
-}
-```
-
-**Usage in Controllers:**
+A custom serializer on Boot 4 uses Jackson 3 types. The Jackson 2 classes (`JsonSerializer`, `JsonDeserializer`, `SerializerProvider`) do not exist in Jackson 3:
 
 ```java
-@RestController
-@RequestMapping("/orders")
-public class OrderController {
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.core.JsonParser;
+import tools.jackson.databind.*;
+import tools.jackson.databind.annotation.JsonDeserialize;
+import tools.jackson.databind.annotation.JsonSerialize;
 
-    @GetMapping("/{orderNumber}")
-    public OrderDTO getOrder(@PathVariable OrderNumber orderNumber) {
-        // String "ORD-12345" automatically converted to OrderNumber!
-        return orderService.findByOrderNumber(orderNumber);
-    }
-
-    @PostMapping
-    public OrderDTO createOrder(@RequestBody CreateOrderRequest request) {
-        // request.email() is already EmailAddress
-        // request.total() is already Money
-        return orderService.createOrder(request);
-    }
-}
-
-public record CreateOrderRequest(
-    EmailAddress email,      // Automatically converted from JSON string
-    Money total,             // Automatically converted
-    Quantity quantity        // Automatically converted
-) {}
-```
-
-### 2. JPA AttributeConverter
-
-For VOs that need custom database mapping:
-
-```java
-@Converter(autoApply = true)
-public class MoneyConverter implements AttributeConverter<Money, String> {
-
+// Writes Money as "19.99 USD"
+class MoneySerializer extends ValueSerializer<Money> {
     @Override
-    public String convertToDatabaseColumn(Money money) {
-        if (money == null) {
-            return null;
-        }
-        return money.amount() + "|" + money.currency().getCurrencyCode();
+    public void serialize(Money m, JsonGenerator gen, SerializationContext ctxt) {
+        gen.writeString(m.amount().toPlainString() + " " + m.currency().getCurrencyCode());
     }
+}
 
+class MoneyDeserializer extends ValueDeserializer<Money> {
     @Override
-    public Money convertToEntityAttribute(String dbData) {
-        if (dbData == null || dbData.isEmpty()) {
-            return null;
-        }
-        String[] parts = dbData.split("\\|");
-        return Money.of(
-            new BigDecimal(parts[0]),
-            Currency.getInstance(parts[1])
-        );
-    }
-}
-```
-
-### 3. Jackson Serialization
-
-```java
-// Using @JsonValue and @JsonCreator
-public record OrderNumber(@JsonValue String value) {
-
-    @JsonCreator
-    public OrderNumber {
-        if (value == null || value.trim().isEmpty()) {
-            throw new IllegalArgumentException("Order number cannot be empty");
-        }
+    public Money deserialize(JsonParser p, DeserializationContext ctxt) {
+        String[] parts = p.getValueAsString().split(" ");
+        return new Money(new BigDecimal(parts[0]), Currency.getInstance(parts[1]));
     }
 }
 
-// Custom serializer for complex cases
-public class MoneySerializer extends JsonSerializer<Money> {
-    @Override
-    public void serialize(Money value, JsonGenerator gen, SerializerProvider serializers)
-            throws IOException {
-        gen.writeStartObject();
-        gen.writeNumberField("amount", value.amount());
-        gen.writeStringField("currency", value.currency().getCurrencyCode());
-        gen.writeEndObject();
-    }
-}
-
-public class MoneyDeserializer extends JsonDeserializer<Money> {
-    @Override
-    public Money deserialize(JsonParser p, DeserializationContext ctxt)
-            throws IOException {
-        JsonNode node = p.getCodec().readTree(p);
-        BigDecimal amount = new BigDecimal(node.get("amount").asText());
-        Currency currency = Currency.getInstance(node.get("currency").asText());
-        return Money.of(amount, currency);
-    }
-}
-
-// Apply custom serializers
 @JsonSerialize(using = MoneySerializer.class)
 @JsonDeserialize(using = MoneyDeserializer.class)
-public record Money(BigDecimal amount, Currency currency) { ... }
+public record Money(BigDecimal amount, Currency currency) { /* ... */ }
 ```
+
+Jackson 3 methods do not throw `IOException`. Errors are unchecked `JacksonException`. A VO constructor that throws during deserialization surfaces as `ValueInstantiationException`. Map it to a 400 response in the exception handler.
 
 ---
 
-## Best Practices
+## Review checklist
 
-### 1. Make Them Immutable
-
-```java
-// ✅ GOOD - Using record (immutable by default)
-public record OrderNumber(String value) { ... }
-
-// ✅ GOOD - Using final fields
-public final class OrderNumber {
-    private final String value;
-
-    public OrderNumber(String value) {
-        this.value = value;
-    }
-
-    public String value() { return value; }
-}
-
-// ❌ BAD - Mutable
-public class OrderNumber {
-    private String value;  // Not final
-
-    public void setValue(String value) {  // Setter!
-        this.value = value;
-    }
-}
-```
-
-### 2. Validate in Constructor
-
-```java
-// ✅ GOOD - Fail fast
-public record EmailAddress(String value) {
-    public EmailAddress {
-        if (value == null || !isValid(value)) {
-            throw new IllegalArgumentException("Invalid email");
-        }
-    }
-}
-
-// ❌ BAD - No validation
-public record EmailAddress(String value) {}
-```
-
-### 3. Provide Factory Methods
-
-```java
-// ✅ GOOD - Clear intent
-public record Money(BigDecimal amount, Currency currency) {
-    public static Money of(BigDecimal amount, Currency currency) {
-        return new Money(amount, currency);
-    }
-
-    public static Money usd(BigDecimal amount) {
-        return new Money(amount, Currency.getInstance("USD"));
-    }
-
-    public static Money zero(Currency currency) {
-        return new Money(BigDecimal.ZERO, currency);
-    }
-}
-
-// Usage
-Money price = Money.usd(new BigDecimal("19.99"));  // Clear
-Money zero = Money.zero(Currency.getInstance("USD"));  // Clear
-```
-
-### 4. Implement equals/hashCode Based on Value
-
-```java
-// ✅ Records do this automatically
-public record OrderNumber(String value) {}
-
-// ✅ Manual implementation if not using records
-@Override
-public boolean equals(Object o) {
-    if (this == o) return true;
-    if (!(o instanceof OrderNumber other)) return false;
-    return Objects.equals(value, other.value);
-}
-
-@Override
-public int hashCode() {
-    return Objects.hash(value);
-}
-```
-
-### 5. Add Domain Behavior
-
-```java
-// ✅ GOOD - Rich behavior
-public record Money(BigDecimal amount, Currency currency) {
-    public Money add(Money other) { ... }
-    public Money multiply(int quantity) { ... }
-    public boolean isGreaterThan(Money other) { ... }
-    public boolean isFree() {
-        return amount.compareTo(BigDecimal.ZERO) == 0;
-    }
-}
-
-// ❌ BAD - Just data
-public record Money(BigDecimal amount, Currency currency) {}
-```
-
-### 6. Use Meaningful Names
-
-```java
-// ✅ GOOD
-public record OrderNumber(String value) {}
-public record EmailAddress(String value) {}
-public record Money(BigDecimal amount, Currency currency) {}
-
-// ❌ BAD
-public record OrderNumberVO(String value) {}  // Don't suffix with VO
-public record Email(String value) {}          // Too generic
-public record Price(BigDecimal amount) {}     // Missing currency context
-```
-
-### 7. Keep Them Simple
-
-```java
-// ✅ GOOD - Single responsibility
-public record OrderNumber(String value) {
-    // Just validation and simple formatting
-}
-
-// ❌ BAD - Too complex
-public record OrderNumber(String value, LocalDateTime createdAt, String createdBy) {
-    // Too much responsibility - this should be an entity!
-}
-```
-
-### 8. Make Invalid States Unrepresentable
-
-```java
-// ✅ GOOD - Can't create invalid DateRange
-public record DateRange(LocalDate startDate, LocalDate endDate) {
-    public DateRange {
-        if (endDate.isBefore(startDate)) {
-            throw new IllegalArgumentException("End before start");
-        }
-    }
-}
-
-// ❌ BAD - Can be in invalid state
-public record DateRange(LocalDate startDate, LocalDate endDate) {}
-```
-
----
-
-## Common Patterns Summary
-
-| Pattern | Example | Use When |
-|---------|---------|----------|
-| **Identity VO** | `OrderId`, `CustomerId` | Wrapping database IDs for type safety |
-| **Constrained String** | `OrderNumber`, `EmailAddress`, `PhoneNumber` | Strings with validation rules |
-| **Constrained Number** | `Quantity`, `Percentage` | Numbers with business constraints |
-| **Money** | `Money(amount, currency)` | Financial calculations |
-| **Date Range** | `DateRange(start, end)` | Period/duration with validation |
-| **Composite VO** | `Address`, `FullName` | Grouping related primitives |
-| **Measurement** | `Weight`, `Temperature` | Values with units |
-
----
-
-## Further Reading
-
-- [Value Object - Martin Fowler](https://martinfowler.com/bliki/ValueObject.html)
-- [Domain-Driven Design - Eric Evans](https://www.domainlanguage.com/ddd/)
-- [architecture-patterns.md](architecture-patterns.md) - Architecture pattern comparisons
-- [domain-modeling.md](domain-modeling.md) - Anemic vs Rich domain models
-
----
-
-**Remember:** Value Objects are the foundation of a rich domain model. Start with high-risk primitives (Money, IDs, Quantities) and expand as needed. They reduce bugs, improve type safety, and make your code more expressive and maintainable.
+- [ ] Domain concepts use VOs, not raw `String`/`Long`/`BigDecimal`, where mixing them up is a real risk
+- [ ] VOs are immutable and validate in the constructor
+- [ ] `Money` handles currency and `BigDecimal` scale; comparisons use `compareTo`
+- [ ] VOs stored by JPA are `@Embeddable`; repeated VO fields have attribute overrides
+- [ ] Path and query parameters use Spring converters; JSON uses `@JsonValue`/`@JsonCreator` or Jackson 3 serializers
+- [ ] No Jackson 2 serializer classes in a Boot 4 codebase
+- [ ] Deserialization failures from VO validation return 400, not 500

@@ -43,7 +43,7 @@ Install: `go install github.com/sivaprasadreddy/progen@latest`, or download a bi
 Rules:
 
 - Tomato and DDD+Hexagonal need `--persistence jpa`. The templates in `assets/` and the `spring-data-jpa` skill assume JPA.
-- With `jdbc` or `jooq`, do not apply JPA templates (`rich-entity.java`, `repository.java`, `spring-data-jpa` assets).
+- With `jdbc` or `jooq`, do not apply JPA templates (`assets/rich-entity.java`, `assets/repository.java`, `spring-data-jpa` assets).
 - `htmx` needs `--app-type web`.
 - Read `java-version-policy.md` before you pass `--java` above 25.
 
@@ -66,7 +66,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
 |--------------|-----------------------------|
 | `package-by-module` | Matches progen. Add feature packages next to `users/`. |
 | `modular-monolith` | Matches progen. Add `*API.java` and `internal/` per module. `ModularityTests.java` exists; do not add `assets/modularity-test.java` again. Copy only extra checks from it. |
-| `tomato` | Add `domain/vo/`, rich entities, and `rest/converters/` per module. Apply `value-object.java`, `rich-entity.java`, `spring-converter.java`, `service-cqrs.java`. |
+| `tomato` | Add `domain/vo/`, rich entities, and `rest/converters/` per module. Apply `assets/value-object.java`, `assets/rich-entity.java`, `assets/spring-converter.java`, `assets/service-cqrs.java`. |
 | `ddd-hexagonal` | Add `application/`, `domain/`, `infra/`, `interfaces/` per module. Change `ArchUnitTests.java` as shown below, because `*Handler` services fail the name rule. |
 | `layered` | Add `controller/`, `service/`, `repository/`, `domain/`. The tests pass, but Modulith treats each layer as a module, which adds no value. Keep `users/` as the one feature package, and tell the user. |
 
@@ -74,12 +74,12 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
 
 | Skip this asset | Progen file |
 |-----------------|-------------|
-| `exception-handler.java` | `config/GlobalExceptionHandler.java`. Add a `DomainException` handler there if needed. |
-| `base-entity.java` | `shared/BaseEntity.java` (has `@Version`) |
-| `docker-compose.yml` | `compose.yml` |
-| `testcontainers-test.java` | `TestcontainersConfig.java`, `BaseIT.java` |
-| `modularity-test.java` | `ModularityTests.java` |
-| `pom-additions.xml` | Add only entries the pom does not have: `jspecify`, `hypersistence-utils-*` (TSID IDs), `spring-modulith-starter-jpa` (event registry). |
+| `assets/exception-handler.java` | `config/GlobalExceptionHandler.java`. Add a `DomainException` handler there if needed. |
+| `assets/base-entity.java` | `shared/BaseEntity.java` (has `@Version`) |
+| `assets/docker-compose.yml` | `compose.yml` |
+| `assets/testcontainers-test.java` | `TestcontainersConfig.java`, `BaseIT.java` |
+| `assets/modularity-test.java` | `ModularityTests.java` |
+| `assets/pom-additions.xml` | Add only entries the pom does not have: `jspecify`, `hypersistence-utils-*` (TSID IDs), `spring-modulith-starter-jpa` (event registry). |
 
 ### Rules that progen's ArchUnit test enforces
 

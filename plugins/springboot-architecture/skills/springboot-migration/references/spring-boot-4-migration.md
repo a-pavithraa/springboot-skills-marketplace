@@ -334,14 +334,43 @@ Reference: https://github.com/spring-projects/spring-retry (maintenance-only sta
 | `JsonObjectSerializer` | `ObjectValueSerializer` |
 | `JsonValueDeserializer` | `ObjectValueDeserializer` |
 
+#### Customizer Example
+
+```java
+// Boot 3
+@Component
+class JacksonConfig implements Jackson2ObjectMapperBuilderCustomizer {
+    public void customize(Jackson2ObjectMapperBuilder builder) {
+        builder.serializationInclusion(JsonInclude.Include.NON_NULL);
+    }
+}
+
+// Boot 4
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
+import tools.jackson.databind.json.JsonMapper;
+
+@Component
+class JacksonConfig implements JsonMapperBuilderCustomizer {
+    public void customize(JsonMapper.Builder builder) {
+        builder.changeDefaultPropertyInclusion(
+            incl -> incl.withValueInclusion(JsonInclude.Include.NON_NULL));
+    }
+}
+```
+
+The parameter is the inner class `JsonMapper.Builder`. `changeDefaultPropertyInclusion(UnaryOperator)` replaces `serializationInclusion(...)`. `JsonInclude` stays in `com.fasterxml.jackson.annotation`.
+
 #### Import Changes
 
 ```java
 // Old
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 // New
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.JacksonException;  // replaces JsonProcessingException; unchecked (extends RuntimeException)
+// Unchanged: com.fasterxml.jackson.annotation.*
 
 // Usage
 JsonMapper mapper = JsonMapper.builder().build();

@@ -322,9 +322,9 @@ public interface {{NAME}}NativeRepository extends JpaRepository<{{NAME}}Entity, 
 
 5. HYPERSISTENCE UTILS (OPTIONAL):
    Add to pom.xml to avoid fully-qualified class names. Spring Boot 4.1.x
-   ships Hibernate 7.4.1.Final. hypersistence-utils has no -hibernate-74 module
+   ships Hibernate 7.4.x. hypersistence-utils has no -hibernate-74 module
    yet, so use the newest published one, -hibernate-73 (verify it runs against
-   7.4.1; confirm the latest version on Maven Central):
+   7.4.x; confirm the latest version on Maven Central):
    <dependency>
        <groupId>io.hypersistence</groupId>
        <artifactId>hypersistence-utils-hibernate-73</artifactId>

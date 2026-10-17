@@ -1,80 +1,52 @@
-# Java 25 Features and Modern Patterns
+# Java 25 Features: Review Rules
 
-## Table of Contents
+Read the Java version from the build file first. Flag a feature only when the project's version supports it. For Java 26+ targets and preview-API changes, read `../../creating-springboot-projects/references/java-version-policy.md`.
 
-1. [Virtual Threads (Project Loom)](#virtual-threads)
-2. [Pattern Matching](#pattern-matching)
-3. [Records](#records)
-4. [Sealed Classes](#sealed-classes)
-5. [Text Blocks](#text-blocks)
-6. [Switch Expressions](#switch-expressions)
-7. [Sequenced Collections](#sequenced-collections)
-8. [String Templates](#string-templates)
-9. [Foreign Function & Memory API](#foreign-function--memory-api)
+## Contents
+
+1. [Virtual Threads](#virtual-threads)
+2. [Language features, Java 14-21](#language-features-java-14-21)
+3. [Features finalized in JDK 22-25](#features-finalized-in-jdk-22-25)
+4. [Preview features](#preview-features)
+5. [Review checklist](#review-checklist)
 
 ---
 
 ## Virtual Threads
 
-**Status:** Stable (JEP 444 - Java 21+)
+**Status:** Final since Java 21 ([JEP 444](https://openjdk.org/jeps/444)).
 
-### What They Are
+### When to recommend them
 
-Lightweight threads managed by the JVM, not the OS. Enable millions of concurrent threads with minimal overhead.
+Recommend virtual threads only when ALL of these are true:
 
-### When to Use
+- 10,000+ concurrent tasks (actual concurrency, not daily totals).
+- The workload is I/O-bound (database, HTTP, file I/O).
+- Production metrics show thread-pool exhaustion.
 
-**Official Oracle guidance** ([Java Virtual Threads](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)):
-> "If your application never has 10,000 virtual threads or more, it is unlikely to benefit from virtual threads."
+Evidence:
 
-✅ **Use virtual threads when ALL criteria are met:**
-- 10,000+ concurrent tasks (not daily totals, actual concurrency)
-  - **Source:** This threshold is from [Oracle's official Java 21 Virtual Threads Guide](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
-  - **JEP 444** also emphasizes virtual threads are for "a **great number** of concurrent tasks"
-- I/O-bound workload (database queries, HTTP calls, file I/O)
-- Tasks spend most time waiting/blocked on I/O
-- Thread pool exhaustion observed in production metrics
+- [Oracle Virtual Threads Guide](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html): "If your application never has 10,000 virtual threads or more, it is unlikely to benefit from virtual threads."
+- JEP 444: "Virtual threads cannot improve throughput for CPU-bound workloads." JEP 444 says "more than a few thousand" concurrent tasks. The 10,000 number comes from Oracle's guide, not from the JEP.
 
-❌ **Do NOT use virtual threads when:**
-- Low concurrency (<10,000 concurrent tasks)
-  - **Evidence:** Oracle states applications below this threshold "are unlikely to benefit"
-- CPU-bound workload (computation, data processing)
-  - **Evidence:** [JEP 444](https://openjdk.org/jeps/444) explicitly states "cannot improve throughput for CPU-bound workloads"
-- Intentional thread pool sizing (rate limiting, backpressure)
-- Low-traffic applications (hundreds of requests per day)
+Do NOT recommend them for CPU-bound work, low concurrency, low-traffic services, or pools that are sized on purpose (rate limiting, backpressure).
 
-### Anti-Patterns
+### Pinning depends on the Java version
 
-❌ **Don't use for CPU-bound tasks**
-```java
-// BAD: Virtual threads don't help CPU-intensive work
-ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-executor.submit(() -> {
-    // CPU-intensive computation
-    return computePrimeFactors(largeNumber);
-});
-```
-
-**Pinning depends on the Java version** ([JEP 491](https://openjdk.org/jeps/491), delivered in JDK 24):
+[JEP 491](https://openjdk.org/jeps/491), delivered in JDK 24:
 
 - **Java 24+:** `synchronized` does NOT pin virtual threads. Do not flag `synchronized` as a pinning risk. Do not ask for a rewrite to `ReentrantLock`. Code that already uses `ReentrantLock` can stay as it is.
 - **Java 21-23:** `synchronized` around blocking I/O pins the carrier thread. Flag it, and suggest `ReentrantLock`.
 - **All versions:** pinning still occurs when a thread blocks in native code that calls back into Java, blocks in a class initializer, or waits for another thread to initialize a class. These cases are rare.
 
-Read the Java version from the build file before you flag pinning.
-
-❌ **On Java 21-23 only: `synchronized` around blocking I/O pins the carrier**
 ```java
+// Java 21-23 only: pins the carrier
 synchronized (lock) {
-    String response = httpClient.send(request); // Blocking I/O
+    String response = httpClient.send(request);
 }
-```
 
-✅ **Fix on Java 21-23: use `ReentrantLock`**
-```java
-private final ReentrantLock lock = new ReentrantLock();
-
-lock.lock();
+// Fix on Java 21-23
+lock.lock();   // private final ReentrantLock lock = new ReentrantLock();
 try {
     String response = httpClient.send(request);
 } finally {
@@ -86,546 +58,62 @@ On all versions, keep lock scopes narrow and avoid blocking I/O while holding a 
 
 Diagnostics: `-Djdk.tracePinnedThreads` has no effect on JDK 24+. Use the JFR event `jdk.VirtualThreadPinned`.
 
-### Spring Boot 4 Integration
+### Spring Boot 4
 
-✅ **Enable virtual threads**
-```yaml
-spring:
-  threads:
-    virtual:
-      enabled: true
-```
-
-✅ **Async methods automatically use virtual threads**
-```java
-@Service
-public class UserService {
-    @Async // Uses virtual threads when enabled
-    public CompletableFuture<User> fetchUser(Long id) {
-        return CompletableFuture.completedFuture(userRepository.findById(id));
-    }
-}
-```
-
-### Migration Checklist
-
-**BEFORE migrating to virtual threads, verify requirements:**
-- [ ] Application has 10,000+ concurrent tasks (measure actual concurrency, not daily totals)
-- [ ] Workload is primarily I/O-bound (database, HTTP, file operations)
-- [ ] Thread pool exhaustion is observed in production metrics
-- [ ] Using Java 21+ on Spring Boot 4 (or Spring Boot 3.2+ on legacy stacks)
-
-**IF requirements met, then migrate:**
-- [ ] Replace `@Async` thread pools with virtual threads config
-- [ ] Java 21-23 only: replace `synchronized` around blocking I/O with `ReentrantLock` (not needed on Java 24+, see JEP 491)
-- [ ] Remove manual thread pool sizing (virtual threads scale automatically)
-- [ ] Test under load; check the JFR event `jdk.VirtualThreadPinned` for pinning
-
-**IF requirements NOT met:**
-- [ ] Keep existing thread pools - they are appropriate for the workload
-- [ ] Consider tuning pool sizes if metrics show under-provisioning
-- [ ] Re-evaluate when concurrency increases significantly
-
-### Official References for Virtual Threads
-
-The 10,000 concurrent tasks threshold and usage guidance comes from official sources:
-
-1. **[Oracle Java 21 Virtual Threads Guide](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)**
-   - Primary documentation stating: "If your application never has 10,000 virtual threads or more, it is unlikely to benefit from virtual threads."
-
-2. **[JEP 444: Virtual Threads](https://openjdk.org/jeps/444)**
-   - Official Java Enhancement Proposal (Final)
-   - States: "Virtual threads cannot improve throughput for CPU-bound workloads"
-   - Uses softer language than Oracle's guide: "significant improvement when the number of concurrent tasks is high (more than a few thousand)" — does **not** state the 10,000 threshold specifically
-
-3. **[JEP 491: Synchronize Virtual Threads without Pinning](https://openjdk.org/jeps/491)**
-   - JDK 24: `synchronized` no longer pins virtual threads
-
-4. **[Spring Boot Task Execution Documentation](https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html)**
-   - How Spring Boot integrates virtual threads
+- Enable with `spring.threads.virtual.enabled=true`.
+- When enabled, the auto-configured task executor uses virtual threads, so `@Async` methods run on them.
+- Remove manual thread-pool sizing for work that moves to virtual threads.
+- If the requirements above are not met, keep the existing pools. They fit the workload.
 
 ---
 
-## Pattern Matching
+## Language features, Java 14-21
 
-### instanceof Pattern Matching
+All of these are final. Flag the old form only when the project's Java version supports the new one.
 
-**Status:** Stable (JEP 394 - Java 16+)
+| Feature (min Java) | Flag this | Suggest this | Notes |
+|--------------------|-----------|--------------|-------|
+| Switch expressions (14) | `switch` statements that assign a variable with `break` | `switch` expression with `->` and `yield` | |
+| Text blocks (15) | Multi-line SQL/JSON built with `+` and `\n` | `"""` text block, also in `@Query` | A closing `"""` on its own line keeps a trailing newline |
+| `instanceof` patterns (16) | `instanceof` followed by a cast | `if (obj instanceof String s)` | |
+| Records (16) | Immutable DTOs with hand-written getters, `equals`, `hashCode` | `record`, with validation in the compact constructor | Use records for DTOs, projections, value objects. Never as JPA entities |
+| Sealed types (17) | Fixed hierarchies (events, states) left open | `sealed interface ... permits ...` | Enables exhaustive `switch` without `default` |
+| Switch patterns (21) | `if/else instanceof` chains | `switch (obj) { case Integer i -> ... }` | `case null` is allowed |
+| Record patterns (21) | Manual accessor calls after a type check | `if (obj instanceof Point(int x, int y))` | Also works in `switch` |
+| Sequenced collections (21) | `list.get(0)`, `list.get(list.size() - 1)`, `Collections.reverse` | `getFirst()`, `getLast()`, `reversed()` | `reversed()` is a view; on an unmodifiable list it is read-only |
 
-❌ **Old way**
-```java
-if (obj instanceof String) {
-    String str = (String) obj;
-    return str.length();
-}
-```
-
-✅ **Modern way**
-```java
-if (obj instanceof String str) {
-    return str.length();
-}
-```
-
-### Switch Pattern Matching
-
-**Status:** Stable (JEP 441 - Java 21+)
-
-❌ **Old way**
-```java
-String formatted;
-if (obj instanceof Integer i) {
-    formatted = String.format("int %d", i);
-} else if (obj instanceof Long l) {
-    formatted = String.format("long %d", l);
-} else if (obj instanceof Double d) {
-    formatted = String.format("double %f", d);
-} else {
-    formatted = obj.toString();
-}
-```
-
-✅ **Modern way**
-```java
-String formatted = switch (obj) {
-    case Integer i -> String.format("int %d", i);
-    case Long l    -> String.format("long %d", l);
-    case Double d  -> String.format("double %f", d);
-    case null      -> "null";
-    default        -> obj.toString();
-};
-```
-
-### Record Pattern Matching
-
-**Status:** Stable (JEP 440 - Java 21+)
-
-```java
-record Point(int x, int y) {}
-
-// Deconstruct records in pattern matching
-if (obj instanceof Point(int x, int y)) {
-    return x + y;
-}
-
-// Or in switch
-String result = switch (shape) {
-    case Circle(double radius) -> "Circle: " + radius;
-    case Rectangle(double w, double h) -> "Rectangle: " + w + "x" + h;
-    default -> "Unknown";
-};
-```
+String Templates do not exist. They previewed in JDK 21-22 (JEP 430, 459) and were withdrawn (JEP 465). Flag any `STR."..."` code. Use `formatted()` or `String.format`.
 
 ---
 
-## Records
+## Features finalized in JDK 22-25
 
-**Status:** Stable (JEP 395 - Java 16+)
+| Feature | Status | Recommend when | Do not recommend when |
+|---------|--------|----------------|-----------------------|
+| Foreign Function & Memory API | Final in 22 (JEP 454) | The code calls native C/C++ libraries | A pure-Java solution exists |
+| Module import declarations (`import module java.sql;`) | Final in 25 (JEP 511) | Many imports from one module | Most Spring code; normal imports are clearer |
+| Flexible constructor bodies | Final in 25 (JEP 513) | Validation or argument prep must run before `super(...)`/`this(...)` | A helper method is already clear |
+| Scoped values | Final in 25 (JEP 506) | Request context passed down a call tree, mainly with virtual threads; replaces `ThreadLocal` | The value must change inside the scope |
+| Key Derivation Function API (`javax.crypto.KDF`) | Final in 25 (JEP 510) | HKDF key derivation (session keys, sub-keys from a master secret) | Password hashing |
 
-### When to Use
+Facts to check in review:
 
-- DTOs (Data Transfer Objects)
-- Value objects in DDD
-- Immutable data carriers
-- API request/response models
-
-❌ **Old DTO**
-```java
-public class UserDTO {
-    private final Long id;
-    private final String name;
-    private final String email;
-
-    public UserDTO(Long id, String name, String email) {
-        this.id = id;
-        this.name = name;
-        this.email = email;
-    }
-
-    public Long getId() { return id; }
-    public String getName() { return name; }
-    public String getEmail() { return email; }
-
-    @Override
-    public boolean equals(Object o) { /* boilerplate */ }
-    @Override
-    public int hashCode() { /* boilerplate */ }
-    @Override
-    public String toString() { /* boilerplate */ }
-}
-```
-
-✅ **Modern record**
-```java
-public record UserDTO(Long id, String name, String email) {
-    // Optional: Custom validation
-    public UserDTO {
-        Objects.requireNonNull(id, "id cannot be null");
-        Objects.requireNonNull(email, "email cannot be null");
-    }
-}
-```
-
-### Records with JPA (Spring Boot 4)
-
-✅ **Use records for projections**
-```java
-public interface UserRepository extends JpaRepository<User, Long> {
-    // Records work great for projections
-    @Query("SELECT new com.example.UserSummary(u.id, u.name) FROM User u")
-    List<UserSummary> findAllSummaries();
-}
-
-record UserSummary(Long id, String name) {}
-```
-
-❌ **Don't use records as entities** (records are immutable, JPA needs mutability)
+- Flexible constructor bodies: code before `super(...)` can validate arguments and assign fields, but cannot read `this`.
+- Scoped values: `ScopedValue.where(KEY, value).run(task)`, then `KEY.get()` inside the scope. In JDK 25, `ScopedValue.orElse` does not accept `null`.
+- KDF: HKDF is the only algorithm in JDK 25 (`KDF.getInstance("HKDF-SHA256")`, `HKDFParameterSpec.ofExtract().addIKM(ikm).addSalt(salt).thenExpand(info, 32)`). PBKDF2 stays on `SecretKeyFactory`. bcrypt, scrypt, and Argon2 are not included. For passwords, use Spring Security's `PasswordEncoder`.
 
 ---
 
-## Sealed Classes
+## Preview features
 
-**Status:** Stable (JEP 409 - Java 17+)
+Preview features need `--enable-preview` at compile time and at run time, and the API can change in each release. Suggest them only when the project already uses `--enable-preview`. Match samples to the project's exact JDK.
 
-### When to Use
+### Lazy Constants (was Stable Values)
 
-- Domain modeling with fixed type hierarchies
-- State machines
-- ADTs (Algebraic Data Types)
-
-✅ **Example: Domain events**
-```java
-public sealed interface DomainEvent
-    permits UserCreated, UserUpdated, UserDeleted {
-
-    LocalDateTime occurredAt();
-}
-
-public record UserCreated(Long userId, String email, LocalDateTime occurredAt)
-    implements DomainEvent {}
-
-public record UserUpdated(Long userId, Map<String, Object> changes, LocalDateTime occurredAt)
-    implements DomainEvent {}
-
-public record UserDeleted(Long userId, LocalDateTime occurredAt)
-    implements DomainEvent {}
-```
-
-✅ **Exhaustive pattern matching**
-```java
-String describe(DomainEvent event) {
-    return switch (event) {
-        case UserCreated e -> "User created: " + e.email();
-        case UserUpdated e -> "User updated: " + e.changes().size() + " fields";
-        case UserDeleted e -> "User deleted: " + e.userId();
-        // No default needed - compiler knows all cases
-    };
-}
-```
-
----
-
-## Text Blocks
-
-**Status:** Stable (JEP 378 - Java 15+)
-
-❌ **Old way**
-```java
-String query = "SELECT u.id, u.name, u.email\n" +
-               "FROM users u\n" +
-               "WHERE u.active = true\n" +
-               "ORDER BY u.name";
-```
-
-✅ **Modern way**
-```java
-String query = """
-    SELECT u.id, u.name, u.email
-    FROM users u
-    WHERE u.active = true
-    ORDER BY u.name
-    """;
-```
-
-### Spring Boot Integration
-
-✅ **Use in @Query**
-```java
-@Query("""
-    SELECT u FROM User u
-    LEFT JOIN FETCH u.roles
-    WHERE u.active = true
-    AND u.createdAt > :since
-    """)
-List<User> findActiveUsersSince(@Param("since") LocalDateTime since);
-```
-
----
-
-## Switch Expressions
-
-**Status:** Stable (JEP 361 - Java 14+)
-
-❌ **Old switch statement**
-```java
-String result;
-switch (status) {
-    case PENDING:
-        result = "Waiting";
-        break;
-    case APPROVED:
-        result = "Accepted";
-        break;
-    case REJECTED:
-        result = "Denied";
-        break;
-    default:
-        result = "Unknown";
-}
-```
-
-✅ **Modern switch expression**
-```java
-String result = switch (status) {
-    case PENDING -> "Waiting";
-    case APPROVED -> "Accepted";
-    case REJECTED -> "Denied";
-};
-```
-
-✅ **With yield for complex logic**
-```java
-int bonus = switch (performanceRating) {
-    case EXCELLENT -> {
-        log.info("Calculating excellent bonus");
-        yield salary * 20 / 100;
-    }
-    case GOOD -> salary * 10 / 100;
-    case AVERAGE -> salary * 5 / 100;
-    default -> 0;
-};
-```
-
----
-
-## Sequenced Collections
-
-**Status:** Stable (JEP 431 - Java 21+)
-
-### New Methods
+JDK 25: `StableValue` (JEP 502). JDK 26: `LazyConstant` (JEP 526). JDK 27: third preview (JEP 531).
 
 ```java
-List<String> list = List.of("a", "b", "c");
-
-String first = list.getFirst();     // "a"
-String last = list.getLast();       // "c"
-List<String> reversed = list.reversed();  // [c, b, a]
-```
-
-❌ **Old way**
-```java
-String first = list.isEmpty() ? null : list.get(0);
-String last = list.isEmpty() ? null : list.get(list.size() - 1);
-Collections.reverse(list); // Mutates!
-```
-
-✅ **Modern way**
-```java
-String first = list.getFirst();
-String last = list.getLast();
-List<String> reversed = list.reversed(); // Read-only view (writes throw UnsupportedOperationException)
-```
-
----
-
-## String Templates
-
-**Status:** ❌ WITHDRAWN — not available in Java 25
-
-⚠️ **String Templates were withdrawn from the Java language and are NOT available in Java 25.**
-
-Timeline:
-- JEP 430 — First Preview, delivered in JDK 21 (Status: Closed / Delivered)
-- JEP 459 — Second Preview, delivered in JDK 22 (Status: Closed / Delivered)
-- JEP 465 — proposed Third Preview, **Closed / Withdrawn** before JDK 23. No string-template feature shipped in JDK 23 or later.
-
-Use traditional string formatting instead:
-
-```java
-String name = "Alice";
-int age = 30;
-
-// ✅ Use String.format
-String msg = String.format("Hello, %s! You are %d years old.", name, age);
-
-// ✅ Or StringBuilder/concat for simple cases
-String msg = "Hello, " + name + "! You are " + age + " years old.";
-
-// ✅ Or text blocks for multi-line
-// Note: closing """ on its own line keeps a trailing newline. Strip it
-// with .stripTrailing(), or put the """ right after the last character.
-String msg = """
-    Hello, %s!
-    You are %d years old.
-    """.stripTrailing().formatted(name, age);
-
-// ❌ NOT AVAILABLE: String templates
-// String msg = STR."Hello, \{name}! You are \{age} years old.";
-```
-
-**References:** [JEP 430](https://openjdk.org/jeps/430), [JEP 459](https://openjdk.org/jeps/459), [JEP 465 (Withdrawn)](https://openjdk.org/jeps/465)
-
----
-
-## Primitive Types in Patterns
-
-**Status:** Preview. Third preview in JDK 25 (JEP 507), fourth in JDK 26 (JEP 530), fifth in JDK 27 (JEP 532, no change from 26).
-
-Extends pattern matching to work with all primitive types in `instanceof` and `switch`.
-
-```java
-// Before: Only reference types
-Object obj = 42;
-if (obj instanceof Integer i) {
-    int value = i.intValue();
-}
-
-// Java 25: Direct primitive patterns
-Object obj = 42;
-if (obj instanceof int i) {
-    // i is already an int
-    return i * 2;
-}
-
-// Switch with primitives
-String describe(Object obj) {
-    return switch (obj) {
-        case int i -> "Integer: " + i;
-        case long l -> "Long: " + l;
-        case double d -> "Double: " + d;
-        case boolean b -> "Boolean: " + b;
-        default -> "Other";
-    };
-}
-```
-
-**Safeguards lossy conversions:**
-```java
-Object obj = 1000L;
-if (obj instanceof byte b) {  // Won't match - lossy conversion
-    // Never executes
-}
-```
-
-**Reference:** [JEP 507](https://openjdk.org/jeps/507)
-
----
-
-## Module Import Declarations
-
-**Status:** Standard (JEP 511 - Java 25; previewed via JEP 476 in JDK 23 and JEP 494 in JDK 24)
-
-Simplifies importing all packages from a module.
-
-```java
-// Before: Import each package individually
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-
-// Java 25: Import entire module
-import module java.sql;
-
-// Now all java.sql packages are available
-Connection conn = ...;
-ResultSet rs = ...;
-```
-
-**Use case:** Reduces boilerplate when using many packages from a single module.
-
----
-
-## Flexible Constructor Bodies
-
-**Status:** Standard (JEP 513 - Java 25; previewed via JEP 447 in JDK 22 and JEP 492 in JDK 24)
-
-Allows statements before `this()` or `super()` calls in constructors.
-
-```java
-public class User {
-    private final String username;
-    private final String normalizedUsername;
-
-    // Before: Can't validate before super()
-    public User(String username) {
-        super();  // Must be first
-        if (username == null) throw new IllegalArgumentException();
-        this.username = username;
-        this.normalizedUsername = username.toLowerCase();
-    }
-
-    // Java 25: Validate before calling super()
-    public User(String username) {
-        if (username == null) {
-            throw new IllegalArgumentException("Username cannot be null");
-        }
-        String normalized = username.toLowerCase();
-        super();  // Can come after validation
-        this.username = username;
-        this.normalizedUsername = normalized;
-    }
-}
-```
-
-**Benefit:** Cleaner validation logic without helper methods.
-
----
-
-## Scoped Values API
-
-**Status:** Standard (JEP 506, finalized in Java 25)
-
-Thread-local-like values optimized for virtual threads and structured concurrency. Finalized in JDK 25 with one behavior change: `ScopedValue.orElse` no longer accepts null as its argument.
-
-```java
-public class RequestContext {
-    private static final ScopedValue<String> USER_ID = ScopedValue.newInstance();
-
-    public static void handleRequest(String userId, Runnable task) {
-        ScopedValue.where(USER_ID, userId).run(task);
-    }
-
-    public static String getCurrentUserId() {
-        return USER_ID.get();
-    }
-}
-
-// Usage
-RequestContext.handleRequest("user123", () -> {
-    // USER_ID is available in this scope and child threads
-    String userId = RequestContext.getCurrentUserId();
-    // Process request
-});
-```
-
-**Advantages over ThreadLocal:**
-- Immutable once set
-- Better performance with virtual threads
-- Clear scoping with try-with-resources style
-
----
-
-## Lazy Constants (was Stable Values)
-
-**Status:** Preview in every release so far. JDK 25: `StableValue` (JEP 502). JDK 26: `LazyConstant` (JEP 526). JDK 27: `LazyConstant`, third preview (JEP 531).
-
-The API changed shape in each release. Code written for one JDK does not compile on the next. Recommend it only when the project already builds with `--enable-preview`, and match the sample to the project's exact JDK. See `../../creating-springboot-projects/references/java-version-policy.md`.
-
-At-most-once initialization, like `final` but computed on first access:
-
-```java
-// JDK 25 only (JEP 502) — removed in JDK 26
+// JDK 25 only (JEP 502), removed in JDK 26
 private final StableValue<DatabaseConfig> config = StableValue.of();
 DatabaseConfig getConfig() { return config.orElseSet(this::loadDatabaseConfig); }
 
@@ -636,132 +124,31 @@ DatabaseConfig getConfig() { return config.get(); }
 
 Since JDK 26, `null` results are not allowed, and lazy collections use `List.ofLazy` and `Map.ofLazy`. JDK 27 removes `isInitialized()` and `orElse()` and adds `Set.ofLazy`.
 
-**Use cases:** expensive values computed at most once; a replacement for double-checked locking.
+Without `--enable-preview`, a `static final` holder class or a Spring singleton bean covers most cases.
 
-**Review rule:** in code without `--enable-preview`, do not suggest this API. A `static final` holder class or a Spring singleton bean covers most cases.
+### Primitive types in patterns
 
-**Sources:** [JEP 502](https://openjdk.org/jeps/502), [JEP 531](https://openjdk.org/jeps/531)
+Preview: JDK 25 (JEP 507), JDK 26 (JEP 530), JDK 27 (JEP 532, unchanged from 26). Allows `obj instanceof int i` and `case int i ->`. A pattern does not match when the conversion would lose data: with `long v = 1000L`, `v instanceof byte b` is false; with `v = 100L` it is true.
 
----
+### Structured concurrency
 
-## Key Derivation Function API
-
-**Status:** Standard (JEP 510 - Java 25; previewed via JEP 478 in JDK 24)
-
-JEP 510 introduces `javax.crypto.KDF`, a unified API for Key Derivation Functions. **The only algorithm shipped in JDK 25 is HKDF** (HMAC-based, RFC 5869). PBKDF1 and PBKDF2 stay on the existing `SecretKeyFactory` API. Argon2 is listed as future work, and bcrypt/scrypt are not included.
-
-```java
-import javax.crypto.KDF;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.HKDFParameterSpec;
-import java.security.spec.AlgorithmParameterSpec;
-
-// HKDF "extract then expand" mode — produce a 32-byte derived key
-KDF hkdf = KDF.getInstance("HKDF-SHA256");
-
-AlgorithmParameterSpec spec = HKDFParameterSpec
-        .ofExtract()
-        .addIKM(inputKeyMaterial)   // initial key material (byte[] or SecretKey)
-        .addSalt(salt)              // byte[]
-        .thenExpand(info, 32);      // info bytes + output length in bytes
-
-SecretKey derived = hkdf.deriveKey("AES", spec);
-
-// For raw bytes instead of a SecretKey
-byte[] keyBytes = hkdf.deriveData(spec);
-```
-
-**Use cases:** session-key derivation in TLS 1.3-style protocols, deriving multiple keys from a master secret, PKCS#11-backed HKDF on hardware crypto devices.
-
-**Do NOT use this API for:**
-- **Password hashing.** JEP 510 explicitly leaves PBKDF1/PBKDF2 on `SecretKeyFactory`; bcrypt, scrypt, and Argon2 are not included in JDK 25.
-
-**Source:** [JEP 510](https://openjdk.org/jeps/510) — "We define a new class, `javax.crypto.KDF` ... The HKDF algorithm ... is the only KDF we intend to include at this time ... PBKDF1 and PBKDF2 ... will remain available via the existing `SecretKeyFactory` API."
+See `performance-patterns.md#structured-concurrency-preview-only`.
 
 ---
 
-## Foreign Function & Memory API
+## Review checklist
 
-**Status:** Standard (JEP 454 - Java 22+)
+- [ ] Java version read from the build file before any version-specific finding
+- [ ] Old `switch`, `instanceof` + cast, string concatenation for multi-line text, boilerplate DTOs: use the Java 14-21 forms above
+- [ ] `list.get(0)` / `list.get(list.size() - 1)`: use `getFirst()` / `getLast()`
+- [ ] Virtual threads recommended only with 10,000+ concurrent I/O-bound tasks and measured pool exhaustion
+- [ ] Java 21-23 only: `synchronized` around blocking I/O. Not a finding on Java 24+
+- [ ] `ThreadLocal` for request context: consider scoped values (Java 25)
+- [ ] Custom HKDF code: consider `javax.crypto.KDF` (Java 25). Never for passwords
+- [ ] Preview APIs suggested only when the project uses `--enable-preview`
 
-**Use case:** Native library integration without JNI
+## Official documentation
 
-⚠️ **Advanced feature - only use if necessary**
-
-✅ **When to use:**
-- Calling native libraries (C/C++)
-- Performance-critical native code
-- Legacy system integration
-
-❌ **When not to use:**
-- Pure Java solutions exist
-- Not performance-critical
-- Team lacks native code expertise
-
----
-
-## Migration Priority
-
-### High Priority (Do First)
-
-1. **Records** - Easy wins for DTOs
-2. **Text Blocks** - Improves readability
-3. **Switch Expressions** - Reduces bugs
-4. **instanceof Pattern Matching** - Common pattern
-5. **Sequenced Collections** - Safer than manual index access
-
-### Medium Priority (Evaluate Carefully)
-
-6. **Virtual Threads** - ONLY if 10,000+ concurrent tasks, I/O-bound workload, and thread pool exhaustion
-   - Most applications do NOT meet these criteria
-   - Measure actual concurrency before adopting
-   - Reference: [Oracle Virtual Threads Guide](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
-7. **Sealed Classes** - Where type hierarchies are fixed
-8. **Switch Pattern Matching** - When working with type hierarchies
-9. **Primitive Patterns** - When pattern matching with primitives (still preview in JDK 27, JEP 532)
-
-### Medium Priority (Standard but situational)
-
-10. **Scoped Values** - Standard in JDK 25 (JEP 506). Adopt for request-scoped context propagation in virtual-thread-heavy applications instead of `ThreadLocal`.
-11. **Module Import Declarations** - Standard in JDK 25 (JEP 511). Only worth adopting for module-heavy codebases.
-12. **Flexible Constructor Bodies** - Standard in JDK 25 (JEP 513). Adopt only when constructor validation logic is genuinely cleaner than helper-method workarounds.
-13. **Key Derivation Function API** - Standard in JDK 25 (JEP 510). Adopt `javax.crypto.KDF` for HKDF-based key derivation (e.g. deriving session or sub-keys from a master secret). It ships **only HKDF** — password hashing stays on `SecretKeyFactory` (PBKDF1/PBKDF2), and Argon2/scrypt/bcrypt are not included.
-
-### Low Priority (Evaluate Carefully)
-
-14. **Lazy Constants** (`StableValue` in JDK 25) - Still preview in JDK 27 (JEP 531), and the API changes each release. Existing lazy-initialization patterns already cover most cases.
-15. **FFM API** - Standard since JDK 22 (JEP 454). Adopt only if calling native libraries; otherwise plain Java is simpler.
-
-### Not Available
-
-❌ **String Templates** - Withdrawn, not available in Java 25
-
----
-
-## Review Checklist
-
-When reviewing Java code, check for:
-
-- [ ] Old `instanceof` + cast patterns → Use pattern matching
-- [ ] Mutable DTOs with boilerplate → Use records
-- [ ] String concatenation for multi-line text → Use text blocks
-- [ ] Old switch statements → Use switch expressions
-- [ ] Thread pools with metrics showing exhaustion → Evaluate virtual threads (requires 10,000+ concurrent tasks and I/O-bound workload)
-- [ ] `list.get(0)` / `list.get(list.size()-1)` → Use `getFirst()` / `getLast()`
-- [ ] Open-ended class hierarchies that should be sealed → Use sealed classes
-- [ ] Pattern matching with boxed primitives → Consider primitive patterns (preview in JDK 25, JEP 507)
-- [ ] Many imports from single module → Consider module import declarations (standard in JDK 25, JEP 511)
-- [ ] Complex constructor validation → Consider flexible constructor bodies (standard in JDK 25, JEP 513)
-- [ ] ThreadLocal for request context → Use Scoped Values (standard in JDK 25, JEP 506)
-- [ ] Manual lazy initialization → Consider Lazy Constants only if the project already uses `--enable-preview` (preview through JDK 27, JEP 531)
-- [ ] Custom KDF implementations → Consider Key Derivation Function API (standard in JDK 25, JEP 510)
-
-## Official Documentation
-
-- [JDK 25 Release Notes](https://www.oracle.com/java/technologies/javase/25-relnote-issues.html)
-- [OpenJDK JDK 25](https://openjdk.org/projects/jdk/25/)
-- [Virtual Threads Guide](https://docs.oracle.com/en/java/javase/25/core/virtual-threads.html)
-- [JEP 507: Primitive Types in Patterns](https://openjdk.org/jeps/507)
-- [JEP 441: Pattern Matching for switch](https://openjdk.org/jeps/441)
-- [JEP 409: Sealed Classes](https://openjdk.org/jeps/409)
-- [JEP 395: Records](https://openjdk.org/jeps/395)
+- [OpenJDK JDK 25](https://openjdk.org/projects/jdk/25/), [JDK 25 release notes](https://www.oracle.com/java/technologies/javase/25-relnote-issues.html)
+- [Virtual Threads Guide](https://docs.oracle.com/en/java/javase/25/core/virtual-threads.html), [Spring Boot task execution](https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html)
+- JEPs: [444](https://openjdk.org/jeps/444), [491](https://openjdk.org/jeps/491), [506](https://openjdk.org/jeps/506), [510](https://openjdk.org/jeps/510), [511](https://openjdk.org/jeps/511), [513](https://openjdk.org/jeps/513), [531](https://openjdk.org/jeps/531)
