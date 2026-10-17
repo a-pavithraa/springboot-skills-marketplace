@@ -1,6 +1,6 @@
 ---
 name: creating-springboot-projects
-description: Use when starting a new Spring Boot 4 project — scaffolding a service, REST API, or modular backend; picking an architecture (layered, package-by-module, modular-monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
+description: Use when starting a new Spring Boot 4 project — scaffolding a service, REST API, or modular backend; picking an architecture (layered, package-by-module, modular-monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; generating the base project with progen or Spring Initializr; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
 ---
 
 # Creating Spring Boot Projects
@@ -44,9 +44,14 @@ Use this matrix as the default decision aid. If the choice is not obvious, read 
 
 > `tomato` is a value-object-heavy modular monolith: JPA entities embed VOs, validation lives in VO constructors, and Spring converters bind VOs at the request boundary. See `references/architecture-guide.md` for the full definition.
 
-### Step 3: Define the initial Boot 4 setup
+### Step 3: Generate the base project
 
-Use Spring Initializr and capture the baseline:
+Pick the generator:
+
+- **Progen** (preferred when installed): check with `command -v progen`. Read `references/progen-integration.md` before you use it. Progen deletes `./<app-name>/` if it exists, so always run it through `scripts/progen_config.py`, which validates values and refuses to overwrite.
+- **Spring Initializr**: use it when progen is not installed and the user does not want it, or the project does not fit progen (see the reference).
+
+For Spring Initializr, capture the baseline:
 
 - Project: Maven or Gradle
 - Language: Java
@@ -79,7 +84,7 @@ Read `references/spring-boot-4-features.md` before selecting:
 
 ### Step 4: Apply the matching assets
 
-Use the bundled templates from `assets/` and replace placeholders only after the package and module names are settled.
+Use the bundled templates from `assets/` and replace placeholders only after the package and module names are settled. If progen generated the project, skip the assets it already covers (see `references/progen-integration.md`).
 
 #### Placeholder convention
 
@@ -143,6 +148,11 @@ Read `references/architecture-guide.md` for package structure and apply the matc
 - Package structures, anti-patterns, and upgrade paths: `references/architecture-guide.md`
 - Spring Boot 4 feature-specific guidance: `references/spring-boot-4-features.md`
 - Java version choice, preview-API changes, JDK 26/27 runtime changes: `references/java-version-policy.md`
+- Generating the base project with progen: `references/progen-integration.md`
+
+## Available script
+
+- `scripts/progen_config.py`: builds and validates `.progen.json`, and runs progen with `--run`.
 
 ## Output format
 
@@ -154,6 +164,7 @@ When the user asks for a plan or scaffold recommendation, return:
 - Why:
 
 ## Initial setup
+- Generator: progen or Spring Initializr
 - Build tool:
 - Java version:
 - Spring Boot version:

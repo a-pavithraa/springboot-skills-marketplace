@@ -91,7 +91,7 @@ using $spring-data-jpa and ~/.codex/skills/spring-data-jpa/references/dto-projec
 
 Asks a few questions about your project, then builds the right architecture from the start.
 
-What you get: assessment-driven scaffolding, Spring Initializr setup, and templates for Value Objects, Rich Entities, CQRS patterns, converters—whatever your chosen architecture needs.
+What you get: assessment-driven scaffolding, base project generation with [progen](https://github.com/sivaprasadreddy/progen) (when installed) or Spring Initializr, and templates for Value Objects, Rich Entities, CQRS patterns, converters—whatever your chosen architecture needs.
 
 **Quick assessment covers:**
 - Domain complexity (CRUD vs. business rules)
@@ -162,12 +162,12 @@ cat QUICKSTART.md
 ```
 
 **Full test suite:**
-- 8 baseline scenarios defined for each skill's core behaviors
+- 9 baseline scenarios defined for each skill's core behaviors
 - RED-GREEN-REFACTOR methodology
 - Rationalization tracking
 - See `tests/README.md` for complete testing guide
 
-> **Current coverage:** the harness is set up for all 8 scenarios, but only Scenario 7 (`code-reviewer` review rigor) has actually been executed and recorded in `tests/baseline-results/scenario-7.md`. Scenarios 1–6 and 8 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
+> **Current coverage:** the harness is set up for all 9 scenarios, but only Scenario 7 (`code-reviewer` review rigor) has actually been executed and recorded in `tests/baseline-results/scenario-7.md`. Scenarios 1–6, 8, and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
 
 Based on [terraform-skill testing approach](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md).
 
@@ -175,6 +175,7 @@ Based on [terraform-skill testing approach](https://github.com/antonbabenko/terr
 
 - Claude Code CLI
 - Java 17+ (Java 25 recommended for new projects)
+- Optional: [progen](https://github.com/sivaprasadreddy/progen) for base project generation (`go install github.com/sivaprasadreddy/progen@latest`)
 - Maven or Gradle
 - Spring Boot 4.1+ familiarity
 
@@ -189,6 +190,7 @@ Layered → Package-by-Module → Modular Monolith → Tomato → DDD+Hexagonal
 ## Credits
 
 - Architecture patterns: [Siva Prasad Reddy](https://github.com/sivaprasadreddy)
+- Project generator: [progen](https://github.com/sivaprasadreddy/progen)
 - Spring Boot 4 features: [spring-boot-4-features](https://github.com/sivaprasadreddy/spring-boot-4-features)
 - Modular monolith reference: [spring-modular-monolith](https://github.com/sivaprasadreddy/spring-modular-monolith)
 - Marketplace inspiration: [sivalabs-marketplace](https://github.com/sivaprasadreddy/sivalabs-marketplace)

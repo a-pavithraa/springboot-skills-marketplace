@@ -8,11 +8,11 @@ Validate that skills effectively change agent behavior through systematic baseli
 
 ## Test Structure
 
-> **Current coverage (2026-05-24):** the framework is defined for all 8 scenarios, but only **Scenario 7** has actually been executed end-to-end and recorded under `baseline-results/`. Scenarios 1–6 and 8 are documented in `baseline-scenarios.md` and have rationalization tables in `rationalizations.md`, but no recorded baseline/target runs yet. The "Success Metrics" section below describes the target state, not the current state. Treat this as a test harness with one filled-in scenario, not a completed test suite.
+> **Current coverage (2026-05-24):** the framework is defined for all 9 scenarios, but only **Scenario 7** has actually been executed end-to-end and recorded under `baseline-results/`. Scenarios 1–6, 8, and 9 are documented in `baseline-scenarios.md` (1–6 and 8 also have rationalization tables in `rationalizations.md`), but no recorded baseline/target runs yet. The "Success Metrics" section below describes the target state, not the current state. Treat this as a test harness with one filled-in scenario, not a completed test suite.
 
 ### 1. Baseline Scenarios (`baseline-scenarios.md`)
 
-8 comprehensive scenarios testing each skill's core behaviors:
+9 comprehensive scenarios testing each skill's core behaviors:
 
 | Scenario | Skill | Focus Area |
 |----------|-------|-----------|
@@ -24,6 +24,7 @@ Validate that skills effectively change agent behavior through systematic baseli
 | 6 | spring-data-jpa | CQRS vs simple repository decision |
 | 7 | code-reviewer | Multi-dimensional review rigor |
 | 8 | spring-data-jpa | DTO projection vs entity fetching |
+| 9 | creating-springboot-projects | Safe project generation with progen |
 
 ### 2. Rationalization Tracking (`rationalizations.md`)
 
@@ -207,7 +208,7 @@ Skills are considered effective once a scenario reaches all of:
 - pressure variations don't break compliance
 - rationalizations are systematically countered
 
-Current status: only Scenario 7 has been taken through baseline + target + one pressure variation (all passed). Scenarios 1–6 and 8 still need their first runs before these metrics can be evaluated.
+Current status: only Scenario 7 has been taken through baseline + target + one pressure variation (all passed). Scenarios 1–6, 8, and 9 still need their first runs before these metrics can be evaluated.
 
 ## File Structure
 

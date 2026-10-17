@@ -25,7 +25,7 @@ import java.util.Optional;
  */
 @Service
 public class {{NAME}}Service {
-    private static final Logger log = LoggerFactory.getLogger({{NAME}}Service.class);
+    private static final Logger LOG = LoggerFactory.getLogger({{NAME}}Service.class);
     private final {{NAME}}Client client;
 
     public {{NAME}}Service({{NAME}}Client client) {
@@ -40,15 +40,15 @@ public class {{NAME}}Service {
             multiplier = 2
     )
     public Optional<{{NAME}}> getById(String id) {
-        log.info("Fetching by id: {} at {}", id, Instant.now());
+        LOG.info("Fetching by id: {} at {}", id, Instant.now());
         return client.getById(id);
     }
 
     @ConcurrencyLimit(2)
     public void processSlowTask(String id) {
-        log.info("Processing slow task for id: {}", id);
+        LOG.info("Processing slow task for id: {}", id);
         sleep();
-        log.info("Done for id: {}", id);
+        LOG.info("Done for id: {}", id);
     }
 
     private void sleep() {
