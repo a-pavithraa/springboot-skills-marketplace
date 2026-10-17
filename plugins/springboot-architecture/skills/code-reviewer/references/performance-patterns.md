@@ -263,7 +263,7 @@ public class RedisCacheConfig {
 
 **Quick review checklist:**
 - [ ] `spring.threads.virtual.enabled: true` is set (Spring Boot 4 config)
-- [ ] No `synchronized` blocks wrapping blocking I/O — use `ReentrantLock`
+- [ ] Java 21-23 only: no `synchronized` blocks wrapping blocking I/O (use `ReentrantLock`). On Java 24+ `synchronized` does not pin (JEP 491), so do not flag it
 - [ ] Virtual threads are not recommended for CPU-bound workloads
 - [ ] Recommendation to use virtual threads is backed by measured workload evidence, not assumed
 
@@ -442,76 +442,46 @@ public class DashboardService {
 }
 ```
 
-### Structured Concurrency (Java 25 Alternative)
+### Structured Concurrency (preview only)
 
-**Preview in Java 25** (JEP 505 — compile and run with `--enable-preview`): Structured Concurrency is a cleaner alternative to CompletableFuture for parallel execution. The API below — `StructuredTaskScope.open(...)` driven by a `Joiner` — is the JDK 25 shape; the earlier previews (Java 21–23) used the now-removed `ShutdownOnFailure` / `ShutdownOnSuccess` classes.
+**Status:** Preview in every release so far: JDK 25 (JEP 505), JDK 26 (JEP 525), JDK 27 (JEP 533). It needs `--enable-preview` at compile time and at run time. The API changes between releases.
 
-✅ **Structured Concurrency approach**
+**Review rule:** in code built without `--enable-preview`, do not suggest Structured Concurrency, and do not flag `CompletableFuture` as outdated. `CompletableFuture` is the standard choice for parallel calls.
+
+If the project already uses preview features, match the sample to its exact JDK:
+
 ```java
-@Service
-public class DashboardService {
-    private final UserService userService;
-    private final OrderService orderService;
-    private final ProductService productService;
-
-    public Dashboard getDashboard(Long userId) throws InterruptedException {
-        try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) {
-            Subtask<User> userTask = scope.fork(() -> userService.findById(userId));
-            Subtask<List<Order>> ordersTask = scope.fork(() -> orderService.findByUserId(userId));
-            Subtask<List<Product>> productsTask = scope.fork(() -> productService.findRecommended(userId));
-
-            scope.join();  // Wait for all; allSuccessfulOrThrow propagates any failure
-
-            return new Dashboard(
-                userTask.get(),
-                ordersTask.get(),
-                productsTask.get()
-            );
-        }
-    }
-}
-```
-
-### When to Use What in Java 25
-
-| Use Case | Recommended Approach | Reason |
-|----------|---------------------|--------|
-| **Spring @Async integration** | CompletableFuture | Spring @Async returns CompletableFuture, maintains framework compatibility |
-| **Complex composition chains** | CompletableFuture | `.thenCompose()`, `.thenApply()`, `.exceptionally()` provide fluent API |
-| **Parallel execution of independent tasks** | Structured Concurrency | Cleaner error handling, automatic cancellation, structured lifecycle |
-| **Simple blocking I/O with virtual threads** | Direct blocking calls | Virtual threads make blocking acceptable - no async wrapper needed |
-| **Timeout/cancellation requirements** | Structured Concurrency | Built-in timeout support via the scope's timeout configuration |
-
-### Migration Example
-
-❌ **Old CompletableFuture pattern**
-```java
-public Dashboard getDashboard(Long userId) {
-    CompletableFuture<User> user = CompletableFuture.supplyAsync(() -> fetchUser(userId));
-    CompletableFuture<List<Order>> orders = CompletableFuture.supplyAsync(() -> fetchOrders(userId));
-
-    return user.thenCombine(orders, (u, o) -> new Dashboard(u, o)).join();
-}
-```
-
-✅ **Modern Structured Concurrency**
-```java
+// JDK 25 shape (JEP 505)
 public Dashboard getDashboard(Long userId) throws InterruptedException {
     try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) {
-        var userTask = scope.fork(() -> fetchUser(userId));
-        var ordersTask = scope.fork(() -> fetchOrders(userId));
-
+        Subtask<User> userTask = scope.fork(() -> userService.findById(userId));
+        Subtask<List<Order>> ordersTask = scope.fork(() -> orderService.findByUserId(userId));
         scope.join();  // allSuccessfulOrThrow propagates any subtask failure
+        return new Dashboard(userTask.get(), ordersTask.get());
+    }
+}
+
+// JDK 27 shape (JEP 533): join() now throws ExecutionException on failure
+public Dashboard getDashboard(Long userId) throws InterruptedException, ExecutionException {
+    try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) {
+        Subtask<User> userTask = scope.fork(() -> userService.findById(userId));
+        Subtask<List<Order>> ordersTask = scope.fork(() -> orderService.findByUserId(userId));
+        scope.join();
         return new Dashboard(userTask.get(), ordersTask.get());
     }
 }
 ```
 
-**Benefits of Structured Concurrency:**
-- **Automatic cancellation**: If one task fails, others are cancelled immediately
-- **Clear ownership**: Task lifetime bound to scope (like try-with-resources)
-- **Better error handling**: Single exception propagation point
-- **Works naturally with virtual threads**: No need for explicit executor configuration
+Other JDK 27 changes: `StructuredTaskScope` and `Joiner` take a third type parameter for the exception that `join()` throws, `Joiner.awaitAll()` is removed, and timeouts use `open(joiner, cfg -> cfg.withTimeout(duration))`.
+
+**Benefits once it is final:** automatic cancellation of sibling tasks, task lifetime bound to the scope, one place to handle errors, and natural use of virtual threads.
+
+| Use case | Without `--enable-preview` | With `--enable-preview` |
+|----------|----------------------------|-------------------------|
+| Spring `@Async` | `CompletableFuture` | `CompletableFuture` |
+| Composition chains (`thenCompose`, `exceptionally`) | `CompletableFuture` | `CompletableFuture` |
+| Parallel independent calls | `CompletableFuture` | Structured Concurrency (match the JDK) |
+| Simple blocking I/O on virtual threads | Direct blocking calls | Direct blocking calls |
 
 ### CompletableFuture Still Valuable For
 
@@ -525,7 +495,7 @@ public Dashboard getDashboard(Long userId) throws InterruptedException {
 - [ ] Async executor properly configured (or using virtual threads)
 - [ ] Independent operations run in parallel
 - [ ] Error handling in async methods
-- [ ] For Java 21+: Consider Structured Concurrency over CompletableFuture for parallel execution
+- [ ] Structured Concurrency suggested only if the project already uses `--enable-preview` (preview through JDK 27)
 - [ ] CompletableFuture used appropriately (Spring @Async, complex composition chains)
 
 ---

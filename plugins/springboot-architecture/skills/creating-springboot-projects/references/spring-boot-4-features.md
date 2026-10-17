@@ -16,7 +16,7 @@
 
 ## Overview
 
-Spring Boot 4 (built on Spring Framework 7; Java 17 minimum) includes six major features that eliminate the need for external libraries and improve developer experience. Recommended toolchain: Java 25 — the current LTS, which Boot 4's tooling and Spring's null-safety guidance both target. Java 26 (GA March 2026) is the newest feature release but not an LTS; only adopt it if a project policy already moves to non-LTS releases.
+Spring Boot 4 (built on Spring Framework 7; Java 17 minimum) includes six major features that eliminate the need for external libraries and improve developer experience. Recommended toolchain: Java 25 (LTS). See [`java-version-policy.md`](java-version-policy.md) for newer releases.
 
 ## 1. RestTestClient - Modern REST Testing
 
@@ -570,9 +570,8 @@ Boot 4 uses modular starters. Add only what you need:
 </parent>
 
 <properties>
-    <!-- Boot 4 baseline is 17. Recommended: 25 (current LTS). Use 21 for the
-         previous LTS, 17 for stricter compatibility, or 26 (GA 2026-03-17)
-         only when your project tracks non-LTS feature releases. -->
+    <!-- Boot 4 baseline is 17. Recommended: 25 (LTS).
+         For newer releases see java-version-policy.md. -->
     <java.version>25</java.version>
 </properties>
 ```

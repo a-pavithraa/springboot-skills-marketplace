@@ -115,7 +115,7 @@ Scans your project first, then walks through dependencies → code → config in
 
 Sanity-checks your Boot 4 / Java 25 project for architecture fit and performance gotchas.
 
-Covers all five architecture patterns (when to use, when to avoid), plus checklists for events, CQRS, Modulith boundaries. Catches N+1 queries, missing caches, virtual thread pinning, and other performance traps.
+Covers all five architecture patterns (when to use, when to avoid), plus checklists for events, CQRS, Modulith boundaries. Catches N+1 queries, missing caches, virtual thread pinning on Java 21-23, misuse of preview APIs, and other performance traps.
 
 Use this when you want a second opinion or need to decide if it's time to evolve your architecture.
 
@@ -134,7 +134,7 @@ Use this when you want a second opinion or need to decide if it's time to evolve
 → Runs migration scanner, plans phased upgrade (dependencies → code → config), applies and verifies each step.
 
 **"Can you review our Boot 4 service for issues?"**
-→ Checks architecture pattern fit, hunts for performance problems (N+1, missing caches, virtual thread pinning, entity leaks).
+→ Checks architecture pattern fit, hunts for performance problems (N+1, missing caches, virtual thread pinning on Java 21-23, entity leaks).
 
 ## Templates & Assets
 

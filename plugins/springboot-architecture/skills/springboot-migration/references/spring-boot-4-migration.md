@@ -20,14 +20,15 @@
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
-| **Java** | 17 | 25 (current LTS). Java 26 is the newest feature release (GA March 2026) but is not an LTS — use it only when the project tracks non-LTS releases. |
+| **Java** | 17 | 25 (LTS). See the Java version policy below. |
 | **Spring Boot** | 4.0.0 | 4.1.x (latest stable) |
 | **Jakarta EE** | 11 | 11 |
 | **Servlet** | 6.1 | 6.1 |
 
 **Java Version Note:**
 - Minimum: Java 17
-- Recommended: Java 25 (current LTS) for new compile targets; Java 21 (previous LTS) is still fully supported. Java 26 is the newest feature release (GA 2026-03-17) but is non-LTS.
+- Recommended: Java 25 (LTS) for new compile targets; Java 21 (previous LTS) is still fully supported.
+- Newer non-LTS releases, preview-API changes, and JDK 26/27 runtime changes: see `../../creating-springboot-projects/references/java-version-policy.md`.
 
 ### Targeting 4.1 (current)
 

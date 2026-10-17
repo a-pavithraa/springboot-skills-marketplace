@@ -13,7 +13,7 @@ Use this skill to run a structured review of Spring Boot 4 code on any supported
 
 - Never review without code context. Ask for files, diffs, or the relevant module if none is provided.
 - Always cite file paths and line numbers for findings.
-- Treat Spring Boot 4 as the target. Read the project's `pom.xml` / `build.gradle` to determine the actual Java version (Boot 4 supports 17, 21, and 25). Do not flag Java 17 or 21 as "too old" — they are valid Boot 4 baselines.
+- Treat Spring Boot 4 as the target. Read the project's `pom.xml` / `build.gradle` to determine the actual Java version (Boot 4 supports Java 17 and later; see `../creating-springboot-projects/references/java-version-policy.md`). Do not flag Java 17 or 21 as "too old" — they are valid Boot 4 baselines.
 - Analyze workload before recommending virtual threads, reactive rewrites, or architecture changes.
 - Use JSpecify as the preferred null-safety baseline for new Boot 4 code, but confirm whether the codebase is still in transition before flagging every legacy annotation.
 - Prefer official Spring and Java guidance when a claim depends on framework behavior.
@@ -37,6 +37,7 @@ Load references just in time:
 |------|------|
 | Spring Boot 4 migration patterns and framework deltas | `references/spring-boot-4-patterns.md` |
 | Java 25 language and concurrency adoption | `references/java-25-features.md` |
+| Java 26/27 targets, preview APIs | `../creating-springboot-projects/references/java-version-policy.md` |
 | Security review | `references/security-checklist.md` |
 | Performance review | `references/performance-patterns.md` |
 | Architecture boundaries and packaging | `references/architecture-patterns.md` |

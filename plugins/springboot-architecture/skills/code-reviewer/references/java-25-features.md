@@ -55,17 +55,23 @@ executor.submit(() -> {
 });
 ```
 
-❌ **Don't pin virtual threads** (synchronized blocks on long operations)
+**Pinning depends on the Java version** ([JEP 491](https://openjdk.org/jeps/491), delivered in JDK 24):
+
+- **Java 24+:** `synchronized` does NOT pin virtual threads. Do not flag `synchronized` as a pinning risk. Do not ask for a rewrite to `ReentrantLock`. Code that already uses `ReentrantLock` can stay as it is.
+- **Java 21-23:** `synchronized` around blocking I/O pins the carrier thread. Flag it, and suggest `ReentrantLock`.
+- **All versions:** pinning still occurs when a thread blocks in native code that calls back into Java, blocks in a class initializer, or waits for another thread to initialize a class. These cases are rare.
+
+Read the Java version from the build file before you flag pinning.
+
+❌ **On Java 21-23 only: `synchronized` around blocking I/O pins the carrier**
 ```java
-// BAD: synchronized blocks pin virtual threads
 synchronized (lock) {
     String response = httpClient.send(request); // Blocking I/O
 }
 ```
 
-✅ **Use ReentrantLock instead**
+✅ **Fix on Java 21-23: use `ReentrantLock`**
 ```java
-// GOOD: ReentrantLock doesn't pin
 private final ReentrantLock lock = new ReentrantLock();
 
 lock.lock();
@@ -75,6 +81,10 @@ try {
     lock.unlock();
 }
 ```
+
+On all versions, keep lock scopes narrow and avoid blocking I/O while holding a lock. That is a contention issue, not a pinning issue.
+
+Diagnostics: `-Djdk.tracePinnedThreads` has no effect on JDK 24+. Use the JFR event `jdk.VirtualThreadPinned`.
 
 ### Spring Boot 4 Integration
 
@@ -107,9 +117,9 @@ public class UserService {
 
 **IF requirements met, then migrate:**
 - [ ] Replace `@Async` thread pools with virtual threads config
-- [ ] Replace `synchronized` with `ReentrantLock` in I/O code paths
+- [ ] Java 21-23 only: replace `synchronized` around blocking I/O with `ReentrantLock` (not needed on Java 24+, see JEP 491)
 - [ ] Remove manual thread pool sizing (virtual threads scale automatically)
-- [ ] Test under load to verify no pinning issues
+- [ ] Test under load; check the JFR event `jdk.VirtualThreadPinned` for pinning
 
 **IF requirements NOT met:**
 - [ ] Keep existing thread pools - they are appropriate for the workload
@@ -128,8 +138,8 @@ The 10,000 concurrent tasks threshold and usage guidance comes from official sou
    - States: "Virtual threads cannot improve throughput for CPU-bound workloads"
    - Uses softer language than Oracle's guide: "significant improvement when the number of concurrent tasks is high (more than a few thousand)" — does **not** state the 10,000 threshold specifically
 
-3. **[JEP 425: Virtual Threads (Preview)](https://openjdk.org/jeps/425)**
-   - Earlier preview specification
+3. **[JEP 491: Synchronize Virtual Threads without Pinning](https://openjdk.org/jeps/491)**
+   - JDK 24: `synchronized` no longer pins virtual threads
 
 4. **[Spring Boot Task Execution Documentation](https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html)**
    - How Spring Boot integrates virtual threads
@@ -469,7 +479,7 @@ String msg = """
 
 ## Primitive Types in Patterns
 
-**Status:** Third Preview (JEP 507 - Java 25)
+**Status:** Preview. Third preview in JDK 25 (JEP 507), fourth in JDK 26 (JEP 530), fifth in JDK 27 (JEP 532, no change from 26).
 
 Extends pattern matching to work with all primitive types in `instanceof` and `switch`.
 
@@ -606,37 +616,31 @@ RequestContext.handleRequest("user123", () -> {
 
 ---
 
-## Stable Values API
+## Lazy Constants (was Stable Values)
 
-**Status:** Preview (JEP 502 - Java 25)
+**Status:** Preview in every release so far. JDK 25: `StableValue` (JEP 502). JDK 26: `LazyConstant` (JEP 526). JDK 27: `LazyConstant`, third preview (JEP 531).
 
-Provides at-most-once initialization with deferred immutability — like `final` but initialized on demand. JEP 502 uses a no-arg factory `StableValue.of()` to create an unset holder, and `orElseSet(Supplier)` to initialize-or-read.
+The API changed shape in each release. Code written for one JDK does not compile on the next. Recommend it only when the project already builds with `--enable-preview`, and match the sample to the project's exact JDK. See `../../creating-springboot-projects/references/java-version-policy.md`.
+
+At-most-once initialization, like `final` but computed on first access:
 
 ```java
-public class ConfigurationManager {
-    // Unset stable value
-    private final StableValue<DatabaseConfig> config = StableValue.of();
+// JDK 25 only (JEP 502) — removed in JDK 26
+private final StableValue<DatabaseConfig> config = StableValue.of();
+DatabaseConfig getConfig() { return config.orElseSet(this::loadDatabaseConfig); }
 
-    public DatabaseConfig getConfig() {
-        // orElseSet returns the cached value if already set; otherwise it
-        // evaluates the supplier exactly once (even under concurrent calls)
-        // and caches the result.
-        return config.orElseSet(this::loadDatabaseConfig);
-    }
-
-    private DatabaseConfig loadDatabaseConfig() {
-        // Expensive initialization — runs at most once via orElseSet above.
-        return new DatabaseConfig(/* ... */);
-    }
-}
+// JDK 26 and 27 (JEP 526 / JEP 531)
+private final LazyConstant<DatabaseConfig> config = LazyConstant.of(this::loadDatabaseConfig);
+DatabaseConfig getConfig() { return config.get(); }
 ```
 
-**Source:** [JEP 502](https://openjdk.org/jeps/502) — "stable value, created with the static factory method `StableValue.of()` ... `orElseSet` method guarantees that the provided lambda expression is evaluated only once, even when ... invoked concurrently."
+Since JDK 26, `null` results are not allowed, and lazy collections use `List.ofLazy` and `Map.ofLazy`. JDK 27 removes `isInitialized()` and `orElse()` and adds `Set.ofLazy`.
 
-**Use cases:**
-- Expensive computations that should run at most once
-- Thread-safe lazy initialization
-- Simpler than double-checked locking patterns
+**Use cases:** expensive values computed at most once; a replacement for double-checked locking.
+
+**Review rule:** in code without `--enable-preview`, do not suggest this API. A `static final` holder class or a Spring singleton bean covers most cases.
+
+**Sources:** [JEP 502](https://openjdk.org/jeps/502), [JEP 531](https://openjdk.org/jeps/531)
 
 ---
 
@@ -714,7 +718,7 @@ byte[] keyBytes = hkdf.deriveData(spec);
    - Reference: [Oracle Virtual Threads Guide](https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html)
 7. **Sealed Classes** - Where type hierarchies are fixed
 8. **Switch Pattern Matching** - When working with type hierarchies
-9. **Primitive Patterns** - When pattern matching with primitives (preview)
+9. **Primitive Patterns** - When pattern matching with primitives (still preview in JDK 27, JEP 532)
 
 ### Medium Priority (Standard but situational)
 
@@ -725,7 +729,7 @@ byte[] keyBytes = hkdf.deriveData(spec);
 
 ### Low Priority (Evaluate Carefully)
 
-14. **Stable Values** - Preview in JDK 25 (JEP 502). Existing lazy-initialization patterns already cover most cases.
+14. **Lazy Constants** (`StableValue` in JDK 25) - Still preview in JDK 27 (JEP 531), and the API changes each release. Existing lazy-initialization patterns already cover most cases.
 15. **FFM API** - Standard since JDK 22 (JEP 454). Adopt only if calling native libraries; otherwise plain Java is simpler.
 
 ### Not Available
@@ -749,7 +753,7 @@ When reviewing Java code, check for:
 - [ ] Many imports from single module → Consider module import declarations (standard in JDK 25, JEP 511)
 - [ ] Complex constructor validation → Consider flexible constructor bodies (standard in JDK 25, JEP 513)
 - [ ] ThreadLocal for request context → Use Scoped Values (standard in JDK 25, JEP 506)
-- [ ] Manual lazy initialization → Consider Stable Values (preview in JDK 25, JEP 502)
+- [ ] Manual lazy initialization → Consider Lazy Constants only if the project already uses `--enable-preview` (preview through JDK 27, JEP 531)
 - [ ] Custom KDF implementations → Consider Key Derivation Function API (standard in JDK 25, JEP 510)
 
 ## Official Documentation

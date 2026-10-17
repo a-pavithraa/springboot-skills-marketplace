@@ -13,7 +13,7 @@ Use this skill for phased upgrade work on existing Spring Boot applications. Thi
 
 - Never migrate blindly. Scan the codebase first.
 - Never apply every migration at once. Follow phased upgrades.
-- Treat Spring Boot 4, Spring Modulith 2, and Testcontainers 2 as the intended target stack for this skill unless the user asks for a narrower target. Boot 4's Java baseline is 17; recommend Java 25 for new compile targets but do not force an upgrade past what the migration actually requires.
+- Treat Spring Boot 4, Spring Modulith 2, and Testcontainers 2 as the intended target stack for this skill unless the user asks for a narrower target. Boot 4's Java baseline is 17; recommend Java 25 for new compile targets but do not force an upgrade past what the migration actually requires. For Java 26+ targets, read `../creating-springboot-projects/references/java-version-policy.md`.
 - Verify after each phase and stop when failures appear.
 
 ## Workflow
@@ -34,6 +34,7 @@ Use the scan output to identify:
 - configuration changes
 - Spring Modulith compatibility
 - Testcontainers compatibility
+- Java preview APIs (`StableValue`, `StructuredTaskScope`) that break on a newer JDK
 
 ### Step 2: Identify which migrations apply
 

@@ -6,6 +6,7 @@ Scans a Spring Boot project for migration issues related to:
 - Spring Boot 4.0
 - Spring Modulith 2.0
 - Testcontainers 2.x
+- Java preview APIs that change between JDK releases
 
 Usage:
     python3 scan_migration_issues.py /path/to/project
@@ -722,6 +723,34 @@ class MigrationScanner:
                         "getEndpointOverride(Service) deprecated",
                         "Change to: getEndpoint()"
                     )
+
+        # Check for preview APIs whose shape changes between JDK releases
+        preview_api_patterns = {
+            'StableValue': (
+                "StableValue preview API (JDK 25 only, removed in JDK 26)",
+                "On JDK 26+ use LazyConstant.of(supplier) and get(); "
+                "see java-version-policy.md"
+            ),
+            'StructuredTaskScope': (
+                "StructuredTaskScope preview API (shape changes each JDK release)",
+                "Match the code to the target JDK; on JDK 27 join() throws "
+                "ExecutionException; see java-version-policy.md"
+            ),
+        }
+        for api, (issue, suggestion) in preview_api_patterns.items():
+            if api not in content:
+                continue
+            for i, line in enumerate(lines, 1):
+                if re.search(rf'\b{api}\b', line) and not line.strip().startswith('//'):
+                    self.result.add_issue(
+                        "Java - Preview APIs",
+                        "WARNING",
+                        str(rel_path),
+                        i,
+                        issue,
+                        suggestion
+                    )
+                    break
 
     def _scan_properties(self):
         """Scan application.properties for configuration issues"""
