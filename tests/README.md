@@ -37,6 +37,19 @@ Documents agent excuses/workarounds and how skills counter them:
 
 Verbatim agent responses for each scenario without skills loaded.
 
+## Script Regression Tests
+
+`tests/scripts/` holds `unittest` tests for the two bundled scripts:
+
+- `test_scan_migration_issues.py`: Maven dependency boundaries, exclusions and namespaces, Modulith schema detection in properties and YAML, SQL comments.
+- `test_progen_config.py`: package and app-name validation, the existing-directory guard, progen failure handling, and Java version patching. A fake `progen` on `PATH` replaces the real binary.
+
+```bash
+python3 -m unittest discover -s tests/scripts -v
+```
+
+Run them after any change to the scripts. Add a failing test first for each new bug.
+
 ## Running Tests
 
 ### Phase 1: RED (Baseline)

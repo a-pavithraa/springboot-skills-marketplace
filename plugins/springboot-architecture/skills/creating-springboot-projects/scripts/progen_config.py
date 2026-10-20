@@ -46,6 +46,18 @@ FEATURES = {
 
 APP_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,49}$")
 PACKAGE_RE = re.compile(r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)*$")
+# Reserved keywords and literals cannot be package segments
+JAVA_RESERVED = {
+    "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
+    "class", "const", "continue", "default", "do", "double", "else", "enum",
+    "extends", "final", "finally", "float", "for", "goto", "if", "implements",
+    "import", "instanceof", "int", "interface", "long", "native", "new",
+    "package", "private", "protected", "public", "return", "short", "static",
+    "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
+    "transient", "try", "void", "volatile", "while", "true", "false", "null", "_",
+}
+# progen prints this when only its final spotless step fails
+FORMAT_FAILURE_MARKER = "failed to format project code"
 JAVA_VERSION_DEFAULT = 25  # progen hard-codes this; --java patches the build file
 
 
@@ -61,12 +73,18 @@ def pick(table: dict, value: str, option: str) -> str:
     return table[key]
 
 
+def is_java_package(name: str) -> bool:
+    return bool(PACKAGE_RE.match(name)) and not any(
+        segment in JAVA_RESERVED for segment in name.split("."))
+
+
 def build_config(args) -> dict:
     if not APP_NAME_RE.match(args.app_name):
         fail(f"--app-name '{args.app_name}' is invalid. Use lowercase letters, digits, "
              "and '-', starting with a letter (progen uses it as a directory name).")
-    if not PACKAGE_RE.match(args.base_package):
-        fail(f"--base-package '{args.base_package}' is not a valid Java package.")
+    if not is_java_package(args.base_package):
+        fail(f"--base-package '{args.base_package}' is not a valid Java package "
+             "(lowercase segments, no Java keywords such as 'class' or 'new').")
     group_id = args.group_id or args.base_package.rsplit(".", 1)[0]
     if not PACKAGE_RE.match(group_id):
         fail(f"--group-id '{group_id}' is invalid.")
@@ -101,27 +119,32 @@ def build_config(args) -> dict:
     return config
 
 
-def patch_java_version(project_dir: Path, version: int):
+def patch_java_version(project_dir: Path, version: int) -> bool:
+    """Set the Java version in the generated build file. Returns False if nothing matched."""
     pom = project_dir / "pom.xml"
     gradle = project_dir / "build.gradle"
     if pom.exists():
-        text = pom.read_text(encoding="utf-8")
-        new = re.sub(r"<java.version>\d+</java.version>",
-                     f"<java.version>{version}</java.version>", text, count=1)
-        pom.write_text(new, encoding="utf-8")
+        build_file, pattern, replacement = (
+            pom, r"<java\.version>\s*\d+\s*</java\.version>", f"<java.version>{version}</java.version>")
     elif gradle.exists():
-        text = gradle.read_text(encoding="utf-8")
-        new = re.sub(r"JavaLanguageVersion\.of\(\d+\)",
-                     f"JavaLanguageVersion.of({version})", text, count=1)
-        gradle.write_text(new, encoding="utf-8")
+        build_file, pattern, replacement = (
+            gradle, r"JavaLanguageVersion\.of\(\s*\d+\s*\)", f"JavaLanguageVersion.of({version})")
     else:
         print("WARNING: no pom.xml or build.gradle found; Java version not changed")
-        return
+        return False
+    text = build_file.read_text(encoding="utf-8")
+    new, count = re.subn(pattern, replacement, text, count=1)
+    if count == 0:
+        print(f"WARNING: no Java version setting found in {build_file.name}; "
+              f"set Java {version} by hand")
+        return False
+    build_file.write_text(new, encoding="utf-8")
     sdkmanrc = project_dir / ".sdkmanrc"
     if sdkmanrc.exists():
         print(f"NOTE: update .sdkmanrc to a Java {version} distribution "
               "(CI reads the Java version from it)")
-    print(f"Set Java version to {version}")
+    print(f"Set Java version to {version} in {build_file.name}")
+    return True
 
 
 def run_progen(out_dir: Path, config: dict, java_version: int) -> int:
@@ -135,18 +158,30 @@ def run_progen(out_dir: Path, config: dict, java_version: int) -> int:
         print("WARNING: java is not on PATH. progen still generates the files, "
               "but its formatting step (spotless) fails.")
 
-    result = subprocess.run(["progen", "-c", ".progen.json"], cwd=out_dir)
+    # Stream progen's output and keep it, to tell a formatting-only failure
+    # apart from incomplete generation
+    process = subprocess.Popen(["progen", "-c", ".progen.json"], cwd=out_dir,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    output = []
+    for line in process.stdout:
+        print(line, end="")
+        output.append(line)
+    returncode = process.wait()
+
     build_file = project_dir / ("pom.xml" if config["BuildTool"] == "Maven" else "build.gradle")
     if not build_file.exists():
-        fail(f"progen did not generate {build_file} (exit code {result.returncode})")
-    if result.returncode != 0:
+        fail(f"progen did not generate {build_file} (exit code {returncode})", code=4)
+    if returncode != 0:
+        if not any(FORMAT_FAILURE_MARKER in line for line in output):
+            fail(f"progen exited with {returncode} and did not report a formatting failure; "
+                 f"the project in {project_dir} may be incomplete. Check the output above.", code=4)
         formatter = "./mvnw spotless:apply" if config["BuildTool"] == "Maven" \
             else "./gradlew spotlessApply"
-        print(f"WARNING: progen exited with {result.returncode}, but the project was "
-              f"generated. The formatting step probably failed (it needs Java and "
-              f"network access). Run '{formatter}' in {project_dir} later.")
-    if java_version != JAVA_VERSION_DEFAULT:
-        patch_java_version(project_dir, java_version)
+        print(f"WARNING: progen generated the project, but its formatting step failed "
+              f"(it needs Java and network access). Run '{formatter}' in {project_dir} later.")
+    if java_version != JAVA_VERSION_DEFAULT and not patch_java_version(project_dir, java_version):
+        fail(f"Project generated at {project_dir}, but the Java version is still "
+             f"{JAVA_VERSION_DEFAULT}.", code=5)
     print(f"Project generated at {project_dir}")
     return 0
 

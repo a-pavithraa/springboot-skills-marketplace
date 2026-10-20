@@ -23,7 +23,7 @@ Install: `go install github.com/sivaprasadreddy/progen@latest`, or download a bi
 
 - **Progen deletes `./<AppName>/` before it generates.** Never run it where that directory exists. The helper script refuses to run in that case.
 - Progen does not validate most values. An invalid value becomes the default, with only a WARNING. Use the helper script. It rejects invalid values.
-- Progen runs `spotless:apply` (Maven) or `spotlessApply` (Gradle) at the end. This needs Java on `PATH` and network access on the first run. If it fails, progen exits with code 1, but the files exist. Run the formatter later.
+- Progen runs `spotless:apply` (Maven) or `spotlessApply` (Gradle) at the end. This needs Java on `PATH` and network access on the first run. If only that step fails, progen prints "failed to format project code" and exits with 1, but the files exist; the script reports this as a warning. Any other progen failure stops the script with exit code 4.
 
 ## Step 1: Map the assessment to progen options
 
@@ -58,7 +58,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
 
 - Without `--run`, the script only writes and prints `.progen.json`. Show it to the user before you generate.
 - The project goes to `<out-dir>/<app-name>/`.
-- Exit codes: 0 = success (warnings may print), 1 = invalid input, 2 = target directory exists, 3 = progen not installed.
+- Exit codes: 0 = success (warnings may print, for example a failed formatting step), 1 = invalid input, 2 = target directory exists, 3 = progen not installed, 4 = progen failed or the project may be incomplete, 5 = generated but the Java version could not be set.
 
 ## Step 3: Add the architecture layer
 

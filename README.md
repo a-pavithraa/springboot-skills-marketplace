@@ -167,6 +167,11 @@ cat QUICKSTART.md
 - Rationalization tracking
 - See `tests/README.md` for complete testing guide
 
+**Script tests** (migration scanner and progen helper, stdlib only, no network or Docker):
+```bash
+python3 -m unittest discover -s tests/scripts -v
+```
+
 > **Current coverage:** the harness is set up for all 9 scenarios, but only Scenario 7 (`code-reviewer` review rigor) has actually been executed and recorded in `tests/baseline-results/scenario-7.md`. Scenarios 1–6, 8, and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
 
 Based on [terraform-skill testing approach](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md).

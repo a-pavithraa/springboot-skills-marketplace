@@ -116,8 +116,9 @@ For key derivation (not passwords), see `java-25-features.md` (`javax.crypto.KDF
 @EnableMethodSecurity
 class SecurityConfig {
 
-    // Stateless JSON API with bearer tokens
+    // Stateless JSON API with bearer tokens: only requests under /api/**
     @Bean
+    @Order(1)
     SecurityFilterChain api(HttpSecurity http) throws Exception {
         http
             .securityMatcher("/api/**")
@@ -128,6 +129,18 @@ class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .csrf(csrf -> csrf.disable())   // no cookies carry credentials here
             .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
+        return http.build();
+    }
+
+    // Fallback for every other path. Without it, requests outside /api/**
+    // match no chain and Spring Security does not protect them.
+    @Bean
+    @Order(2)
+    SecurityFilterChain fallback(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health/**").permitAll()
+                .anyRequest().denyAll());
         return http.build();
     }
 
@@ -143,7 +156,7 @@ Review rules:
 - **CSRF:** keep it on for browser apps that use session cookies. Disabling it is correct only when no cookie carries credentials (bearer-token APIs). Flag `csrf.disable()` together with form login or session cookies.
 - **Spring Security 7 removals:** `AntPathRequestMatcher` and `MvcRequestMatcher` are gone (use `requestMatchers("/path/**")` or `PathPatternRequestMatcher`), and the `.and()` chaining DSL is gone (use lambda customizers). Old code does not compile.
 - `@EnableWebSecurity` is optional in Boot. `@EnableMethodSecurity` already enables `@PreAuthorize`/`@PostAuthorize` (`prePostEnabled` defaults to `true`).
-- Order several `SecurityFilterChain` beans with `securityMatcher(...)`; a chain without a matcher catches everything.
+- **Flag a `securityMatcher(...)` chain with no catch-all chain.** Requests that match no chain bypass Spring Security entirely. Give scoped chains `@Order` and add a last chain without a matcher that ends in `anyRequest().authenticated()` or `denyAll()`. If there is only one chain, drop the matcher and use `requestMatchers(...)` inside `authorizeHttpRequests`.
 - Test rules with `spring-boot-starter-security-test` (`@WithMockUser`, `SecurityMockMvcRequestPostProcessors.jwt()`).
 
 ---
@@ -163,6 +176,7 @@ Review rules:
 Critical:
 
 - [ ] Every privileged endpoint and service method has an authorization rule; object-level ownership is checked
+- [ ] Every request matches some `SecurityFilterChain` (a catch-all chain exists when others use `securityMatcher`)
 - [ ] No string-built SQL/JPQL/Mongo queries; no user input in sort fields without an allowlist
 - [ ] Passwords via `DelegatingPasswordEncoder`/bcrypt/Argon2; no secrets in source or logs
 - [ ] CSRF on for cookie-based sessions; disabled only for bearer-token APIs
