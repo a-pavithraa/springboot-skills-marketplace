@@ -9,15 +9,34 @@ Scans a Spring Boot project for migration issues related to:
 - Java preview APIs that change between JDK releases
 
 Usage:
-    python3 scan_migration_issues.py /path/to/project
+    python3 scan_migration_issues.py /path/to/project [--check]
+
+--check exits with 1 when any CRITICAL issue remains, so a finished migration
+can be confirmed with a single command.
 """
 
+import argparse
 import os
 import re
 import sys
 from pathlib import Path
 from typing import List, Dict, Set
 from dataclasses import dataclass, field
+
+
+# Newest Spring Boot minor line (checked 2026-10-21). Projects on an older 4.x
+# line get a warning, because the skill's references describe this one.
+CURRENT_BOOT = (4, 1)
+
+# Build output, VCS data, and hidden directories. Hidden ones include
+# project-level skill installs (.claude/skills, .codex/skills), whose
+# templates and docs would otherwise be scanned as project code.
+_SKIP_DIRS = {"target", "build", "node_modules", "out", "bin"}
+
+
+def _is_project_file(path: Path, root: Path) -> bool:
+    parts = path.relative_to(root).parts[:-1]
+    return not any(part in _SKIP_DIRS or part.startswith('.') for part in parts)
 
 
 _MAVEN_DEPENDENCY_RE = re.compile(r'<(?:[\w-]+:)?dependency\b[^>]*>(.*?)</(?:[\w-]+:)?dependency>', re.S)
@@ -166,10 +185,7 @@ class MigrationScanner:
         if pom_path.exists():
             poms = [pom_path]
             for child in sorted(self.project_path.rglob("pom.xml")):
-                if child == pom_path:
-                    continue
-                parts = set(child.relative_to(self.project_path).parts)
-                if parts & {"target", ".git", "node_modules", "build"}:
+                if child == pom_path or not _is_project_file(child, self.project_path):
                     continue
                 poms.append(child)
             for pom in poms:
@@ -206,10 +222,12 @@ class MigrationScanner:
             build_file_ref = "build file"
 
         # Post-scan: check for missing modular HTTP client starters
+        # CRITICAL: without the starter there is no RestClient.Builder bean, and
+        # the context fails to start (seen on 4.1.1 in Scenario 15)
         if self.uses_restclient and not self.has_restclient_starter:
             self.result.add_issue(
                 "Spring Boot 4 - Dependencies",
-                "WARNING",
+                "CRITICAL",
                 build_file_ref,
                 0,
                 "RestClient used but spring-boot-starter-restclient not found",
@@ -218,14 +236,31 @@ class MigrationScanner:
         if self.uses_webclient and not self.has_webclient_starter:
             self.result.add_issue(
                 "Spring Boot 4 - Dependencies",
-                "WARNING",
+                "CRITICAL",
                 build_file_ref,
                 0,
                 "WebClient used but spring-boot-starter-webclient not found",
                 "Boot 4 modular starters require spring-boot-starter-webclient for WebClient auto-configuration"
             )
 
+        self._check_boot_line(build_file_ref)
         return self.result
+
+    def _check_boot_line(self, build_file_ref: str):
+        match = re.match(r'(\d+)\.(\d+)', self.result.spring_boot_version)
+        if not match:
+            return
+        line = (int(match.group(1)), int(match.group(2)))
+        if line[0] == CURRENT_BOOT[0] and line < CURRENT_BOOT:
+            current = f"{CURRENT_BOOT[0]}.{CURRENT_BOOT[1]}"
+            self.result.add_issue(
+                "Spring Boot 4 - Version",
+                "WARNING",
+                build_file_ref,
+                0,
+                f"Spring Boot {self.result.spring_boot_version} is not on the current {current}.x line",
+                f"Target the latest {current}.x release; the references in this skill describe {current}"
+            )
 
     def _scan_pom(self, pom_path: Path):
         """Scan pom.xml for dependency issues"""
@@ -553,7 +588,8 @@ class MigrationScanner:
         """Scan Java files for code issues"""
         print("\n☕ Scanning Java files...")
 
-        java_files = list(self.project_path.rglob("*.java"))
+        java_files = [f for f in self.project_path.rglob("*.java")
+                      if _is_project_file(f, self.project_path)]
         print(f"   Found {len(java_files)} Java files")
 
         for java_file in java_files:
@@ -992,19 +1028,25 @@ class MigrationScanner:
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 scan_migration_issues.py /path/to/project")
+    parser = argparse.ArgumentParser(description="Scan a Spring Boot project for Boot 4 migration issues")
+    parser.add_argument("project_path")
+    parser.add_argument("--check", action="store_true",
+                        help="Exit with 1 when any CRITICAL issue remains")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.project_path):
+        print(f"Error: Path does not exist: {args.project_path}")
         sys.exit(1)
 
-    project_path = sys.argv[1]
-
-    if not os.path.exists(project_path):
-        print(f"Error: Path does not exist: {project_path}")
-        sys.exit(1)
-
-    scanner = MigrationScanner(project_path)
+    scanner = MigrationScanner(args.project_path)
     result = scanner.scan()
     scanner.print_report()
+    if args.check:
+        critical = sum(1 for issue in result.issues if issue.severity == "CRITICAL")
+        if critical:
+            print(f"\nCHECK FAILED: {critical} critical issue(s) remain")
+            sys.exit(1)
+        print("\nCHECK PASSED: no critical issues")
 
 
 if __name__ == "__main__":

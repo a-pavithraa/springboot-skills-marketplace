@@ -7,6 +7,8 @@ Run from the repository root:
 import contextlib
 import importlib.util
 import io
+import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -197,6 +199,66 @@ class HelperFunctions(unittest.TestCase):
     def test_yaml_values_resets_paths_between_documents(self):
         values = scanner._yaml_values("a:\n  b: 1\n---\nb: 2\n")
         self.assertEqual(values, {"a.b": "1", "b": "2"})
+
+
+class ProjectScope(ScannerTestCase):
+
+    REST_CLIENT_USE = """
+        class RateClient {
+            private final RestClient client = RestClient.create();
+        }
+        """
+
+    def test_project_level_skill_install_is_not_scanned(self):
+        self.write("pom.xml", pom(""))
+        self.write(".claude/skills/creating-springboot-projects/assets/http-client.java",
+                   "class Example { WebClient client; }\n")
+        self.write("target/generated-sources/Gen.java", "class Gen { WebClient client; }\n")
+        self.assertNoIssue("WebClient used")
+
+    def test_missing_restclient_starter_is_critical(self):
+        self.write("pom.xml", pom(""))
+        self.write("src/main/java/demo/RateClient.java", self.REST_CLIENT_USE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = scanner.MigrationScanner(str(self.root)).scan()
+        severities = [i.severity for i in result.issues if "spring-boot-starter-restclient" in i.issue]
+        self.assertEqual(severities, ["CRITICAL"])
+
+
+class BootLine(ScannerTestCase):
+
+    def test_older_boot4_line_is_reported(self):
+        self.write("pom.xml", pom("").replace("4.1.1", "4.0.0"))
+        self.assertIssue("not on the current 4.1.x line")
+
+    def test_current_line_is_not_reported(self):
+        self.write("pom.xml", pom(""))
+        self.assertNoIssue("not on the current")
+
+
+class CheckMode(ScannerTestCase):
+
+    def run_check(self):
+        return subprocess.run([sys.executable, str(SCRIPT), str(self.root), "--check"],
+                              capture_output=True, text=True)
+
+    def test_check_fails_on_critical_issue(self):
+        self.write("pom.xml", pom(""))
+        self.write("src/main/java/demo/RateClient.java", ProjectScope.REST_CLIENT_USE)
+        result = self.run_check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("CHECK FAILED", result.stdout)
+
+    def test_check_passes_without_critical_issues(self):
+        self.write("pom.xml", pom("""
+            <dependency>
+              <groupId>org.springframework.boot</groupId>
+              <artifactId>spring-boot-starter-restclient</artifactId>
+            </dependency>
+            """))
+        self.write("src/main/java/demo/RateClient.java", ProjectScope.REST_CLIENT_USE)
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stdout)
 
 
 if __name__ == "__main__":

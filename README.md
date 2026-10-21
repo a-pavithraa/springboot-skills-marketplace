@@ -174,7 +174,7 @@ cat QUICKSTART.md
 - Rationalization tracking
 - See `tests/README.md` for complete testing guide
 
-**Script tests** (migration scanner and progen helper, stdlib only, no network or Docker):
+**Script tests** (migration scanner, progen helper and new-project check, stdlib only, no network or Docker):
 ```bash
 python3 -m unittest discover -s tests/scripts -v
 ```

@@ -143,6 +143,14 @@ Read `references/architecture-guide.md` for package structure and apply the matc
 
 Every project gets `assets/architecture-rules-test.java` as `src/test/java/<package>/ArchitectureRulesTest.java`, with the Taikai test dependency from `assets/pom-additions.xml`. Adjust it for the chosen style as its header says. For a progen project, add only the `[beyond progen]` rules to the generated `ArchUnitTests.java`, after the three changes in `references/progen-integration.md`. Run it and confirm it passes before you hand the project over: these rules keep holding after the session ends.
 
+Then check the project, and fix every `FAIL` before you hand it over:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/check_new_project.py" /path/to/project
+```
+
+It fails on unresolved `{{PLACEHOLDER}}` tokens, a Spring Boot version before 4.x, a missing Taikai test or dependency, and Boot 3 starter or Testcontainers 1 names. It warns on an older 4.x line and on H2. Then run the build (`./mvnw verify` or `./gradlew build`).
+
 ### Step 7: Hand off specialized concerns when needed
 
 - Use `springboot-migration` for upgrades of existing applications rather than new-project setup.
@@ -158,6 +166,7 @@ Every project gets `assets/architecture-rules-test.java` as `src/test/java/<pack
 ## Available script
 
 - `scripts/progen_config.py`: builds and validates `.progen.json`, and runs progen with `--run`.
+- `scripts/check_new_project.py`: checks the finished project against this skill (Step 6). Exit 1 means at least one failure.
 
 ## Output format
 

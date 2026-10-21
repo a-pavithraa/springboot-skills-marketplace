@@ -73,6 +73,12 @@ Use the reference guides to plan and execute in this order.
 
 #### Phase 4: Verification
 
+- run the scanner again with `--check`; it exits with 1 while any CRITICAL issue remains (a missing modular starter, for example, compiles but fails at startup):
+
+  ```bash
+  python3 "${CLAUDE_SKILL_DIR}/scripts/scan_migration_issues.py" /path/to/project --check
+  ```
+
 - run unit tests
 - run integration tests
 - run container-based tests where present
@@ -106,7 +112,7 @@ After each phase, report:
 
 ## Available script
 
-- `scripts/scan_migration_issues.py`
+- `scripts/scan_migration_issues.py`: `--check` exits with 1 while CRITICAL issues remain. It skips build output and hidden directories, including project-level skill installs.
 
 ## Output format
 
