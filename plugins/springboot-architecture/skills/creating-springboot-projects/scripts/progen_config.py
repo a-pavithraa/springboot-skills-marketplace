@@ -14,11 +14,13 @@ Usage:
         [--group-id com.acme] [--app-type rest|web|angular] \\
         [--build-tool maven|gradle] [--persistence jpa|jdbc|jooq] \\
         [--db postgresql|mysql|mariadb] [--migration flyway|liquibase] \\
-        [--features email,redis,...] [--java 25] [--out-dir DIR] [--run]
+        [--features email,redis,...] [--java 25] [--out-dir DIR] [--run] \\
+        [--ignore-jdk-check]
 """
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -59,6 +61,11 @@ JAVA_RESERVED = {
 # progen prints this when only its final spotless step fails
 FORMAT_FAILURE_MARKER = "failed to format project code"
 JAVA_VERSION_DEFAULT = 25  # progen hard-codes this; --java patches the build file
+# progen's formatting step runs palantir-java-format, which fails on newer JDKs
+# (JDK 27 with every version up to 2.102.0, checked 2026-10-21). The step also
+# removes an unused import of a class Spring Security 7 dropped, so when it fails
+# the project doesn't compile.
+FORMATTER_MAX_JDK = 25
 
 
 def fail(message: str, code: int = 1):
@@ -147,16 +154,48 @@ def patch_java_version(project_dir: Path, version: int) -> bool:
     return True
 
 
-def run_progen(out_dir: Path, config: dict, java_version: int) -> int:
+def jdk_major_version():
+    """Major version of the JDK the Maven/Gradle wrapper will use (JAVA_HOME first, as the wrappers do)."""
+    java_home = os.environ.get("JAVA_HOME")
+    java = str(Path(java_home) / "bin" / "java") if java_home else shutil.which("java")
+    if not java or not Path(java).exists():
+        return None
+    try:
+        result = subprocess.run([java, "-version"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r'version "(\d+)(?:\.(\d+))?', result.stderr + result.stdout)
+    if not match:
+        return None
+    major = int(match.group(1))
+    return int(match.group(2)) if major == 1 and match.group(2) else major
+
+
+def check_jdk(java_version: int):
+    major = jdk_major_version()
+    if major is None:
+        print("WARNING: java is not on PATH. progen still generates the files, "
+              "but its formatting step (spotless) fails.")
+        return
+    if major > FORMATTER_MAX_JDK:
+        fail(f"the JDK in use is {major}. progen's formatter (palantir-java-format) fails on JDKs "
+             f"newer than {FORMATTER_MAX_JDK}, and the project then doesn't compile. Point JAVA_HOME "
+             f"(and PATH) at a JDK {FORMATTER_MAX_JDK} and run again, or pass --ignore-jdk-check "
+             "if a newer formatter has fixed this.", code=6)
+    if major < java_version:
+        print(f"WARNING: the JDK in use is {major}, but the project targets Java {java_version}. "
+              f"The build will fail until JAVA_HOME points at a JDK {java_version}.")
+
+
+def run_progen(out_dir: Path, config: dict, java_version: int, check_java: bool = True) -> int:
     project_dir = out_dir / config["AppName"]
     if shutil.which("progen") is None:
         fail("progen is not on PATH. Install it: "
              "go install github.com/sivaprasadreddy/progen@latest, "
              "or download a binary from https://github.com/sivaprasadreddy/progen/releases",
              code=3)
-    if shutil.which("java") is None:
-        print("WARNING: java is not on PATH. progen still generates the files, "
-              "but its formatting step (spotless) fails.")
+    if check_java:
+        check_jdk(java_version)
 
     # Stream progen's output and keep it, to tell a formatting-only failure
     # apart from incomplete generation
@@ -204,6 +243,8 @@ def main():
     parser.add_argument("--out-dir", default=".",
                         help="Directory for .progen.json; progen creates <out-dir>/<app-name>/")
     parser.add_argument("--run", action="store_true", help="Run progen after writing the config")
+    parser.add_argument("--ignore-jdk-check", action="store_true",
+                        help=f"Run progen even on a JDK newer than {FORMATTER_MAX_JDK}")
     args = parser.parse_args()
 
     if args.java < 17:
@@ -227,7 +268,7 @@ def main():
     print(json.dumps(config, indent=1))
 
     if args.run:
-        sys.exit(run_progen(out_dir, config, args.java))
+        sys.exit(run_progen(out_dir, config, args.java, check_java=not args.ignore_jdk_check))
 
 
 if __name__ == "__main__":

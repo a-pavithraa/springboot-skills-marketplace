@@ -30,6 +30,7 @@ class ProgenConfigTestCase(unittest.TestCase):
         self.out.mkdir()
         self.bin = self.root / "bin"
         self.bin.mkdir()
+        self.fake_java('openjdk version "25.0.4.1" 2026-08-18 LTS')
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -40,8 +41,15 @@ class ProgenConfigTestCase(unittest.TestCase):
         script.write_text("#!/bin/sh\n" + textwrap.dedent(body), encoding="utf-8")
         script.chmod(0o755)
 
+    def fake_java(self, version_line: str):
+        """Install a fake java that prints version_line the way java -version does (to stderr)."""
+        script = self.bin / "java"
+        script.write_text(f"#!/bin/sh\necho '{version_line}' >&2\n", encoding="utf-8")
+        script.chmod(0o755)
+
     def run_script(self, *args, use_fake=True):
         env = dict(os.environ)
+        env.pop("JAVA_HOME", None)
         if use_fake:
             env["PATH"] = f"{self.bin}{os.pathsep}{env['PATH']}"
         return subprocess.run(
@@ -137,6 +145,51 @@ class RunningProgen(ProgenConfigTestCase):
                                  "--build-tool", "gradle", "--run", "--java", "21")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("JavaLanguageVersion.of(21)", (self.out / "shop" / "build.gradle").read_text())
+
+
+class JdkCheck(ProgenConfigTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.fake_progen(f"mkdir -p shop && printf '%s' '{POM}' > shop/pom.xml\n")
+
+    def test_newer_jdk_is_refused_before_progen_runs(self):
+        self.fake_java('openjdk version "27" 2026-09-15')
+        result = self.run_script("--app-name", "shop", "--base-package", "com.acme.shop", "--run")
+        self.assertEqual(result.returncode, 6)
+        self.assertIn("JDK 25", result.stderr)
+        self.assertFalse((self.out / "shop").exists())
+
+    def test_newer_jdk_runs_with_override(self):
+        self.fake_java('openjdk version "27" 2026-09-15')
+        result = self.run_script("--app-name", "shop", "--base-package", "com.acme.shop", "--run",
+                                 "--ignore-jdk-check")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_java_home_wins_over_path(self):
+        self.fake_java('openjdk version "27" 2026-09-15')
+        jdk25 = self.root / "jdk25"
+        (jdk25 / "bin").mkdir(parents=True)
+        java = jdk25 / "bin" / "java"
+        java.write_text("#!/bin/sh\necho 'openjdk version \"25.0.4.1\" 2026-08-18 LTS' >&2\n", encoding="utf-8")
+        java.chmod(0o755)
+        env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}", JAVA_HOME=str(jdk25))
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--out-dir", str(self.out),
+             "--app-name", "shop", "--base-package", "com.acme.shop", "--run"],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_older_jdk_than_target_is_a_warning(self):
+        self.fake_java('openjdk version "21.0.5" 2024-10-15')
+        result = self.run_script("--app-name", "shop", "--base-package", "com.acme.shop", "--run")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("targets Java 25", result.stdout)
+
+    def test_legacy_version_string_is_parsed(self):
+        self.fake_java('java version "1.8.0_402"')
+        result = self.run_script("--app-name", "shop", "--base-package", "com.acme.shop", "--run")
+        self.assertIn("JDK in use is 8", result.stdout)
 
 
 if __name__ == "__main__":

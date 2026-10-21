@@ -22,7 +22,7 @@ Install: `go install github.com/sivaprasadreddy/progen@latest`, or download a bi
 ## Safety rules
 
 - **Progen deletes `./<AppName>/` before it generates.** Never run it where that directory exists. The helper script refuses to run in that case.
-- **Run progen with JDK 25 on `PATH`.** On JDK 27 the formatting step always fails with `NoSuchFieldError ... JCCompilationUnit`: Spotless 3.10.4 (progen pins 3.10.0) fixes its unused-imports step, but palantir-java-format fails on JDK 27 in every version up to 2.102.0 (checked 2026-10-21). The project then doesn't compile, because the step that failed is the one that removes an unused `AntPathRequestMatcher` import (Spring Security 7 removed the class) from `config/WebSecurityConfig.java`. If you're stuck on JDK 27: delete that import and build with `-Dspotless.check.skip=true`. On JDK 25 progen's output passes `./mvnw verify` as generated (10 tests).
+- **Run progen with JDK 25 on `PATH`.** On JDK 27 the formatting step always fails with `NoSuchFieldError ... JCCompilationUnit`: Spotless 3.10.4 (progen pins 3.10.0) fixes its unused-imports step, but palantir-java-format fails on JDK 27 in every version up to 2.102.0 (checked 2026-10-21). The project then doesn't compile, because the step that failed is the one that removes an unused `AntPathRequestMatcher` import (Spring Security 7 removed the class) from `config/WebSecurityConfig.java`. The helper script stops with exit code 6 on a JDK newer than 25. If you're stuck on JDK 27: pass `--ignore-jdk-check`, delete that import and build with `-Dspotless.check.skip=true`. On JDK 25 progen's output passes `./mvnw verify` as generated (10 tests).
 - Progen does not validate most values. An invalid value becomes the default, with only a WARNING. Use the helper script. It rejects invalid values.
 - Progen runs `spotless:apply` (Maven) or `spotlessApply` (Gradle) at the end. This needs Java on `PATH` and network access on the first run. If only that step fails, progen prints "failed to format project code" and exits with 1, but the files exist; the script reports this as a warning. Any other progen failure stops the script with exit code 4. 
 
@@ -59,7 +59,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
 
 - Without `--run`, the script only writes and prints `.progen.json`. Show it to the user before you generate.
 - The project goes to `<out-dir>/<app-name>/`.
-- Exit codes: 0 = success (warnings may print, for example a failed formatting step), 1 = invalid input, 2 = target directory exists, 3 = progen not installed, 4 = progen failed or the project may be incomplete, 5 = generated but the Java version could not be set.
+- Exit codes: 0 = success (warnings may print, for example a failed formatting step), 1 = invalid input, 2 = target directory exists, 3 = progen not installed, 4 = progen failed or the project may be incomplete, 5 = generated but the Java version could not be set, 6 = the JDK in use (`JAVA_HOME`, else `java` on `PATH`) is newer than 25.
 
 ## Step 3: Add the architecture layer
 
