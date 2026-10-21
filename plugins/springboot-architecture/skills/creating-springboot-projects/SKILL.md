@@ -71,7 +71,7 @@ Baseline dependencies for most projects:
 Optional dependencies based on architecture or features:
 
 - Spring Modulith for modular monolith or tomato designs
-- ArchUnit for stronger architecture enforcement
+- Taikai architecture rules (`assets/architecture-rules-test.java`) for every project; progen projects already have most of them
 - Additional Spring Boot 4 features only when the use case needs them
 
 Read `references/spring-boot-4-features.md` before selecting:
@@ -124,6 +124,7 @@ Boot 4 and modularity templates:
 - `assets/resttestclient-test.java`
 - `assets/package-info-jspecify.java`
 - `assets/modularity-test.java`
+- `assets/architecture-rules-test.java`: Taikai rules that fail the build (naming, injection, self-invoked proxied methods, controllers using repositories, `@Disabled` tests). Adjust per style as its header says
 - `assets/resilience-service.java`
 - `assets/pom-additions.xml`
 - `assets/testcontainers-test.java`

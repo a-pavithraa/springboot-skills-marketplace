@@ -72,6 +72,7 @@ Run only the passes that match the request. For a full review, use this order.
 - Identify the architecture style in use.
 - Verify package structure is consistent with that style.
 - Flag boundary leaks such as controller-to-repository shortcuts or infrastructure types in domain code.
+- Check for architecture tests (Taikai or ArchUnit; Spring Modulith's `ApplicationModules.verify()`). If they exist, run them and cite failures as evidence. If not, recommend `../creating-springboot-projects/assets/architecture-rules-test.java`: reviews catch boundary leaks once, a failing build catches them every time.
 
 #### Pass D: Data access
 
@@ -106,7 +107,7 @@ Use these as review prompts, not as a substitute for code evidence.
 - `TestRestTemplate` usage instead of `RestTestClient`
 - manual `HttpServiceProxyFactory` boilerplate instead of `@ImportHttpServices`
 - custom API versioning instead of native `spring.mvc.apiversion.*`
-- `@ConcurrencyLimit` or native `@Retryable` without `@EnableResilientMethods`
+- `@ConcurrencyLimit` or native `@Retryable` without `@EnableResilientMethods`, on a class that implements an interface without `proxyTargetClass = true`, or called from inside the same class (the proxy is skipped)
 
 ### Null-safety
 

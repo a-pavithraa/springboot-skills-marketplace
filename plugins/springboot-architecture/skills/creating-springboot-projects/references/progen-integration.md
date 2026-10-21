@@ -93,6 +93,8 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
 - No `@Autowired` fields. Use constructor injection.
 - No generic `throws Exception` on methods.
 
+Add the rules marked `[beyond progen]` in `assets/architecture-rules-test.java` to this file: no self-invocation of proxied methods (with Framework 7's native `@Retryable` added), no `@Transactional` in controllers, no controller use of Spring Data repositories, no `System.out`, no import cycles, no `@Disabled` tests, and the entity rules.
+
 Changes needed for this skill's patterns:
 
 ```java

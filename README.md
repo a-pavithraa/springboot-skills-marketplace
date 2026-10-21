@@ -91,7 +91,7 @@ using $code-reviewer and ~/.codex/skills/code-reviewer/references/jpa-performanc
 
 Asks a few questions about your project, then builds the right architecture from the start.
 
-What you get: assessment-driven scaffolding, base project generation with [progen](https://github.com/sivaprasadreddy/progen) (when installed) or Spring Initializr, and templates for Value Objects, Rich Entities, CQRS patterns, converters—whatever your chosen architecture needs.
+What you get: assessment-driven scaffolding, base project generation with [progen](https://github.com/sivaprasadreddy/progen) (when installed) or Spring Initializr, and templates for Value Objects, Rich Entities, CQRS patterns, converters—whatever your chosen architecture needs. Architecture rules come as a [Taikai](https://github.com/enofex/taikai) test that fails the build when code breaks them: self-invoked `@Transactional`/`@Retryable` methods, controllers using repositories, field injection, `@Disabled` tests. Each rule was verified on Boot 4.1.1 against a planted violation.
 
 **Quick assessment covers:**
 - Domain complexity (CRUD vs. business rules)
@@ -149,7 +149,7 @@ Trials on Sonnet showed that general testing advice (slice vs `@SpringBootTest`,
 ## Templates & Assets
 
 **Architecture templates** (`creating-springboot-projects/assets/`)
-Value Objects, Rich Entities, CQRS services, converters, REST controllers, Flyway migrations, Testcontainers, ProblemDetail handlers.
+Value Objects, Rich Entities, CQRS services, converters, REST controllers, Flyway migrations, Testcontainers, ProblemDetail handlers, Taikai architecture rules.
 
 **Test templates** (`writing-springboot-tests/assets/`)
 Service unit test, `@WebMvcTest` slice with `MockMvcTester`, `@DataJpaTest` with Testcontainers, `RestTestClient` end-to-end test with WireMock, HTTP client failure modes with WireMock, Kafka listener and event publication tests, shared `TestcontainersConfiguration`, PIT plugin config.

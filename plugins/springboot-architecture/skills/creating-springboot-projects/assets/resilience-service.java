@@ -94,7 +94,10 @@ public class {{NAME}}Service {
 // import org.springframework.resilience.annotation.EnableResilientMethods;
 //
 // @SpringBootApplication
-// @EnableResilientMethods  // Required for @Retryable and @ConcurrencyLimit
+// @EnableResilientMethods  // Required for @Retryable and @ConcurrencyLimit.
+//                           // If an annotated class implements an interface, use proxyTargetClass = true:
+//                           // the default JDK proxy never retries there (Framework 7.0.9). Calls from inside
+//                           // the same class skip the proxy too; architecture-rules-test.java checks for them.
 // public class {{NAME}}Application {
 // }
 
