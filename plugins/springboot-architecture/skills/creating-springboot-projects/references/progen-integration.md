@@ -22,9 +22,9 @@ Install: `go install github.com/sivaprasadreddy/progen@latest`, or download a bi
 ## Safety rules
 
 - **Progen deletes `./<AppName>/` before it generates.** Never run it where that directory exists. The helper script refuses to run in that case.
+- **Run progen with JDK 25 on `PATH`.** On JDK 27 the formatting step always fails with `NoSuchFieldError ... JCCompilationUnit`: Spotless 3.10.4 (progen pins 3.10.0) fixes its unused-imports step, but palantir-java-format fails on JDK 27 in every version up to 2.102.0 (checked 2026-10-21). The project then doesn't compile, because the step that failed is the one that removes an unused `AntPathRequestMatcher` import (Spring Security 7 removed the class) from `config/WebSecurityConfig.java`. If you're stuck on JDK 27: delete that import and build with `-Dspotless.check.skip=true`. On JDK 25 progen's output passes `./mvnw verify` as generated (10 tests).
 - Progen does not validate most values. An invalid value becomes the default, with only a WARNING. Use the helper script. It rejects invalid values.
-- **The generated project doesn't compile.** `config/WebSecurityConfig.java` imports `AntPathRequestMatcher`, which Spring Security 7 removed. The import is unused: delete that line.
-- Progen runs `spotless:apply` (Maven) or `spotlessApply` (Gradle) at the end. This needs Java on `PATH` and network access on the first run. If only that step fails, progen prints "failed to format project code" and exits with 1, but the files exist; the script reports this as a warning. Any other progen failure stops the script with exit code 4. On JDK 27 the step always fails (palantir-java-format: `NoSuchFieldError ... JCCompilationUnit`), so run progen and Spotless with JDK 25.
+- Progen runs `spotless:apply` (Maven) or `spotlessApply` (Gradle) at the end. This needs Java on `PATH` and network access on the first run. If only that step fails, progen prints "failed to format project code" and exits with 1, but the files exist; the script reports this as a warning. Any other progen failure stops the script with exit code 4. 
 
 ## Step 1: Map the assessment to progen options
 

@@ -48,7 +48,7 @@ Use this matrix as the default decision aid. If the choice is not obvious, read 
 
 Pick the generator:
 
-- **Progen** (preferred when installed): check with `command -v progen`. Read `references/progen-integration.md` before you use it: progen v1.0.3 output needs one fix before it compiles. Progen deletes `./<app-name>/` if it exists, so always run it through `scripts/progen_config.py`, which validates values and refuses to overwrite.
+- **Progen** (preferred when installed): check with `command -v progen`. Read `references/progen-integration.md` before you use it, and run it with JDK 25: on JDK 27 its output doesn't compile. Progen deletes `./<app-name>/` if it exists, so always run it through `scripts/progen_config.py`, which validates values and refuses to overwrite.
 - **Spring Initializr**: use it when progen is not installed and the user does not want it, or the project does not fit progen (see the reference).
 
 For Spring Initializr, capture the baseline:
