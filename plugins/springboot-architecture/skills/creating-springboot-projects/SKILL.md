@@ -48,7 +48,7 @@ Use this matrix as the default decision aid. If the choice is not obvious, read 
 
 Pick the generator:
 
-- **Progen** (preferred when installed): check with `command -v progen`. Read `references/progen-integration.md` before you use it. Progen deletes `./<app-name>/` if it exists, so always run it through `scripts/progen_config.py`, which validates values and refuses to overwrite.
+- **Progen** (preferred when installed): check with `command -v progen`. Read `references/progen-integration.md` before you use it: progen v1.0.3 output needs one fix before it compiles. Progen deletes `./<app-name>/` if it exists, so always run it through `scripts/progen_config.py`, which validates values and refuses to overwrite.
 - **Spring Initializr**: use it when progen is not installed and the user does not want it, or the project does not fit progen (see the reference).
 
 For Spring Initializr, capture the baseline:
@@ -139,7 +139,11 @@ Read `references/architecture-guide.md` for package structure and apply the matc
 - `tomato`: add value objects and rich domain entities where they protect important invariants
 - `ddd-hexagonal`: separate application, domain, and infrastructure explicitly
 
-### Step 6: Hand off specialized concerns when needed
+### Step 6: Add the architecture test
+
+Every project gets `assets/architecture-rules-test.java` as `src/test/java/<package>/ArchitectureRulesTest.java`, with the Taikai test dependency from `assets/pom-additions.xml`. Adjust it for the chosen style as its header says. For a progen project, add only the `[beyond progen]` rules to the generated `ArchUnitTests.java`, after the three changes in `references/progen-integration.md`. Run it and confirm it passes before you hand the project over: these rules keep holding after the session ends.
+
+### Step 7: Hand off specialized concerns when needed
 
 - Use `springboot-migration` for upgrades of existing applications rather than new-project setup.
 - Use `writing-springboot-tests` for tests at the service's edges (HTTP clients, messaging, published events): it has verified Boot 4 templates and the traps that make such tests pass without proving anything.

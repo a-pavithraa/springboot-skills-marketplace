@@ -18,8 +18,9 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  * correct code. Two Taikai defaults needed fixing for Boot 4, marked below.
  *
  * progen projects already have ArchUnitTests.java with Taikai (names, package-private controllers, no
- * controller-to-controller calls, no @Autowired fields, logger convention, no generic throws). Add only the
- * rules marked [beyond progen] to that file instead of creating this one.
+ * controller-to-controller calls, no @Autowired fields, logger convention, no generic throws, no import cycles,
+ * no @Disabled tests). Add only the rules marked [beyond progen] to that file instead of creating this one, after
+ * the three changes in references/progen-integration.md (progen pins Taikai 1.66.0, which has no jpa() rules).
  *
  * Per architecture style:
  * - layered: delete the entity and repository package-private rules (other layers' packages use them)
@@ -53,7 +54,7 @@ class ArchitectureRulesTest {
                 .java(java -> java
                         .noUsageOfSystemOutOrErr()                                   // [beyond progen]
                         .methodsShouldNotDeclareGenericExceptions()
-                        .imports(imports -> imports.shouldHaveNoCycles()))           // [beyond progen]
+                        .imports(imports -> imports.shouldHaveNoCycles()))
                 .spring(spring -> spring
                         .noAutowiredFields()
                         .noSelfInvocationOfProxiedMethods(APPLIED_BY_PROXY)          // [beyond progen]
@@ -75,8 +76,8 @@ class ArchitectureRulesTest {
                 .logging(logging -> logging.loggersShouldFollowConventions("org.slf4j.Logger", "LOG",
                         List.of(JavaModifier.PRIVATE, JavaModifier.STATIC, JavaModifier.FINAL)))
                 .test(test -> test.junit(junit -> junit
-                        .classesShouldNotBeAnnotatedWithDisabled()                   // [beyond progen]
-                        .methodsShouldNotBeAnnotatedWithDisabled()))                 // [beyond progen]
+                        .classesShouldNotBeAnnotatedWithDisabled()
+                        .methodsShouldNotBeAnnotatedWithDisabled()))
                 // [beyond progen] Taikai's controllers().shouldNotDependOnRepositories() only sees classes annotated
                 // @Repository, so it misses Spring Data interfaces (extends JpaRepository), the usual shortcut.
                 .addRule(TaikaiRule.of(noClasses()

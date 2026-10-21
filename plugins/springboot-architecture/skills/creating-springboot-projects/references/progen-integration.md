@@ -4,7 +4,7 @@
 
 Progen has no architecture option. Its layout is always package-by-module with Spring Modulith (`config/`, `shared/`, `users/`).
 
-Tested with progen v1.0.3 on 2026-10-17. Progen pins Spring Boot 4.1.1 and Java 25.
+Tested with progen v1.0.3 on 2026-10-21 (REST, Maven, PostgreSQL). Progen pins Spring Boot 4.1.1, Java 25 and Taikai 1.66.0.
 
 ## When to use progen
 
@@ -23,7 +23,8 @@ Install: `go install github.com/sivaprasadreddy/progen@latest`, or download a bi
 
 - **Progen deletes `./<AppName>/` before it generates.** Never run it where that directory exists. The helper script refuses to run in that case.
 - Progen does not validate most values. An invalid value becomes the default, with only a WARNING. Use the helper script. It rejects invalid values.
-- Progen runs `spotless:apply` (Maven) or `spotlessApply` (Gradle) at the end. This needs Java on `PATH` and network access on the first run. If only that step fails, progen prints "failed to format project code" and exits with 1, but the files exist; the script reports this as a warning. Any other progen failure stops the script with exit code 4.
+- **The generated project doesn't compile.** `config/WebSecurityConfig.java` imports `AntPathRequestMatcher`, which Spring Security 7 removed. The import is unused: delete that line.
+- Progen runs `spotless:apply` (Maven) or `spotlessApply` (Gradle) at the end. This needs Java on `PATH` and network access on the first run. If only that step fails, progen prints "failed to format project code" and exits with 1, but the files exist; the script reports this as a warning. Any other progen failure stops the script with exit code 4. On JDK 27 the step always fails (palantir-java-format: `NoSuchFieldError ... JCCompilationUnit`), so run progen and Spotless with JDK 25.
 
 ## Step 1: Map the assessment to progen options
 
@@ -86,14 +87,19 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
 `src/test/java/<base>/ArchUnitTests.java` uses Taikai. Code that breaks these rules fails the build:
 
 - Controllers: names end with `Controller`, classes are package-private, no controller-to-controller calls.
-- `@Service` classes: names end with `Service`.
-- `@Repository` classes: names end with `Repository`.
+- `@Service` classes: names end with `Service`, no dependency on controllers.
+- `@Repository` classes: names end with `Repository`, no dependency on services.
 - `@Configuration` classes: names end with `Config`.
 - Loggers: `private static final Logger LOG`.
-- No `@Autowired` fields. Use constructor injection.
-- No generic `throws Exception` on methods.
+- No `@Autowired` fields, no generic `throws Exception`, no deprecated APIs, no import cycles.
+- No `@Disabled` tests; test classes are package-private.
+- Naming: no `I` prefix on interfaces, no `List`/`Set`/`Map` suffix on fields, constants in upper case.
 
-Add the rules marked `[beyond progen]` in `assets/architecture-rules-test.java` to this file: no self-invocation of proxied methods (with Framework 7's native `@Retryable` added), no `@Transactional` in controllers, no controller use of Spring Data repositories, no `System.out`, no import cycles, no `@Disabled` tests, and the entity rules.
+Add the rules marked `[beyond progen]` in `assets/architecture-rules-test.java` to this file: no self-invocation of proxied methods (with Framework 7's native `@Retryable` added), no `@Transactional` in controllers, no controller use of Spring Data repositories, no `System.out`, and the entity rules. Three changes are needed first (verified: `ArchUnitTests`, `ModularityTests` and `./mvnw verify` pass afterwards):
+
+1. Set `<taikai.version>2.1.0</taikai.version>` in the pom. Taikai 1.66.0 has no `jpa()` rules, so the entity rules don't compile.
+2. Taikai 2 takes a predicate in `classesShouldBePackagePrivate`. Replace `classesShouldBePackagePrivate(".*Test(s)")` with `classesShouldBePackagePrivate(JavaClass.Predicates.simpleNameEndingWith("Tests"))` (import `com.tngtech.archunit.core.domain.JavaClass`).
+3. Make `users/UserEntity.java` package-private (`class UserEntity`). Nothing outside `users` uses it; the entity rule fails on it otherwise.
 
 Changes needed for this skill's patterns:
 

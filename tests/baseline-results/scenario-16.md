@@ -27,8 +27,10 @@ The skill's gain is current-stack knowledge (version, starter names, Testcontain
 
 **The architecture test wasn't picked up.** The skill side wrote everything from scratch and never opened the asset list. If enforced architecture rules matter, SKILL.md's workflow needs a step that adds the Taikai test, not only a line in the template list.
 
-**Overall:** ✅ EFFECTIVE on version currency. One run per side.
+**Re-run after adding the step (Step 6 "Add the architecture test"):** a fresh skill-side session (`new-skill2`) added `ArchitectureRulesTest` from the template, adjusted its header for package-by-module, and kept every rule. `./mvnw verify` passed (18 tests), the template found no violations, and the session cost $0.71 / 3.8 min (Boot 4.1.1, Java 25 again).
+
+**Overall:** ✅ EFFECTIVE on version currency, and on architecture tests once the workflow names them. One run per side.
 
 ## Environment
 
-As Scenario 11. Trial material: `~/springboot-testing-trial/s16/` (`run-session.sh`, `score.sh`, sessions `new-base`, `new-skill`).
+As Scenario 11. Trial material: `~/springboot-testing-trial/s16/` (`run-session.sh`, `score.sh`, sessions `new-base`, `new-skill`, `new-skill2`).
