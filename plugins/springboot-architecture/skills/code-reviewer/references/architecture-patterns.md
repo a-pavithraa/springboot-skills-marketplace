@@ -76,7 +76,7 @@ Note: package-private is per Java package, not per Modulith module. A package-pr
 
 - External code references only the aggregate root.
 - Changes to child entities go through the root, so invariants (for example, order totals) stay correct.
-- Repositories exist only for aggregate roots (see the `spring-data-jpa` skill).
+- Repositories exist only for aggregate roots.
 
 Flag this:
 
@@ -117,7 +117,6 @@ Recommend CQRS only when read and write needs differ (reporting, denormalized vi
 - [ ] Query side returns DTO projections and uses `@Transactional(readOnly = true)`. It does not load aggregates to build views.
 - [ ] If the read model is a separate store, event handlers keep it in sync and the team accepts eventual consistency.
 
-Implementation details: `../../spring-data-jpa/references/cqrs-query-service.md`.
 
 ---
 

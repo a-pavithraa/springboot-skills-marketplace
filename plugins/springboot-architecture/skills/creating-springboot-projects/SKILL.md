@@ -140,8 +140,8 @@ Read `references/architecture-guide.md` for package structure and apply the matc
 
 ### Step 6: Hand off specialized concerns when needed
 
-- Use `spring-data-jpa` when the user needs deeper query, projection, repository, or relationship decisions.
 - Use `springboot-migration` for upgrades of existing applications rather than new-project setup.
+- Use `writing-springboot-tests` for tests at the service's edges (HTTP clients, messaging, published events): it has verified Boot 4 templates and the traps that make such tests pass without proving anything.
 
 ## Reference loading guide
 

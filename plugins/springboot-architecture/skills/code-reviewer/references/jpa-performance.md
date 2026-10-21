@@ -1,6 +1,6 @@
 # JPA Performance Guide
 
-Single source for Spring Data JPA performance on Boot 4 (Hibernate 7). The `code-reviewer` skill links here.
+Spring Data JPA performance on Boot 4 (Hibernate 7), plus the few Jakarta Persistence 3.2 / Hibernate 7 facts that differ from older guidance. General JPA advice that models already apply (fetch joins, projections, pagination, bulk updates) is kept short: in a trial, Sonnet fixed N+1, unbounded lists, a bad cascade and a save-per-row loop the same way with and without it (`tests/baseline-results/scenario-14.md`).
 
 ## Contents
 
@@ -166,3 +166,11 @@ Production:
 - [ ] Pool sized from measurement; leak detection on
 - [ ] Indexes for frequent filters and sorts
 - [ ] Query logging in development; query counts tested on hot paths
+
+## Version-specific facts (Jakarta Persistence 3.2, Hibernate 7, Boot 4.1)
+
+- **Nested DTO projections:** Jakarta Persistence 3.2 allows only top-level `NEW` constructor expressions in `SELECT`, and Spring Data's class-based projections don't nest. Select a flat record and assemble nested views in the service, or use Hibernate's non-portable extension knowingly.
+- **`@ManyToMany`** is first-class in Jakarta Persistence 3.2 with a `LAZY` default. Preferring an explicit join entity is a design choice (the link has attributes or lifecycle), not a spec rule.
+- **To-one defaults:** `@ManyToOne` and `@OneToOne` are still `EAGER` by default. Flag every one without `fetch = FetchType.LAZY`.
+- **Hypersistence Utils:** Boot 4.1 ships Hibernate 7.4. Hypersistence publishes `-hibernate-70`, `-71` and `-73` modules (no `-72` or `-74` as of October 2026). `-hibernate-73` is the closest fit; verify it against 7.4 before relying on it.
+

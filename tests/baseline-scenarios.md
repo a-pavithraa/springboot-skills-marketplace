@@ -563,6 +563,178 @@ Agent runs progen directly:
 
 ---
 
+## Scenario 10: Tests That Prove Intended Behaviour
+
+**Objective:** Validate that writing-springboot-tests produces tests that encode the requirement, catch planted faults, and use the right Spring Boot 4 level.
+
+### Test Prompt
+
+```
+Write tests for OrderService.place(). Orders above the available stock must be
+rejected, quantity must be at least 1, and the customer is charged unit price
+times quantity.
+```
+
+Run it in a project where `place()` has a planted bug: it accepts an order for exactly one more than the available stock (`available + 1 < quantity` instead of `available < quantity`).
+
+### Expected Baseline Behavior
+
+Agent writes tests that pass against the buggy code:
+- Reads the implementation and sets expected values from what it returns
+- Uses `@SpringBootTest` for a service with no framework behaviour
+- Asserts `isNotNull()` or only `verify(repository).save(any())`
+- Mocks the domain objects, or spies on the service under test
+- Never tests the stock boundary, so the planted bug survives
+- Reports "all tests pass"
+
+**Predicted rationalizations:**
+- "The tests match the current implementation"
+- "Using @SpringBootTest ensures everything is wired correctly"
+- "The test failed, so I adjusted the expected value"
+
+### Target Behavior (With Skill)
+
+- Writes the intended behaviour down before any test
+- Plain JUnit + Mockito, mocking only the inventory and payment boundaries
+- Has a boundary test for stock == quantity and stock + 1
+- The boundary test **fails** against the planted bug, and the agent reports it as a likely bug instead of changing the expectation
+- Breaks the code once per test and shows each failing
+- Exact assertions on total, status, and exception type and message; `verifyNoInteractions(payments)` on rejection
+
+### Pressure Variations
+
+1. "The test is failing, just make it pass"
+2. "Use @SpringBootTest, it's simpler"
+3. "Don't bother breaking the code, the tests are obviously right"
+
+### Success Criteria
+
+- [ ] At least one test fails against the planted bug, and the agent says why
+- [ ] No expected value is computed with the implementation's own formula
+- [ ] No `@SpringBootTest` for the service test
+- [ ] Sabotage results reported for each test
+- [ ] PIT on `OrderService`: no surviving conditional-boundary mutant on the stock check
+
+---
+
+## Scenario 11: The User's Three Concerns (Unwanted Tests, Wrong Level, Service Edges)
+
+**Objective:** Check the three problems writing-springboot-tests was written for: agents adding tests that catch nothing, using `@SpringBootTest` for plain rules, and skipping the integration tests a service needs at its edges.
+
+### Fixture
+
+A Spring Boot 4.1.1 orders service (Postgres, Kafka, an HTTP payment provider) with:
+- bait for unwanted tests: records, an enum, a view mapper without logic, Spring Data repositories
+- `DiscountPolicy`, a `@Component` with only rules
+- five bugs at the edges, each contradicting the class's Javadoc:
+  - A: `@Retryable` never retries (JDK proxy, `@EnableResilientMethods` without `proxyTargetClass`)
+  - B: no `ErrorHandlingDeserializer`, so one non-JSON message blocks the partition
+  - C: redelivered events are applied twice (no idempotency)
+  - D: any 200 from the payment provider counts as paid
+  - E: `OrderPlaced` is sent with `@EventListener`, so rolled-back orders are announced
+
+### Test Prompts (one fresh session each)
+
+```
+P1: Add tests for the orders domain and web code (com.example.orders.domain and com.example.orders.web).
+P2: Add tests for DiscountPolicy.
+P3: Add tests for the payment gateway, the restock listener and the order event publisher.
+```
+
+### Expected Baseline Behavior
+
+- P1: tests for records, mappers, getters, `contextLoads`, repository CRUD
+- P2: `@SpringBootTest` for a class that needs no Spring
+- P3: the clients and listeners mocked, so none of A–E is caught
+
+### Success Criteria
+
+- [ ] P1: no unwanted tests
+- [ ] P2: plain JUnit, no Spring context
+- [ ] P3: a test fails on each planted bug and passes once that bug alone is fixed; no test fails on correct code
+
+---
+
+## Scenario 12: Pressure on Concerns 1–2, and Edge Bugs the Skill Doesn't Name
+
+**Objective:** Follow-ups to Scenario 11, which may have been too easy (concerns 1–2) and too close to the skill's own reference (concern 3).
+
+### 12a: Coverage pressure in a project with bad house style
+
+Fixture: the Scenario 11 app with A–E fixed, plus existing tests that model bad style: an `AbstractIntegrationTest` base (`@SpringBootTest` + containers), a "unit" test of `CatalogInventory` through the full context with `@MockitoBean`, a status-only controller test, and `contextLoads`. Planted bug J: `DiscountPolicy` uses `quantity > 50`; its Javadoc says "50 or more".
+
+```
+Increase test coverage of com.example.orders to at least 80%.
+```
+
+### 12b: Edge bugs not listed in references/distributed-systems.md
+
+Fixture: the same app with A–E fixed, plus four bugs, each against a contract stated in the Javadoc:
+- F: the charge sends `amount` as 37.50; the provider's documented API wants integer cents
+- G: a 409 ("already captured under this Idempotency-Key") is treated as a decline
+- H: no read timeout configured; the Javadoc promises a 2-second limit
+- I: the `OrderPlaced` JSON has `amount`; the format agreed with other teams says `total`
+
+```
+Add tests for the payment gateway, the restock listener and the order event publisher.
+```
+
+### Success Criteria
+
+- [ ] 12a: no new test uses the full context for code that needs none; no unwanted tests; bug J caught
+- [ ] 12b: each of F–I caught (red on the fixture, green with that fix alone)
+
+---
+
+## Scenario 13: Reviewing Tests (code-reviewer, Pass G)
+
+**Objective:** Check whether code-reviewer's test review finds known defects in existing suites that a plain review misses, and whether it proves its findings.
+
+### Setup
+
+Two suites from earlier trials, each placed on the **correct** code (all planted bugs fixed), with defects measured beforehand: the suite run 3 times on correct code, then once with each planted bug re-introduced alone.
+- Suite 1 (Scenario 11 baseline, edge tests): 3 publisher tests fail on correct code; lets through a non-JSON message blocking the partition (B) and duplicate delivery (C)
+- Suite 2 (Scenario 12b, first skill version): one gateway test fails on correct code (passes the pre-converted `3750`); lets through the cents bug (F) and a missing production timeout (H)
+
+### Test Prompt
+
+```
+Review the tests in this project: would they catch real bugs, and is anything wrong with them?
+Report your findings, and leave the code as you found it.
+```
+
+### Success Criteria
+
+- [ ] Each known defect reported
+- [ ] Each finding proven by running it, or marked unverified
+- [ ] No false claims; code left unchanged
+
+---
+
+## Scenario 14: Persistence Fixes (spring-data-jpa)
+
+**Objective:** Check whether spring-data-jpa changes how an agent fixes the persistence problems it teaches. (The skill was retired after this scenario.)
+
+### Fixture
+
+A Spring Boot 4.1.1 shop (Postgres, Flyway) with an API test defining the HTTP contract, and planted problems:
+- P1: N+1 in the order list (lazy customer, two line queries per order, lazy products)
+- P2: unbounded order list (Javadoc: thousands of orders, the screen shows 20)
+- P3: `@ManyToOne` left EAGER
+- P4: `cascade = ALL` from order line to product (removing a line deletes the product)
+- P5: reprice loop, `findAll` + `save` per product (Javadoc: ~50,000 products)
+- P6: a repository for the internal `OrderLine` entity
+
+Scored by a hidden test: 200 orders, Hibernate `Statistics` statement counts, and correctness checks.
+
+### Test Prompt
+
+```
+Optimize the persistence code in this project.
+```
+
+---
+
 ## Running the Tests
 
 ### Phase 1: Baseline (RED)

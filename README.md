@@ -66,7 +66,7 @@ Claude: [Automatically loads creating-springboot-projects skill]
 
 You can also explicitly request a skill:
 ```
-You: "Use the spring-data-jpa skill to optimize this repository"
+You: "Use the code-reviewer skill to review this module"
 ```
 
 ### Codex
@@ -75,14 +75,14 @@ Skills must be manually invoked using the `$skill-name` syntax:
 
 ```
 using $creating-springboot-projects create a new order service
-using $spring-data-jpa optimize this repository code
 using $springboot-migration upgrade to Spring Boot 4
 using $code-reviewer review this service implementation
+using $writing-springboot-tests add tests for the payment client
 ```
 
 For detailed reference chapters, include the path:
 ```
-using $spring-data-jpa and ~/.codex/skills/spring-data-jpa/references/dto-projections.md implement efficient queries
+using $code-reviewer and ~/.codex/skills/code-reviewer/references/jpa-performance.md review the persistence code
 ```
 
 ## Available Skills
@@ -99,12 +99,6 @@ What you get: assessment-driven scaffolding, base project generation with [proge
 - Type safety requirements
 - Bounded contexts
 
-### spring-data-jpa
-
-Helps you write JPA code that doesn't slow down six months later.
-
-Covers query patterns, DTO projections, custom repositories, CQRS query services, and the performance anti-patterns that bite everyone eventually (repositories for every entity, method-name query hell, blind `save()` calls).
-
 ### springboot-migration
 
 Step-by-step migration to Spring Boot 4 + Java 25 (with Spring Modulith 2 and Testcontainers 2 support).
@@ -115,9 +109,19 @@ Scans your project first, then walks through dependencies → code → config in
 
 Sanity-checks your Boot 4 / Java 25 project for architecture fit and performance gotchas.
 
+> The former `spring-data-jpa` skill was retired in favour of `code-reviewer/references/jpa-performance.md`: in a trial, Sonnet fixed every planted JPA problem the same way with and without it (`tests/baseline-results/scenario-14.md`).
+
 Covers all five architecture patterns (when to use, when to avoid), plus checklists for events, CQRS, Modulith boundaries. Catches N+1 queries, missing caches, virtual thread pinning on Java 21-23, misuse of preview APIs, and other performance traps.
 
 Use this when you want a second opinion or need to decide if it's time to evolve your architecture.
+
+It also reviews tests: which bugs a suite would let through, which tests fail on correct code, and which contract clauses have no test. It proves each finding by running it, for example by breaking the guarded line and showing the test stays green. In trials it found the same defects as a plain review, with more of them proven (`tests/baseline-results/scenario-13.md`).
+
+### writing-springboot-tests
+
+For tests where the framework decides whether a test proves anything: calls between services, retries, timeouts, transactions, and messaging. It provides Spring Boot 4.1 templates that were run against Postgres, Kafka and WireMock: outbound HTTP clients (4xx, 5xx, timeouts, retries, unusable answers), Kafka listeners (redelivery, poison messages, the dead-letter topic), and events published only after commit. It also lists the framework traps that make such tests pass silently, and the rule to take cases from the documented contract.
+
+Trials on Sonnet showed that general testing advice (slice vs `@SpringBootTest`, no getter tests) made no difference, because the model already follows it. So this skill is deliberately small. See `tests/baseline-results/scenario-11.md` to `scenario-13.md`.
 
 ## Usage Examples
 
@@ -128,10 +132,16 @@ Use this when you want a second opinion or need to decide if it's time to evolve
 → Assesses complexity. Recommends Tomato architecture. Generates value objects, rich entities, CQRS services.
 
 **"My product search is slow."**
-→ Analyzes your queries, spots N+1 issues, refactors to DTO projections.
+→ `code-reviewer` checks the persistence code for N+1 queries, unbounded reads and projection gaps, including the Hibernate 7 specifics in `jpa-performance.md`.
 
 **"We need to migrate from Boot 3 to Boot 4."**
 → Runs migration scanner, plans phased upgrade (dependencies → code → config), applies and verifies each step.
+
+**"Add tests for the payment client and the restock listener."**
+→ Takes the cases from the provider's documented contract, tests against WireMock and a real Kafka broker, shows each test failing once, and reports any test that fails on the current code as a likely bug.
+
+**"Review the tests in this module."**
+→ Says which bugs the suite would let through and which tests fail on correct code, and proves each finding by running it.
 
 **"Can you review our Boot 4 service for issues?"**
 → Checks architecture pattern fit, hunts for performance problems (N+1, missing caches, virtual thread pinning on Java 21-23, entity leaks).
@@ -141,14 +151,11 @@ Use this when you want a second opinion or need to decide if it's time to evolve
 **Architecture templates** (`creating-springboot-projects/assets/`)
 Value Objects, Rich Entities, CQRS services, converters, REST controllers, Flyway migrations, Testcontainers, ProblemDetail handlers.
 
-**JPA templates** (`spring-data-jpa/assets/`)
-Query repositories, DTO projections, custom repos, CQRS query services, relationship patterns.
+**Test templates** (`writing-springboot-tests/assets/`)
+Service unit test, `@WebMvcTest` slice with `MockMvcTester`, `@DataJpaTest` with Testcontainers, `RestTestClient` end-to-end test with WireMock, HTTP client failure modes with WireMock, Kafka listener and event publication tests, shared `TestcontainersConfiguration`, PIT plugin config.
 
 **Reviewer references** (`code-reviewer/references/`)
-Architecture patterns, decision matrices, performance checklists.
-
-**Reference guides** (`spring-data-jpa/references/`)
-Query patterns, projections, custom repositories, relationship handling, performance tuning.
+Architecture patterns, decision matrices, performance checklists, JPA/Hibernate 7 performance, and test review. The testing references (test smells, service-edge traps, the Boot 4 test toolkit, proving tests) are under `testing/`.
 
 ## Testing Skills
 
@@ -162,7 +169,7 @@ cat QUICKSTART.md
 ```
 
 **Full test suite:**
-- 9 baseline scenarios defined for each skill's core behaviors
+- 14 baseline scenarios defined for each skill's core behaviors
 - RED-GREEN-REFACTOR methodology
 - Rationalization tracking
 - See `tests/README.md` for complete testing guide
@@ -172,7 +179,7 @@ cat QUICKSTART.md
 python3 -m unittest discover -s tests/scripts -v
 ```
 
-> **Current coverage:** the harness is set up for all 9 scenarios, but only Scenario 7 (`code-reviewer` review rigor) has actually been executed and recorded in `tests/baseline-results/scenario-7.md`. Scenarios 1–6, 8, and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
+> **Current coverage:** the harness is set up for all 14 scenarios, but only Scenario 7 (`code-reviewer` review rigor) and Scenarios 10–14 (scored with PIT, planted bugs and query counts) have been executed and recorded in `tests/baseline-results/`. Scenarios 1–6, 8 and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
 
 Based on [terraform-skill testing approach](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md).
 

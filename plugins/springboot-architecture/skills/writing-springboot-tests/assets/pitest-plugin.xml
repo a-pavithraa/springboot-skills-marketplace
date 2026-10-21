@@ -1,0 +1,34 @@
+<!--
+  PIT mutation testing. Checks that the tests catch small deliberate bugs, which coverage can't tell you.
+  Versions checked on Maven Central, October 2026. Run on the classes you changed, not the whole project:
+
+    ./mvnw test-compile org.pitest:pitest-maven:mutationCoverage \
+      -DtargetClasses=com.example.orders.domain.OrderService \
+      -DtargetTests='com.example.orders.domain.*Test'
+
+  Report: target/pit-reports/index.html
+-->
+<plugin>
+    <groupId>org.pitest</groupId>
+    <artifactId>pitest-maven</artifactId>
+    <version>1.30.1</version>
+    <dependencies>
+        <dependency>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-junit5-plugin</artifactId>
+            <version>1.2.3</version>
+        </dependency>
+    </dependencies>
+    <configuration>
+        <!-- Unit and slice tests only by default: each test runs once per mutant, so container tests are slow -->
+        <excludedGroups>
+            <excludedGroup>docker</excludedGroup>
+        </excludedGroups>
+        <threads>4</threads>
+        <timestampedReports>false</timestampedReports>
+        <outputFormats>
+            <outputFormat>HTML</outputFormat>
+            <outputFormat>XML</outputFormat>
+        </outputFormats>
+    </configuration>
+</plugin>

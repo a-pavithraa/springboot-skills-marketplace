@@ -42,8 +42,8 @@ Install: `go install github.com/sivaprasadreddy/progen@latest`, or download a bi
 
 Rules:
 
-- Tomato and DDD+Hexagonal need `--persistence jpa`. The templates in `assets/` and the `spring-data-jpa` skill assume JPA.
-- With `jdbc` or `jooq`, do not apply JPA templates (`assets/rich-entity.java`, `assets/repository.java`, `spring-data-jpa` assets).
+- Tomato and DDD+Hexagonal need `--persistence jpa`. The templates in `assets/` assume JPA.
+- With `jdbc` or `jooq`, do not apply JPA templates (`assets/rich-entity.java`, `assets/repository.java`).
 - `htmx` needs `--app-type web`.
 - Read `java-version-policy.md` before you pass `--java` above 25.
 
@@ -100,7 +100,7 @@ Changes needed for this skill's patterns:
 .services(services -> services
         .shouldNotDependOnControllers()
         .namesShouldMatch(".+(Service|Handler)"))
-// spring-data-jpa custom repositories: allow *RepositoryImpl
+// Spring Data custom repository fragments: allow *RepositoryImpl
 .repositories(repositories ->
         repositories.shouldNotDependOnServices().namesShouldMatch(".+Repository(Impl)?"))
 ```

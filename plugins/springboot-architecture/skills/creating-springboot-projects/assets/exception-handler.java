@@ -35,11 +35,11 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             .toList();
 
         ProblemDetail problemDetail = ProblemDetail
-            .forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, "Validation failed");
+            .forStatusAndDetail(HttpStatus.BAD_REQUEST, "Validation failed");
         problemDetail.setTitle("Validation Error");
         problemDetail.setProperty("errors", errors);
 
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problemDetail);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
 
     @ExceptionHandler(DomainException.class)

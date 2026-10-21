@@ -99,7 +99,7 @@ class {{NAME}}IntegrationTest {
 //
 //         CreateProductResponse response = client.post()
 //                 .uri("/api/products")
-//                 .bodyValue(request)
+//                 .body(request)
 //                 .exchange()
 //                 .expectStatus().isCreated()
 //                 .expectBody(CreateProductResponse.class)

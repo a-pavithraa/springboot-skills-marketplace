@@ -8,23 +8,26 @@ Validate that skills effectively change agent behavior through systematic baseli
 
 ## Test Structure
 
-> **Current coverage (2026-05-24):** the framework is defined for all 9 scenarios, but only **Scenario 7** has actually been executed end-to-end and recorded under `baseline-results/`. Scenarios 1–6, 8, and 9 are documented in `baseline-scenarios.md` (1–6 and 8 also have rationalization tables in `rationalizations.md`), but no recorded baseline/target runs yet. The "Success Metrics" section below describes the target state, not the current state. Treat this as a test harness with one filled-in scenario, not a completed test suite.
+> **Current coverage (2026-10-21):** the framework is defined for all 14 scenarios, but only **Scenarios 7 and 10–14** have actually been executed end-to-end and recorded under `baseline-results/`. Scenarios 1–6, 8 and 9 are documented in `baseline-scenarios.md` (1–6 and 8 also have rationalization tables in `rationalizations.md`), but no recorded baseline/target runs yet. The "Success Metrics" section below describes the target state, not the current state. Treat this as a test harness with six filled-in scenarios, not a completed test suite.
 
 ### 1. Baseline Scenarios (`baseline-scenarios.md`)
 
-9 comprehensive scenarios testing each skill's core behaviors:
+14 scenarios testing each skill's core behaviors:
 
 | Scenario | Skill | Focus Area |
 |----------|-------|-----------|
 | 1 | creating-springboot-projects | Architecture assessment before implementation |
-| 2 | spring-data-jpa | Repository anti-patterns (aggregate roots) |
-| 3 | spring-data-jpa | N+1 query detection and prevention |
+| 2 | spring-data-jpa (retired) | Repository anti-patterns (aggregate roots) |
+| 3 | spring-data-jpa (retired) | N+1 query detection and prevention |
 | 4 | creating-springboot-projects | Version enforcement (Java 25 + Spring Boot 4) |
 | 5 | springboot-migration | Migration phase discipline (scan first) |
-| 6 | spring-data-jpa | CQRS vs simple repository decision |
+| 6 | spring-data-jpa (retired) | CQRS vs simple repository decision |
 | 7 | code-reviewer | Multi-dimensional review rigor |
-| 8 | spring-data-jpa | DTO projection vs entity fetching |
+| 8 | spring-data-jpa (retired) | DTO projection vs entity fetching |
 | 9 | creating-springboot-projects | Safe project generation with progen |
+| 10–12 | writing-springboot-tests | Tests that prove behaviour; the user's three concerns; unlisted edge bugs |
+| 13 | code-reviewer | Reviewing tests |
+| 14 | spring-data-jpa (retired after this) | Persistence fixes, scored with Hibernate statement counts |
 
 ### 2. Rationalization Tracking (`rationalizations.md`)
 

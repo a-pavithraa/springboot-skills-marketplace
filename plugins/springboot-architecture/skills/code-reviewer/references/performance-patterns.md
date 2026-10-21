@@ -12,7 +12,7 @@
 
 ## Database access
 
-Full guidance and fixes: `../../spring-data-jpa/references/performance-guide.md`. For repository and query design, use the `spring-data-jpa` skill.
+Full guidance and fixes: `jpa-performance.md`.
 
 | Flag | Impact | Fix |
 |------|--------|-----|

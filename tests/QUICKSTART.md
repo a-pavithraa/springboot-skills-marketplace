@@ -107,10 +107,10 @@ Run each scenario WITH skill:
 # Scenario 1 - WITH creating-springboot-projects
 # [Start fresh session, load skill, paste prompt, check criteria]
 
-# Scenario 2 - WITH spring-data-jpa
+# Scenario 2 - spring-data-jpa was retired (see baseline-results/scenario-14.md)
 # [Start fresh session, load skill, paste prompt, check criteria]
 
-# Scenario 3 - WITH spring-data-jpa
+# Scenario 3 - spring-data-jpa was retired (see baseline-results/scenario-14.md)
 # [Start fresh session, load skill, paste prompt, check criteria]
 
 # ... continue through Scenario 8

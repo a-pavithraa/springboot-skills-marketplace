@@ -133,4 +133,3 @@ When planning or reporting the migration, return:
 
 - Creating a new Spring Boot project from scratch
 - Broad architecture advice without an actual migration task
-- JPA-specific implementation work that belongs in `spring-data-jpa`

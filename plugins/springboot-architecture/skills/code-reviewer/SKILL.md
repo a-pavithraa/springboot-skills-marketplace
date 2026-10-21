@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: Use when reviewing Spring Boot 4 / Java 17+ code with concrete files or diffs — pull requests, modules, or pasted Java/Spring sources — for migration risks, architecture boundary leaks, JSpecify null-safety gaps, security flaws, performance regressions, or Spring Data pitfalls. Not for Kotlin-only code, non-Spring frameworks, or generic review advice without code context.
+description: Use when reviewing Spring Boot 4 / Java 17+ code with concrete files or diffs — pull requests, modules, or pasted Java/Spring sources — for migration risks, architecture boundary leaks, JSpecify null-safety gaps, security flaws, performance regressions, Spring Data pitfalls, or tests that pass without catching bugs (test review: which bugs the suite would let through, tests that fail on correct code, each finding proven by running it). Not for Kotlin-only code, non-Spring frameworks, or generic review advice without code context.
 ---
 
 # Spring Boot 4 Reviewer (Java 17+)
@@ -40,14 +40,15 @@ Load references just in time:
 | Java 26/27 targets, preview APIs | `../creating-springboot-projects/references/java-version-policy.md` |
 | Security review | `references/security-checklist.md` |
 | Performance review | `references/performance-patterns.md` |
+| JPA and Hibernate 7 specifics | `references/jpa-performance.md` |
 | Architecture boundaries and packaging | `references/architecture-patterns.md` |
 | Domain model shape | `references/domain-modeling.md` |
 | Value-object-heavy designs | `references/value-objects-patterns.md` |
 | Null-safety checks | `references/jspecify-null-safety.md` |
+| Tests: what they can catch, what they let through | `references/test-review.md` |
 
 Escalate to another skill when needed:
 
-- Use `spring-data-jpa` for deep repository, query, and relationship work.
 - Use `springboot-migration` for phased upgrade planning or upgrade execution.
 
 ### Step 3: Run the review passes
@@ -88,6 +89,10 @@ Run only the passes that match the request. For a full review, use this order.
 - Check caching strategy, unbounded reads, async usage, and remote call behavior.
 - Evaluate virtual-thread usage only when the code and workload justify it.
 - Check timeouts, retries, and connection-pool assumptions.
+
+#### Pass G: Tests
+
+Follow `references/test-review.md`: map each class's contract to its tests, check that each test runs the real behaviour it claims to cover, and prove every finding by running it (break the line and show the test stays green, or show the test failing on correct code).
 
 ## Quick triggers for findings
 
@@ -173,6 +178,14 @@ If there are no findings, say so explicitly and call out any remaining blind spo
 1. Read `references/architecture-patterns.md`.
 2. Add `references/domain-modeling.md` or `references/value-objects-patterns.md` if the code suggests a rich-domain approach.
 3. Report boundary mismatches and coupling problems tied to the current architecture style.
+
+### Test review
+
+1. Read `references/test-review.md`.
+2. Run the suite first, so you know what is red before you change anything.
+3. Map each class's contract to its tests, then check every test against the "runs the real thing" table.
+4. Prove each finding by running it. Restore every file you break with `git checkout`, and leave the code as you found it.
+5. Report with the test-review format: bugs the suite would let through first.
 
 ### Migration review
 
