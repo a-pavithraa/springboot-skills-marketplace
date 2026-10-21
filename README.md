@@ -169,7 +169,7 @@ cat QUICKSTART.md
 ```
 
 **Full test suite:**
-- 14 baseline scenarios defined for each skill's core behaviors
+- 16 baseline scenarios defined for each skill's core behaviors
 - RED-GREEN-REFACTOR methodology
 - Rationalization tracking
 - See `tests/README.md` for complete testing guide
@@ -179,7 +179,7 @@ cat QUICKSTART.md
 python3 -m unittest discover -s tests/scripts -v
 ```
 
-> **Current coverage:** the harness is set up for all 14 scenarios, but only Scenario 7 (`code-reviewer` review rigor) and Scenarios 10–14 (scored with PIT, planted bugs and query counts) have been executed and recorded in `tests/baseline-results/`. Scenarios 1–6, 8 and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
+> **Current coverage:** the harness is set up for all 16 scenarios, but only Scenario 7 (`code-reviewer` review rigor) and Scenarios 10–16 (scored with PIT, planted bugs and query counts) have been executed and recorded in `tests/baseline-results/`. Scenarios 1–6, 8 and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
 
 Based on [terraform-skill testing approach](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md).
 

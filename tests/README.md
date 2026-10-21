@@ -8,11 +8,11 @@ Validate that skills effectively change agent behavior through systematic baseli
 
 ## Test Structure
 
-> **Current coverage (2026-10-21):** the framework is defined for all 14 scenarios, but only **Scenarios 7 and 10–14** have actually been executed end-to-end and recorded under `baseline-results/`. Scenarios 1–6, 8 and 9 are documented in `baseline-scenarios.md` (1–6 and 8 also have rationalization tables in `rationalizations.md`), but no recorded baseline/target runs yet. The "Success Metrics" section below describes the target state, not the current state. Treat this as a test harness with six filled-in scenarios, not a completed test suite.
+> **Current coverage (2026-10-21):** the framework is defined for all 16 scenarios, but only **Scenarios 7 and 10–16** have actually been executed end-to-end and recorded under `baseline-results/`. Scenarios 1–6, 8 and 9 are documented in `baseline-scenarios.md` (1–6 and 8 also have rationalization tables in `rationalizations.md`), but no recorded baseline/target runs yet. The "Success Metrics" section below describes the target state, not the current state. Treat this as a test harness with eight filled-in scenarios, not a completed test suite.
 
 ### 1. Baseline Scenarios (`baseline-scenarios.md`)
 
-14 scenarios testing each skill's core behaviors:
+16 scenarios testing each skill's core behaviors:
 
 | Scenario | Skill | Focus Area |
 |----------|-------|-----------|
@@ -28,6 +28,8 @@ Validate that skills effectively change agent behavior through systematic baseli
 | 10–12 | writing-springboot-tests | Tests that prove behaviour; the user's three concerns; unlisted edge bugs |
 | 13 | code-reviewer | Reviewing tests |
 | 14 | spring-data-jpa (retired after this) | Persistence fixes, scored with Hibernate statement counts |
+| 15 | springboot-migration | Boot 3.5 → 4 with silent behaviour hazards |
+| 16 | creating-springboot-projects | New project without progen |
 
 ### 2. Rationalization Tracking (`rationalizations.md`)
 

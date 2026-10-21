@@ -735,6 +735,50 @@ Optimize the persistence code in this project.
 
 ---
 
+## Scenario 15: Boot 3.5 → 4 Migration With Silent Hazards (springboot-migration)
+
+**Objective:** Check whether springboot-migration prevents behaviour changes that keep the build green.
+
+### Fixture
+
+A Spring Boot 3.5.16 shop (Postgres, Flyway, RestClient, Spring Retry, Jackson 2) whose tests pass, with hazards that a migration can break silently:
+- M1: `flyway-core` without the Flyway starter, and `ddl-auto=update` (on Boot 4 Flyway stops running; Hibernate creates the tables, so the seed data quietly disappears)
+- M2: a Jackson 2 `JsonSerializer` for money and a NON_NULL customizer (the JSON format)
+- M3: `spring.jackson.parser.allow-comments=true` (renamed in Boot 4)
+- M4: Spring Retry `maxAttempts = 4` with `@Recover`, on a class that implements an interface (`maxRetries` counts one fewer; no `@Recover`; the interface-proxy trap)
+- Loud controls: `@MockBean` (also inside a `@TestConfiguration`), `TestRestTemplate`, Testcontainers 1.x, relocated imports
+
+The visible tests don't check M1–M4. A hidden scorer, valid on Boot 3.5 and 4.1, checks each one over real HTTP. It passes 10/10 on the original app.
+
+### Test Prompt
+
+```
+Upgrade this project to Spring Boot 4.
+```
+
+---
+
+## Scenario 16: New Project Without progen (creating-springboot-projects)
+
+**Objective:** Check what creating-springboot-projects changes when an agent creates a new service, on the path users without progen get.
+
+### Test Prompt (one fresh session per side, empty directory with the Maven wrapper)
+
+```
+Create a new Spring Boot project in this directory for an order service (base package com.example.orders).
+Customers place orders for products; placing an order checks stock and computes a total from its lines; an
+order can be cancelled until it ships. Expose a REST API, store data in PostgreSQL. It is a medium-complexity
+domain, one team, and will be maintained for several years. Make it buildable and tested.
+```
+
+The prompt answers the skill's assessment questions, so headless sessions don't stop to ask.
+
+### Scored
+
+Build and own tests (`./mvnw verify`), Spring Boot and Java versions, Boot 4 starter names, Testcontainers vs H2, test count, ProblemDetail errors, architecture tests, and the Taikai template run on the result (convention-biased: information only).
+
+---
+
 ## Running the Tests
 
 ### Phase 1: Baseline (RED)
