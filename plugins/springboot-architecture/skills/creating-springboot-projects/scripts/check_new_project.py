@@ -83,7 +83,7 @@ def check_placeholders(root: Path, report: Report):
         for path in project_files(root, pattern):
             for number, line in enumerate(read(path).splitlines(), 1):
                 for match in PLACEHOLDER_RE.finditer(line):
-                    found.append(f"{path.relative_to(root)}:{number} {match.group(0)}")
+                    found.append(f"{path.relative_to(root).as_posix()}:{number} {match.group(0)}")
     if found:
         report.fail("Unresolved template placeholders (replace every one; see the placeholder table in SKILL.md):\n"
                     + "\n".join(f"    {item}" for item in found[:20])
@@ -120,7 +120,7 @@ def check_architecture_test(root: Path, build_text: str, report: Report):
     elif not has_dependency:
         report.fail("A Taikai test exists, but the build file has no com.enofex:taikai test dependency.")
     else:
-        print(f"OK   architecture test: {', '.join(str(p.relative_to(root)) for p in tests)}")
+        print(f"OK   architecture test: {', '.join(p.relative_to(root).as_posix() for p in tests)}")
 
 
 def check_no_h2(build_text: str, report: Report):

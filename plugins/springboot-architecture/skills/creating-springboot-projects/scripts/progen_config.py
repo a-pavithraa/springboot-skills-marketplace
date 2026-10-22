@@ -189,7 +189,8 @@ def check_jdk(java_version: int):
 
 def run_progen(out_dir: Path, config: dict, java_version: int, check_java: bool = True) -> int:
     project_dir = out_dir / config["AppName"]
-    if shutil.which("progen") is None:
+    progen = shutil.which("progen")
+    if progen is None:
         fail("progen is not on PATH. Install it: "
              "go install github.com/sivaprasadreddy/progen@latest, "
              "or download a binary from https://github.com/sivaprasadreddy/progen/releases",
@@ -199,7 +200,8 @@ def run_progen(out_dir: Path, config: dict, java_version: int, check_java: bool 
 
     # Stream progen's output and keep it, to tell a formatting-only failure
     # apart from incomplete generation
-    process = subprocess.Popen(["progen", "-c", ".progen.json"], cwd=out_dir,
+    # Run the progen that was found: on Windows, Popen("progen") looks only for progen.exe.
+    process = subprocess.Popen([progen, "-c", ".progen.json"], cwd=out_dir,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     output = []
     for line in process.stdout:

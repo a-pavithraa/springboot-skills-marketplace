@@ -8,6 +8,7 @@ Run from the repository root:
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,10 @@ from pathlib import Path
 
 SCRIPT = (Path(__file__).resolve().parents[2] / "plugins/springboot-architecture/skills"
           / "creating-springboot-projects/scripts/progen_config.py")
+
+SH = shutil.which("sh") or next(
+    (str(path) for path in [Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "sh.exe"]
+     if path.exists()), None)
 
 POM = "<project><properties>\n    <java.version>25</java.version>\n</properties></project>\n"
 
@@ -35,17 +40,23 @@ class ProgenConfigTestCase(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
+    def install(self, name: str, body: str):
+        """Install a fake executable. Windows finds programs by extension only, so it gets a .cmd that runs the script with sh."""
+        script = self.bin / name
+        script.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        script.chmod(0o755)
+        if os.name == "nt":
+            if SH is None:
+                self.skipTest("the fakes need sh on Windows (Git for Windows)")
+            (self.bin / f"{name}.cmd").write_text(f'@"{SH}" "%~dp0{name}" %*\r\n', encoding="utf-8")
+
     def fake_progen(self, body: str):
         """Install a fake progen; its working directory is --out-dir."""
-        script = self.bin / "progen"
-        script.write_text("#!/bin/sh\n" + textwrap.dedent(body), encoding="utf-8")
-        script.chmod(0o755)
+        self.install("progen", textwrap.dedent(body))
 
     def fake_java(self, version_line: str):
         """Install a fake java that prints version_line the way java -version does (to stderr)."""
-        script = self.bin / "java"
-        script.write_text(f"#!/bin/sh\necho '{version_line}' >&2\n", encoding="utf-8")
-        script.chmod(0o755)
+        self.install("java", f"echo '{version_line}' >&2\n")
 
     def run_script(self, *args, use_fake=True):
         env = dict(os.environ)
