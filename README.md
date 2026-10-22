@@ -115,7 +115,9 @@ Covers all five architecture patterns (when to use, when to avoid), plus checkli
 
 Use this when you want a second opinion or need to decide if it's time to evolve your architecture.
 
-It also reviews tests: which bugs a suite would let through, which tests fail on correct code, and which contract clauses have no test. It proves each finding by running it, for example by breaking the guarded line and showing the test stays green. In trials it found the same defects as a plain review, with more of them proven (`tests/baseline-results/scenario-13.md`).
+It also reviews tests: which bugs a suite would let through, which tests fail on correct code, and which contract clauses have no test. It proves each finding by running it, for example by breaking the guarded line and showing the test stays green. In trials it found the same defects as a plain review, with more of them proven (`tests/baseline-results/scenario-13.md`). On a real, green suite it proved 16 gaps, such as access rules tested on one route only and requests to external APIs that no test inspects (`scenario-18.md`).
+
+Its `SKILL.md` keeps only what the model gets wrong: Boot 4 and JSpecify changes, the reference map, and the proof steps. General security, performance and architecture checklists were removed after Sonnet found every planted issue of those kinds with and without them (`scenario-17.md`).
 
 ### writing-springboot-tests
 
@@ -169,7 +171,7 @@ cat QUICKSTART.md
 ```
 
 **Full test suite:**
-- 16 baseline scenarios defined for each skill's core behaviors
+- 18 baseline scenarios defined for each skill's core behaviors
 - RED-GREEN-REFACTOR methodology
 - Rationalization tracking
 - See `tests/README.md` for complete testing guide
@@ -178,6 +180,8 @@ cat QUICKSTART.md
 ```bash
 python3 -m unittest discover -s tests/scripts -v
 ```
+
+On Windows, the progen tests run their fake `progen` and `java` through `sh` from Git for Windows, and are skipped without it.
 
 > **Current coverage:** the harness is set up for all 18 scenarios, but only Scenario 7 (`code-reviewer` review rigor) and Scenarios 10–18 (scored with PIT, planted bugs and query counts) have been executed and recorded in `tests/baseline-results/`. Scenarios 1–6, 8 and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
 
