@@ -1,6 +1,6 @@
 ---
 name: writing-springboot-tests
-description: Use when writing tests for Spring Boot 4 code at a service's edges — HTTP clients to other services (WireMock), Kafka/RabbitMQ listeners, events published to other services, full-API tests with Testcontainers — or when a Boot 4 test needs the right imports, slices, or container wiring. Supplies verified Boot 4.1 templates and the framework traps that make such tests pass without proving anything. Not for reviewing existing tests (see code-reviewer) or Boot 3 → 4 test migration (see springboot-migration).
+description: Use when writing tests for Spring Boot 4 code at a service's edges (HTTP clients to other services with WireMock, Kafka or RabbitMQ listeners, events published to other services, full-API tests with Testcontainers), or when a Boot 4 test needs the right imports, slices, or container wiring. Supplies verified Boot 4.1 templates and the framework traps that make such tests pass without proving anything. Not for reviewing existing tests (see code-reviewer) or Boot 3 to 4 test migration (see springboot-migration).
 ---
 
 # Writing Spring Boot Tests

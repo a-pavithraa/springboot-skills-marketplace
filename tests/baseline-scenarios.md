@@ -803,6 +803,26 @@ Each planted issue counts when the review names it at the right place with a cor
 
 ---
 
+## Scenario 18: Test Review of a Real, Well-Kept Suite (code-reviewer, Pass E)
+
+**Objective:** Check whether the trimmed test-review guidance alone leads a reviewer to the gaps in a real suite that is green and carefully written, and whether it proves them.
+
+### Fixture
+
+A private production backend (Spring Boot 4.1.1, Java 25, Testcontainers 2, Postgres): several hundred tests, all green, about 5 minutes. Its docs state the contract as numbered invariants (who may see or change what, audit before sensitive data is returned, background work never blocks a request, recovery by sweeps). Nothing is planted. The gaps are whatever the suite already lets through.
+
+### Test Prompt (fresh agent, given only the four skill files and how to run the build)
+
+```
+Review the backend test suite by following the skill's test-review procedure. Report which bugs the suite would let through and which tests can't be trusted, proving each finding by running it.
+```
+
+### Scored
+
+Findings proven by a one-line break that leaves the affected classes green, restored afterwards; findings marked unverified; the production tree left clean; and the reviewer's notes on what the skill files lacked.
+
+---
+
 ## Running the Tests
 
 ### Phase 1: Baseline (RED)

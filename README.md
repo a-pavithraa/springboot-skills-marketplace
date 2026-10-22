@@ -179,7 +179,7 @@ cat QUICKSTART.md
 python3 -m unittest discover -s tests/scripts -v
 ```
 
-> **Current coverage:** the harness is set up for all 17 scenarios, but only Scenario 7 (`code-reviewer` review rigor) and Scenarios 10–17 (scored with PIT, planted bugs and query counts) have been executed and recorded in `tests/baseline-results/`. Scenarios 1–6, 8 and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
+> **Current coverage:** the harness is set up for all 18 scenarios, but only Scenario 7 (`code-reviewer` review rigor) and Scenarios 10–18 (scored with PIT, planted bugs and query counts) have been executed and recorded in `tests/baseline-results/`. Scenarios 1–6, 8 and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
 
 Based on [terraform-skill testing approach](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md).
 
