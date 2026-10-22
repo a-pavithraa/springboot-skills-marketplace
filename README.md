@@ -155,7 +155,7 @@ Value Objects, Rich Entities, CQRS services, converters, REST controllers, Flywa
 Service unit test, `@WebMvcTest` slice with `MockMvcTester`, `@DataJpaTest` with Testcontainers, `RestTestClient` end-to-end test with WireMock, HTTP client failure modes with WireMock, Kafka listener and event publication tests, shared `TestcontainersConfiguration`, PIT plugin config.
 
 **Reviewer references** (`code-reviewer/references/`)
-Architecture patterns, decision matrices, performance checklists, JPA/Hibernate 7 performance, and test review. The testing references (test smells, service-edge traps, the Boot 4 test toolkit, proving tests) are under `testing/`.
+Architecture patterns, decision matrices, performance checklists, JPA/Hibernate 7 performance, and test review. The testing references (traps that let a test pass without proving anything, and the Boot 4 test toolkit with PIT) are under `testing/`.
 
 ## Testing Skills
 
@@ -179,7 +179,7 @@ cat QUICKSTART.md
 python3 -m unittest discover -s tests/scripts -v
 ```
 
-> **Current coverage:** the harness is set up for all 16 scenarios, but only Scenario 7 (`code-reviewer` review rigor) and Scenarios 10–16 (scored with PIT, planted bugs and query counts) have been executed and recorded in `tests/baseline-results/`. Scenarios 1–6, 8 and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
+> **Current coverage:** the harness is set up for all 17 scenarios, but only Scenario 7 (`code-reviewer` review rigor) and Scenarios 10–17 (scored with PIT, planted bugs and query counts) have been executed and recorded in `tests/baseline-results/`. Scenarios 1–6, 8 and 9 are defined in `tests/baseline-scenarios.md` and ready to run, but no baseline/target results exist for them yet. Contributions welcome.
 
 Based on [terraform-skill testing approach](https://github.com/antonbabenko/terraform-skill/blob/master/tests/baseline-scenarios.md).
 

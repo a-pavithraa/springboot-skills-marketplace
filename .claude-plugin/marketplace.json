@@ -13,7 +13,7 @@
       "name": "springboot-architecture",
       "source": "./plugins/springboot-architecture",
       "description": "Skills for creating, testing and reviewing Spring Boot projects with architecture patterns (Layered to DDD+Hexagonal)",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": {
         "name": "Pavithra"
       },

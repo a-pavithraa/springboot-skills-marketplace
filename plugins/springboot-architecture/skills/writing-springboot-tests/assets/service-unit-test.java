@@ -130,4 +130,4 @@ class OrderServiceTest {
 
 // Before calling these done: run PIT on OrderService, or break `available < quantity` (try `<=`), drop the
 // `payments.charge` call, and remove the quantity check, one at a time. Each must turn at least one test red.
-// See references/proving-tests.md.
+// PIT setup: code-reviewer/references/testing/boot4-test-toolkit.md.

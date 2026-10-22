@@ -1,54 +1,56 @@
 # Reviewing Tests
 
-A test suite can be green, long, and full of failure-case names, and still miss the bugs it claims to guard, or fail on correct code. Reading the tests alone doesn't show this. The review below checks what each test can actually catch, and proves every finding by running it.
+A suite can be green and long and still miss the bugs it claims to guard, or fail on correct code. Reading the tests doesn't show this. The review maps the contract to the tests, checks what each test can actually catch, and proves every finding by running it.
 
-Smell catalogue with bad and good code: `testing/test-smells.md`. Mechanics and traps at service edges: `testing/distributed-systems.md`.
+Framework traps that make a test pass without proving anything: `testing/traps.md`. Imports, slices and PIT setup: `testing/boot4-test-toolkit.md`.
 
-## Step 1: Map tests to the contract
+## Step 1: Map the contract to the tests
 
-For each class under test, write down its contract: the Javadoc, API documentation, agreed message formats, and the requirement. Then list each clause and the test that guards it, or "none". Look hardest at clauses about:
+For each class under test, collect its contract:
+- the Javadoc, API documentation and agreed message formats
+- the project's own statements of what must hold: a system map, invariants, ADRs, `AGENTS.md`/`CLAUDE.md`. These are often the best source. A rule like "only the record's owner may read it" is a clause.
 
-- units and formats: cents or decimals, field names in JSON, date formats
-- status codes with a special meaning: a 409 that means "already done", a 202
-- limits: timeouts, retry counts, sizes
-- delivery promises: once only, after commit, never on rollback, in order, poison messages dead-lettered without blocking the rest
+List each clause with the test that guards it, or "none". An unguarded clause is a finding.
 
-An unguarded clause is a finding.
+In a large project, start with the clauses about who may see or change what, and about delivery (once only, never blocks, recovered after a crash). On those paths, grep the tests for `any(` and `verify(`: an argument nobody checks is where these clauses go unguarded. Then look at units and formats, status codes with a special meaning, and limits.
 
-## Step 2: Check that each test runs the real thing it claims to test
+## Step 2: Check that each test runs the real thing
 
-A test only guards behaviour that actually runs in it. Common ways it doesn't:
+A test guards only what actually runs in it, and only the parts of a request it actually looks at.
 
 | The test claims to cover | But | So it can't catch |
 |--------------------------|-----|-------------------|
-| retries (`@Retryable`) | builds the class with `new`, or injects it without the proxy | retries that never happen; on Framework 7.0.9 a JDK proxy on a class implementing an interface never retries |
-| a timeout | sets its own `spring.http.clients.read-timeout` | a missing or wrong production timeout |
-| a timeout in `@RestClientTest` | doesn't import `HttpClientAutoConfiguration` / `ImperativeHttpClientAutoConfiguration` | any timeout: the slice's client has none |
-| publish after commit (`@TransactionalEventListener`) | mocks `KafkaTemplate` in a hand-built context, or one without transaction management | publishing inside the transaction; such tests often fail on correct code |
-| a message listener | calls the listener method directly, or mocks the service behind it | duplicate delivery, deserialization failures, dead-lettering, offset handling |
-| deserialization of bad messages | sends only valid JSON through the app's own template | a non-JSON record blocking the partition (needs `ErrorHandlingDeserializer`) |
+| the request sent to a dependency | stubs it with `any(Request.class)` and never captures it | a wrong or missing parameter: a dropped filter, the wrong id, the wrong account. Capture it, or stub the exact request |
+| an access rule the controller passes to a service | captures the rule on one route and uses `any()` on the others | a route that passes `owner -> true`, or the wrong rule |
+| a cache of access decisions | reads it back with the same caller each time | a key that leaves out who asked, so one user's grant serves another |
+| production wiring (a client factory, an `@Enable…` annotation, a timeout) | builds its own client or configuration in the test | the production class losing the setting |
 | the request sent to a provider | arranges the value already converted (`3750` instead of `37.50`) | the conversion itself |
-| retries on 503 | uses 503 only, with WireMock on the classpath | a dead `@Retryable`: Apache HttpClient retries 503 by itself |
-| a database query or constraint | H2, or no `flush()`/`clear()` before reading back | the real SQL |
-| full-app behaviour | `@MockitoBean` for everything around the subject | anything: it's a slow unit test |
+| async work (`@Async`) | mocks the async bean, or awaits a result that a synchronous call also produces | the work running on the caller's thread: assert the thread, or that the caller returns while the work is blocked |
+| recovery by a scheduled sweep | calls the sweep with fresh rows only | the stale or claimed rows the sweep exists for |
+| retries, timeouts, publish after commit, listeners | see `testing/traps.md` | |
+| a database query or constraint | H2, or reads back inside the same persistence context | the real SQL |
+| full-app behavior | `@MockitoBean` for everything around the subject | anything: it's a slow unit test |
 
 ## Step 3: Check that each test can be trusted
 
-- **Fails on correct code**: wrong expectation, missing infrastructure, order dependence. Run the suite; for every red test, decide whether the test or the code is wrong, from the contract.
-- **Racy**: reading a topic with a single `KafkaTestUtils.getRecords` call (returns one batch), sleeps, assertions on timing, shared state between tests. Racy tests pass on one run and fail on the next.
-- **Proves nothing**: status-only or `isNotNull()` assertions, verify-only tests, `contextLoads` with no assertions, the expected value computed with the code's own formula.
-- **Costly for no gain**: `@SpringBootTest` where a slice or plain unit test sees the same thing; each different `@MockitoBean` set starts another context.
+Run the suite first. For each red test, decide from the contract whether the test or the code is wrong. Then note tests that are racy (sleeps, single reads of an async result, shared state), prove nothing (status-only, `isNotNull()`, verify-only, expected value computed with the code's own formula), or cost a context or container each for no gain.
 
 ## Step 4: Prove every finding
 
-A finding the review hasn't run is a guess. Before reporting:
+A finding the review hasn't run is a guess.
 
-- **"Can't catch X"**: break X in the production code (one line), run only the affected test class, show it stays green, restore with `git checkout`. Example: change `@TransactionalEventListener` to `@EventListener`; the publisher tests stay green.
-- **"Fails on correct code"**: run it, show the failure, and quote the contract clause that says the code is right.
+- **"Can't catch X"**: for a class with plain unit tests, run PIT on it (`testing/boot4-test-toolkit.md`). It is seconds per class, where a hand-run break through Maven and containers can take minutes. Otherwise break X by hand in one line, run only the affected test classes, show they stay green, and restore with `git checkout`.
+- **"Fails on correct code"**: show the failure, and quote the clause that says the code is right.
 - **"Racy"**: run the class three times, or show the code path that makes it order-dependent.
-- **"Clause not guarded"**: cite the clause and show no test exercises it (`grep` for the method, status code, or field).
+- **"Clause not guarded"**: cite the clause, and show with `grep` that no test exercises it.
 
-Label anything you couldn't run as **unverified** and say why. Leave the code exactly as found.
+Before running proofs:
+- Use the JDK the build requires (`JAVA_HOME`), not whatever is on `PATH`.
+- Check Docker is running when the classes use Testcontainers.
+- Run one Maven process at a time. Overlapping runs can exhaust memory. A run that dies on memory, a fork error or Docker proves nothing, even if it exits 0. Check that each run printed a test summary.
+- Breaks in unrelated code can share one run, if the run includes the test classes for every break. All green proves every break went unnoticed. If the run goes red, split the breaks to find which one a test caught.
+
+Label anything you couldn't run as **unverified**, and say why. Finish with `git status` clean on production code.
 
 ## Report
 

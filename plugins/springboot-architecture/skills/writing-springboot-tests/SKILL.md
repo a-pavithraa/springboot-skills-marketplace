@@ -15,9 +15,9 @@ Use this for tests where the framework, not the logic, decides whether the test 
 
 ## Before writing
 
-Read `../code-reviewer/references/testing/distributed-systems.md`: the case lists for calls and messages, and the Boot 4.1 / Framework 7 / Spring Kafka 4 traps found by running these templates (`@Retryable` behind an interface proxy, `@RestClientTest` ignoring timeouts, Apache HttpClient retrying 503, blocked partitions, corrupted dead letters, single-batch topic reads).
+Read `../code-reviewer/references/testing/traps.md`: the Boot 4.1 / Framework 7 / Spring Kafka 4 traps found by running these templates (`@Retryable` behind an interface proxy, `@RestClientTest` ignoring timeouts, Apache HttpClient retrying 503, blocked partitions, corrupted dead letters, single-batch topic reads), and the Testcontainers and test-data traps.
 
-Imports, starters, slices, container wiring, and the context cache: `../code-reviewer/references/testing/boot4-test-toolkit.md`. Proving tests (PIT, sabotage): `../code-reviewer/references/testing/proving-tests.md`. Smells to avoid: `../code-reviewer/references/testing/test-smells.md`.
+Imports, starters and PIT: `../code-reviewer/references/testing/boot4-test-toolkit.md`.
 
 ## Templates
 
@@ -34,7 +34,7 @@ Verified on Spring Boot 4.1.1 with Postgres 18, Kafka 4.1 and WireMock 3.13. Tak
 
 ## Report
 
-List the tests added (behaviour and level), how each was shown to fail, tests that fail on the current code with the contract clause they rely on, and contract clauses left untested.
+List the tests added (behavior and level), how each was shown to fail, tests that fail on the current code with the contract clause they rely on, and contract clauses left untested.
 
 ## Evidence
 

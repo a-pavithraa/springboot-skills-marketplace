@@ -686,7 +686,7 @@ Add tests for the payment gateway, the restock listener and the order event publ
 
 ---
 
-## Scenario 13: Reviewing Tests (code-reviewer, Pass G)
+## Scenario 13: Reviewing Tests (code-reviewer, Pass E)
 
 **Objective:** Check whether code-reviewer's test review finds known defects in existing suites that a plain review misses, and whether it proves its findings.
 
@@ -776,6 +776,30 @@ The prompt answers the skill's assessment questions, so headless sessions don't 
 ### Scored
 
 Build and own tests (`./mvnw verify`), Spring Boot and Java versions, Boot 4 starter names, Testcontainers vs H2, test count, ProblemDetail errors, architecture tests, and the Taikai template run on the result (convention-biased: information only).
+
+---
+
+## Scenario 17: Seeded PR Review, Old vs Trimmed Reviewer (code-reviewer)
+
+**Objective:** Check whether the general review passes and triggers cut from `code-reviewer/SKILL.md` (1268 to 735 words) were finding anything.
+
+### Fixture
+
+A Boot 4.1.1 shop (JPA, JdbcClient, method security, `@NullMarked` packages). Branch `feature/admin-and-history` adds 10 files against `main`, with planted issues:
+- In the areas the trim removed: a delete route with no `@PreAuthorize` (S1), SQL injection through a `sort` parameter (S2), a card number in a log line (S3), a stack trace in the error response (S4), N+1 in an order history (P1), `findAll()` on about 2 million rows (P2), a controller calling the repository directly (A1), an entity returned with `passwordHash` (A2), `@RequestBody` without `@Valid` (B1)
+- Controls, in the areas the trim kept: `@Retryable` with no `@EnableResilientMethods` on a class that implements an interface (K1), `TestRestTemplate` (K2), a Jackson 2 `ObjectMapper` (K3), an override that drops `@Nullable` (K4)
+
+Two arms, two runs each. The arms differ only in `code-reviewer/SKILL.md`; every reference file is the same. The reviewers don't know which arm they are.
+
+### Test Prompt
+
+```
+Please review this PR before I merge it.
+```
+
+### Scored
+
+Each planted issue counts when the review names it at the right place with a correct reason.
 
 ---
 
