@@ -838,6 +838,20 @@ class MigrationScanner:
                         f"Change to Jackson 3: {new_class}"
                     )
 
+        # jackson-annotations keeps the com.fasterxml.jackson.annotation package in Jackson 3, so only
+        # databind and core imports are Jackson 2.
+        for i, line in enumerate(lines, 1):
+            match = re.match(r'\s*import\s+(?:static\s+)?(com\.fasterxml\.jackson\.(?:databind|core))\.', line)
+            if match:
+                self.result.add_issue(
+                    "Spring Boot 4 - Jackson 3",
+                    "CRITICAL",
+                    str(rel_path),
+                    i,
+                    f"Jackson 2 import: {match.group(1)}",
+                    "Change to tools.jackson.databind / tools.jackson.core (ObjectMapper becomes JsonMapper)"
+                )
+
         # Check for generic Testcontainers types
         if 'PostgreSQLContainer<?>' in content or 'MySQLContainer<?>' in content:
             for i, line in enumerate(lines, 1):
@@ -1028,6 +1042,9 @@ class MigrationScanner:
 
 
 def main():
+    # Windows consoles and pipes default to a code page that cannot encode the report's emoji,
+    # and `python -I` ignores PYTHONIOENCODING, so set the encoding here.
+    sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Scan a Spring Boot project for Boot 4 migration issues")
     parser.add_argument("project_path")
     parser.add_argument("--check", action="store_true",

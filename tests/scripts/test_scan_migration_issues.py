@@ -225,6 +225,33 @@ class ProjectScope(ScannerTestCase):
         self.assertEqual(severities, ["CRITICAL"])
 
 
+class Jackson2Imports(ScannerTestCase):
+
+    def test_databind_import_is_critical(self):
+        self.write("pom.xml", pom(""))
+        self.write("src/main/java/demo/Audit.java", """
+            import com.fasterxml.jackson.databind.ObjectMapper;
+
+            class Audit { ObjectMapper json = new ObjectMapper(); }
+            """)
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = scanner.MigrationScanner(str(self.root)).scan()
+        severities = [i.severity for i in result.issues if "com.fasterxml.jackson.databind" in i.issue]
+        self.assertEqual(severities, ["CRITICAL"])
+
+    def test_core_import_is_reported(self):
+        self.write("pom.xml", pom(""))
+        self.write("src/main/java/demo/Audit.java",
+                   "import com.fasterxml.jackson.core.JsonProcessingException;\nclass Audit {}\n")
+        self.assertIssue("com.fasterxml.jackson.core")
+
+    def test_annotation_import_is_not_reported(self):
+        self.write("pom.xml", pom(""))
+        self.write("src/main/java/demo/View.java",
+                   "import com.fasterxml.jackson.annotation.JsonProperty;\nrecord View(@JsonProperty(\"n\") String n) {}\n")
+        self.assertNoIssue("com.fasterxml.jackson")
+
+
 class BootLine(ScannerTestCase):
 
     def test_older_boot4_line_is_reported(self):
@@ -240,7 +267,7 @@ class CheckMode(ScannerTestCase):
 
     def run_check(self):
         return subprocess.run([sys.executable, str(SCRIPT), str(self.root), "--check"],
-                              capture_output=True, text=True)
+                              capture_output=True, encoding="utf-8")
 
     def test_check_fails_on_critical_issue(self):
         self.write("pom.xml", pom(""))
