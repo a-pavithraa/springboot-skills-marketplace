@@ -4,6 +4,7 @@ Run from the repository root:
     python3 -m unittest discover -s tests/scripts -v
 """
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,12 @@ STANDARD = pom("""
     </plugins>
   </build>
 """)
+
+
+def add_after(text: str, anchor: str, addition: str) -> str:
+    """Insert addition after the first anchor; fail loudly if the anchor is missing."""
+    assert anchor in text, anchor
+    return text.replace(anchor, anchor + addition, 1)
 
 
 class ApplyHarnessTests(unittest.TestCase):
@@ -152,22 +159,19 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual((root / "AGENTS.md").read_text(encoding="utf-8"), agents)
 
     def test_progen_style_project_keeps_its_spotless_modulith_and_boundary_test(self):
-        progen_pom = STANDARD.replace("    <java.version>25</java.version>\n",
-                                      "    <java.version>25</java.version>\n    <spotless.version>3.10.0</spotless.version>\n")
-        progen_pom = progen_pom.replace("""      <artifactId>spring-boot-starter-webmvc</artifactId>
-    </dependency>""", """      <artifactId>spring-boot-starter-webmvc</artifactId>
-    </dependency>
-    <dependency>
+        progen_pom = add_after(STANDARD, "<java.version>25</java.version>\n",
+                               "    <spotless.version>3.10.0</spotless.version>\n")
+        progen_pom = add_after(progen_pom, "</dependency>\n", """    <dependency>
       <groupId>org.springframework.modulith</groupId>
       <artifactId>spring-modulith-starter-test</artifactId>
       <scope>test</scope>
-    </dependency>""").replace("""        <artifactId>spring-boot-maven-plugin</artifactId>
-      </plugin>""", """        <artifactId>spring-boot-maven-plugin</artifactId>
-      </plugin>
-      <plugin>
+    </dependency>
+""")
+        progen_pom = add_after(progen_pom, "</plugin>\n", """      <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
-      </plugin>""")
+      </plugin>
+""")
         root = self.project(progen_pom, {
             "src/test/java/com/acme/orders/ModularityTests.java": "class ModularityTests { void v() { ApplicationModules.of(X.class).verify(); } }\n"})
         self.assertEqual(self.run_script(root).returncode, 0)
@@ -222,6 +226,122 @@ class ApplyHarnessTests(unittest.TestCase):
         agents = (root / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("ModuleBoundariesTests", agents)
         self.assertNotIn("modules:", agents)
+
+    def test_rules_test_gets_archunit_unless_taikai_or_archunit_is_declared(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        self.assertTrue((root / "src/test/java/com/acme/orders/CodeRulesTests.java").exists())
+        artifacts = [a.text for a in self.model(root).findall("m:dependencies/m:dependency/m:artifactId", NS)]
+        self.assertIn("archunit", artifacts)
+
+        with_taikai = add_after(STANDARD, "</dependency>\n", """    <dependency>
+      <groupId>com.enofex</groupId>
+      <artifactId>taikai</artifactId>
+      <scope>test</scope>
+    </dependency>
+""")
+        root = self.project(with_taikai)
+        self.run_script(root)
+        self.assertNotIn("<artifactId>archunit</artifactId>", (root / "pom.xml").read_text(encoding="utf-8"))
+
+    def test_rerun_on_an_older_harness_adds_only_the_new_pieces(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        pom_path = root / "pom.xml"
+        harnessed = pom_path.read_text(encoding="utf-8")
+        start = harnessed.index("    <!-- harness:begin rules-dependencies -->")
+        end = harnessed.index("<!-- harness:end rules-dependencies -->\n") + len("<!-- harness:end rules-dependencies -->\n")
+        pom_path.write_text(harnessed[:start] + harnessed[end:], encoding="utf-8")
+        (root / "src/test/java/com/acme/orders/CodeRulesTests.java").unlink()
+
+        self.assertEqual(self.run_script(root).returncode, 0)
+        self.assertEqual(pom_path.read_text(encoding="utf-8"), harnessed)
+        self.assertTrue((root / "src/test/java/com/acme/orders/CodeRulesTests.java").exists())
+
+    def test_hooks_are_added_and_ci_workflow_only_when_no_workflow_runs_mvnw(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        workflow = (root / ".github/workflows/verify.yml").read_text(encoding="utf-8")
+        self.assertIn('java-version: "25"', workflow)
+        self.assertIn("./mvnw -B verify", workflow)
+
+        settings = (root / ".claude/settings.json").read_text(encoding="utf-8")
+        for hook in ("guard.sh", "verify-on-stop.sh"):
+            self.assertTrue((root / ".claude/hooks" / hook).exists())
+            self.assertIn(f".claude/hooks/{hook}", settings)
+        self.assertEqual((root / ".gitattributes").read_text(encoding="utf-8"), "*.sh text eol=lf\n")
+
+        root = self.project(STANDARD, {".github/workflows/ci.yml": "steps:\n  - run: ./mvnw -ntp verify\n"})
+        result = self.run_script(root)
+        self.assertIn("kept     .github/workflows/ci.yml", result.stdout)
+        self.assertFalse((root / ".github/workflows/verify.yml").exists())
+
+    def test_existing_workflow_is_never_overwritten(self):
+        maven_ci = "steps:\n  - run: mvn -B verify\n"
+        root = self.project(STANDARD, {".github/workflows/verify.yml": maven_ci})
+        self.run_script(root)
+        self.assertEqual((root / ".github/workflows/verify.yml").read_text(encoding="utf-8"), maven_ci)
+        self.assertFalse((root / ".github/workflows/harness-verify.yml").exists())
+
+        other_ci = "steps:\n  - run: npm test\n"
+        root = self.project(STANDARD, {".github/workflows/verify.yml": other_ci})
+        self.run_script(root)
+        self.assertEqual((root / ".github/workflows/verify.yml").read_text(encoding="utf-8"), other_ci)
+        self.assertIn("./mvnw -B verify", (root / ".github/workflows/harness-verify.yml").read_text(encoding="utf-8"))
+
+    def test_existing_settings_keep_their_entries_and_get_the_hooks(self):
+        own = {
+            "permissions": {"allow": ["Bash(gh pr view *)"], "deny": ["Read(./secrets/**)"]},
+            "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "notify-send done"}]}]},
+            "model": "opus",
+        }
+        root = self.project(STANDARD, {".claude/settings.json": json.dumps(own, indent=2)})
+        self.assertEqual(self.run_script(root).returncode, 0)
+        settings = json.loads((root / ".claude/settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(settings["model"], "opus")
+        self.assertIn("Bash(gh pr view *)", settings["permissions"]["allow"])
+        self.assertIn("Bash(./mvnw *)", settings["permissions"]["allow"])
+        self.assertIn("Read(./secrets/**)", settings["permissions"]["deny"])
+        self.assertIn("Read(./.env)", settings["permissions"]["deny"])
+        stop_commands = [hook["command"] for group in settings["hooks"]["Stop"] for hook in group["hooks"]]
+        self.assertIn("notify-send done", stop_commands)
+        self.assertTrue(any("verify-on-stop.sh" in command for command in stop_commands))
+        self.assertTrue(any("guard.sh" in hook["command"]
+                            for group in settings["hooks"]["PreToolUse"] for hook in group["hooks"]))
+        self.assertTrue(settings["enabledPlugins"]["springboot-architecture@springboot-skills-marketplace"])
+
+        merged = (root / ".claude/settings.json").read_text(encoding="utf-8")
+        self.assertIn("kept     .claude/settings.json", self.run_script(root).stdout)
+        self.assertEqual((root / ".claude/settings.json").read_text(encoding="utf-8"), merged)
+
+    def test_managed_dependencies_are_not_mistaken_for_declared_ones(self):
+        managed_only = pom("""
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.tngtech.archunit</groupId>
+        <artifactId>archunit</artifactId>
+        <version>1.5.1</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jspecify</groupId>
+        <artifactId>jspecify</artifactId>
+        <version>1.0.1</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webmvc</artifactId>
+    </dependency>
+  </dependencies>
+""")
+        root = self.project(managed_only)
+        self.assertEqual(self.run_script(root, "--no-modules").returncode, 0)
+        direct = [a.text for a in self.model(root).findall("m:dependencies/m:dependency/m:artifactId", NS)]
+        self.assertIn("archunit", direct)
+        self.assertIn("jspecify", direct)
 
     def test_dry_run_writes_nothing(self):
         root = self.project(STANDARD)

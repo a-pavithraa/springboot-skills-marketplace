@@ -4,13 +4,17 @@
 Usage:
     python3 apply_harness.py <project-dir> [--base-package com.example.app] [--dry-run]
 
-The pom gets NullAway (JSpecify mode, main code only) through Error Prone, Spotless with palantir-java-format, and Spring
-Modulith's test starter. Two tests are added: ConfigurationKeysTests and ModuleBoundariesTests. Files that
-already exist are left alone and reported, except CLAUDE.md, which gets an `@AGENTS.md` import as its first
-line. Running it twice changes nothing.
+The pom gets NullAway (JSpecify mode, main code only) through Error Prone, Spotless with palantir-java-format,
+Spring Modulith's test starter, and ArchUnit. Three tests are added: ConfigurationKeysTests, CodeRulesTests and
+ModuleBoundariesTests. A GitHub Actions workflow that runs ./mvnw verify is added when no workflow runs mvnw.
+Claude Code hooks run the fast gates when a turn ends and block destructive git commands and edits to
+migrations already on main.
+Files that already exist are left alone and reported, except CLAUDE.md, which gets an `@AGENTS.md` import as its
+first line. Running it twice changes nothing.
 """
 
 import argparse
+import json
 import re
 import shutil
 import sys
@@ -23,6 +27,9 @@ ITEM = re.compile(r"^ *<(?P<kind>dependency|plugin)>.*?^ *</(?P=kind)>\n|^ *<(?P
                   re.S | re.M)
 MODULE_BLOCK = re.compile(r"<!-- modules:begin -->\n(.*?)<!-- modules:end -->\n", re.S)
 SKILL_DIRS = (".claude/skills", ".agents/skills")
+ARCHUNIT = re.compile(r"<artifactId>\s*(taikai|archunit[\w-]*)\s*</artifactId>")
+WORKFLOW = ".github/workflows/verify.yml"
+HOOKS = (".claude/hooks/guard.sh", ".claude/hooks/verify-on-stop.sh")
 
 
 def element_spans(pom: str) -> dict[tuple[str, ...], list[tuple[int, int]]]:
@@ -76,23 +83,26 @@ def missing_items(fragment: str, pom: str) -> str:
 
 
 def patch_pom(pom: str, base_package: str, modules: bool) -> str:
-    if MARKER in pom:
-        return pom
-    build_plugins = re.sub(r"<!--.*?-->|<pluginManagement>.*?</pluginManagement>|<profiles>.*?</profiles>", "", pom, flags=re.S)
-    if re.search(r"<artifactId>\s*maven-compiler-plugin\s*</artifactId>", build_plugins):
+    # What the build actually uses: managed versions and inactive profiles add nothing to the classpath.
+    declared = re.sub(r"<!--.*?-->|<dependencyManagement>.*?</dependencyManagement>|"
+                      r"<pluginManagement>.*?</pluginManagement>|<profiles>.*?</profiles>", "", pom, flags=re.S)
+    if MARKER not in pom and re.search(r"<artifactId>\s*maven-compiler-plugin\s*</artifactId>", declared):
         sys.exit(f"ERROR: pom.xml already configures maven-compiler-plugin. Merge its part of "
                  f"{ASSETS / 'pom' / 'plugins.xml'} by hand.")
 
     fragments = {name: (ASSETS / "pom" / f"{name}.xml").read_text(encoding="utf-8").replace("{{BASE_PACKAGE}}", base_package)
-                 for name in ("properties", "dependencies", "modules-dependencies", "managed-dependencies", "plugins")}
+                 for name in ("properties", "dependencies", "modules-dependencies", "managed-dependencies", "plugins",
+                              "rules-dependencies")}
     if not modules:
         fragments["properties"] = re.sub(r".*spring-modulith\.version.*\n", "", fragments["properties"])
     properties = missing_items(fragments["properties"], pom)
-    dependencies = missing_items(fragments["dependencies"], pom)
+    dependencies = missing_items(fragments["dependencies"], declared)
     if modules:
-        dependencies += missing_items(fragments["modules-dependencies"], pom)
+        dependencies += missing_items(fragments["modules-dependencies"], declared)
+    if not ARCHUNIT.search(declared):
+        dependencies += fragments["rules-dependencies"]
     managed = missing_items(fragments["managed-dependencies"], pom) if modules else ""
-    plugins = missing_items(fragments["plugins"], build_plugins)
+    plugins = missing_items(fragments["plugins"], declared)
 
     if properties:
         patched = insert_before_close(pom, ("project", "properties"), properties)
@@ -113,6 +123,23 @@ def patch_pom(pom: str, base_package: str, modules: bool) -> str:
             patched = insert_before_close(pom, ("project",), wrap(plugins, "build", "plugins", indent="  "))
         pom = patched
     return pom
+
+
+def merge_settings(current: dict, wanted: dict) -> dict:
+    """Add the harness's permissions, hooks, marketplace and plugin to existing settings, changing nothing else."""
+    merged = json.loads(json.dumps(current))
+    for kind, rules in wanted.get("permissions", {}).items():
+        present = merged.setdefault("permissions", {}).setdefault(kind, [])
+        present.extend(rule for rule in rules if rule not in present)
+    for event, groups in wanted.get("hooks", {}).items():
+        present = merged.setdefault("hooks", {}).setdefault(event, [])
+        commands = {hook.get("command") for group in present for hook in group.get("hooks", [])}
+        present.extend(group for group in groups
+                       if not all(hook["command"] in commands for hook in group["hooks"]))
+    for key in ("extraKnownMarketplaces", "enabledPlugins"):
+        for name, value in wanted.get(key, {}).items():
+            merged.setdefault(key, {}).setdefault(name, value)
+    return merged
 
 
 def find_application(project: Path) -> tuple[str, str]:
@@ -190,10 +217,35 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
                       "patched")
 
     settings = ".claude/settings.json"
-    if (project / settings).exists():
-        changes.keep(settings, f"exists; compare with {ASSETS / 'project' / settings}")
+    wanted_settings = render((ASSETS / "project" / settings).read_text(encoding="utf-8"))
+    if not (project / settings).exists():
+        changes.write(settings, wanted_settings, "added")
     else:
-        changes.write(settings, render((ASSETS / "project" / settings).read_text(encoding="utf-8")), "added")
+        try:
+            current = json.loads((project / settings).read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            current = None
+        if not isinstance(current, dict):
+            changes.keep(settings, f"not valid JSON; merge {ASSETS / 'project' / settings} by hand")
+        else:
+            merged = merge_settings(current, json.loads(wanted_settings))
+            if merged == current:
+                changes.keep(settings, "has the harness entries")
+            else:
+                changes.write(settings, json.dumps(merged, indent=2) + "\n", "patched")
+    for hook in HOOKS:
+        if (project / hook).exists():
+            changes.keep(hook, "exists")
+        else:
+            changes.write(hook, (ASSETS / "project" / hook).read_text(encoding="utf-8"), "added")
+
+    attributes = project / ".gitattributes"
+    present = attributes.read_text(encoding="utf-8") if attributes.exists() else ""
+    if re.search(r"^\*\.sh\s.*eol=lf", present, re.M):
+        changes.keep(".gitattributes", "keeps shell scripts LF")
+    else:
+        lead = "" if not present or present.endswith("\n") else "\n"
+        changes.write(".gitattributes", present + lead + "*.sh text eol=lf\n", "patched" if present else "added")
 
     claude_md = project / "CLAUDE.md"
     if not claude_md.exists():
@@ -215,7 +267,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     test_dir = Path("src/test/java", *base_package.split("."))
     existing_boundary_test = next((path for path in (project / "src" / "test").rglob("*.java")
                                    if "ApplicationModules.of(" in path.read_text(encoding="utf-8", errors="replace")), None)
-    tests = ["ConfigurationKeysTests.java"]
+    tests = ["ConfigurationKeysTests.java", "CodeRulesTests.java"]
     if modules and existing_boundary_test:
         changes.keep(existing_boundary_test.relative_to(project).as_posix(), "already verifies module boundaries")
     elif modules:
@@ -226,6 +278,15 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
             changes.keep(relative, "exists")
         else:
             changes.write(relative, render((ASSETS / "tests" / test).read_text(encoding="utf-8")), "added")
+
+    workflows = project / ".github" / "workflows"
+    runs_maven = next((path for path in sorted(workflows.glob("*.y*ml")) if workflows.is_dir()
+                       and re.search(r"\bmvnw?\b", path.read_text(encoding="utf-8", errors="replace"))), None)
+    if runs_maven:
+        changes.keep(runs_maven.relative_to(project).as_posix(), "already runs Maven in CI")
+    else:
+        target = WORKFLOW if not (project / WORKFLOW).exists() else ".github/workflows/harness-verify.yml"
+        changes.write(target, render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")), "added")
 
     skills = (["add-module"] if modules else []) + (["db-migration"] if "flyway" in pom.lower() else [])
     for skill in skills:

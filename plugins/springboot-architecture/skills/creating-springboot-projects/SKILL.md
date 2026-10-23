@@ -153,13 +153,13 @@ It fails on unresolved `{{PLACEHOLDER}}` tokens, a Spring Boot version before 4.
 
 ### Step 7: Apply the team harness (Maven)
 
-Give the project the shared agent setup from the `spring-boot-team-harness` skill: `AGENTS.md`, `.claude/settings.json`, project skills, and the `./mvnw verify` gates. Pass `--no-modules` for `layered` and `ddd-hexagonal`, whose subpackages are layers that the Taikai rules already govern:
+Give the project the shared agent setup from the `spring-boot-team-harness` skill: `AGENTS.md`, `.claude/settings.json` with its hooks, project skills, the `./mvnw verify` gates, and a CI workflow. Pass `--no-modules` for `layered` and `ddd-hexagonal`, whose subpackages are layers that the Taikai rules already govern:
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/../spring-boot-team-harness/scripts/apply_harness.py" /path/to/project [--no-modules]
 ```
 
-On a progen project, it keeps what progen already set up (Spotless, Spring Modulith, `ModularityTests`, `AGENTS.md`) and adds only what's missing. Then run `./mvnw spotless:apply` and `./mvnw verify`. Expect NullAway to flag progen methods that return `null` without `@Nullable`: annotate them and handle the null at the callers. Fill in the `Modules` and `Team conventions` sections of `AGENTS.md` with the user.
+On a progen project, it keeps what progen already set up (Spotless, Spring Modulith, `ModularityTests`, `AGENTS.md`) and adds only what's missing. Then run `./mvnw spotless:apply` and `./mvnw verify`. Expect NullAway to flag progen methods that return `null` without `@Nullable`: annotate them and handle the null at the callers. Then draft the `Modules`, `Run and test` and `Team conventions` sections of `AGENTS.md` from the code, as the harness skill's step 4 describes, and go through them with the user.
 
 ### Step 8: Hand off specialized concerns when needed
 

@@ -1,0 +1,8 @@
+    <!-- harness:begin rules-dependencies -->
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit</artifactId>
+      <version>1.5.1</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- harness:end rules-dependencies -->
