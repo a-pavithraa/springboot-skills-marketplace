@@ -311,6 +311,30 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("kept     src/test/java/com/acme/orders/CodeRulesTests.java (edited", result.stdout)
         self.assertTrue(rules.read_text(encoding="utf-8").endswith("// team rule\n"))
 
+    def test_switching_to_no_modules_removes_the_module_files_nobody_edited(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        boundaries = root / "src/test/java/com/acme/orders/ModuleBoundariesTests.java"
+        (root / ".agents/skills/add-module/SKILL.md").write_text("team notes\n", encoding="utf-8")
+
+        result = self.run_script(root, "--no-modules")
+        self.assertIn("removed  src/test/java/com/acme/orders/ModuleBoundariesTests.java", result.stdout)
+        self.assertFalse(boundaries.exists())
+        self.assertFalse((root / ".claude/skills/add-module").exists())
+        self.assertIn("kept     .agents/skills/add-module/SKILL.md (edited", result.stdout)
+        self.assertIn("AGENTS.md", [line.split()[1] for line in result.stdout.splitlines() if line.startswith("kept")])
+        self.assertIn("ModuleBoundariesTests", result.stdout.split("kept     AGENTS.md", 1)[1].splitlines()[0])
+        lock = json.loads((root / ".claude/harness.lock").read_text(encoding="utf-8"))
+        self.assertNotIn("src/test/java/com/acme/orders/ModuleBoundariesTests.java", lock)
+        self.assertNotIn(".claude/skills/add-module/SKILL.md", lock)
+
+    def test_switching_to_no_modules_removes_an_unedited_module_test_from_before_the_lock(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        (root / ".claude/harness.lock").unlink()
+        self.run_script(root, "--no-modules")
+        self.assertFalse((root / "src/test/java/com/acme/orders/ModuleBoundariesTests.java").exists())
+
     def test_a_harness_file_from_before_the_lock_is_kept_with_instructions(self):
         root = self.project(STANDARD, {".claude/hooks/guard.sh": "#!/usr/bin/env bash\n# older harness\n"})
         result = self.run_script(root)

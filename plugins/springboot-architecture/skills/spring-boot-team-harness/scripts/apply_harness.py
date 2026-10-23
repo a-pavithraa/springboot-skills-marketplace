@@ -209,6 +209,22 @@ class Changes:
                 return
         self.locked[key] = digest(text)
 
+    def disown(self, relative: str, text: str, reason: str):
+        """Remove a file the harness wrote and no longer wants, unless someone has edited it."""
+        target = self.project / relative
+        key = Path(os.path.relpath(target, self.root)).as_posix()
+        if target.exists():
+            present = digest(target.read_text(encoding="utf-8"))
+            if present not in (self.lock.get(key), digest(text)):
+                self.keep(relative, f"edited since the harness wrote it; {reason}, so delete it by hand")
+                return
+            if not self.dry_run:
+                target.unlink()
+                if not any(target.parent.iterdir()):
+                    target.parent.rmdir()
+            self.lines.append(f"{'removed':8} {relative}")
+        self.locked.pop(key, None)
+
     def save_lock(self):
         if self.locked != self.lock:
             text = json.dumps(dict(sorted(self.locked.items())), indent=2) + "\n"
@@ -258,8 +274,8 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         "{{MAVEN_DIR}}": folder or ".",
     }
 
-    def render(text: str) -> str:
-        text = MODULE_BLOCK.sub(lambda match: match.group(1) if modules else "", text)
+    def render(text: str, with_modules: bool = modules) -> str:
+        text = MODULE_BLOCK.sub(lambda match: match.group(1) if with_modules else "", text)
         for placeholder, value in values.items():
             text = text.replace(placeholder, value)
         return text
@@ -269,7 +285,11 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     if not agents.exists():
         changes.write("AGENTS.md", agents_template, "added")
     elif "## Done means verify passes" in agents.read_text(encoding="utf-8"):
-        changes.keep("AGENTS.md", "has the harness section")
+        if not modules and "ModuleBoundariesTests" in agents.read_text(encoding="utf-8"):
+            changes.keep("AGENTS.md", "has the harness section; remove its ModuleBoundariesTests row and Modules "
+                                      "section by hand")
+        else:
+            changes.keep("AGENTS.md", "has the harness section")
     else:
         section = agents_template[agents_template.index("## Done means"):agents_template.index("## Team conventions")]
         existing = agents.read_text(encoding="utf-8").rstrip("\n")
@@ -346,6 +366,10 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         changes.keep(existing_boundary_test.relative_to(project).as_posix(), "already verifies module boundaries")
     elif modules:
         tests.append("ModuleBoundariesTests.java")
+    else:
+        changes.disown((test_dir / "ModuleBoundariesTests.java").as_posix(),
+                       render((ASSETS / "tests" / "ModuleBoundariesTests.java").read_text(encoding="utf-8"), True),
+                       "--no-modules doesn't use it")
     for test in tests:
         changes.own((test_dir / test).as_posix(), render((ASSETS / "tests" / test).read_text(encoding="utf-8")),
                     ASSETS / "tests" / test)
@@ -374,6 +398,10 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         changes.own(at_root(target), render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")),
                     ASSETS / "project" / WORKFLOW)
 
+    if not modules:
+        text = render((ASSETS / "project-skills" / "add-module" / "SKILL.md").read_text(encoding="utf-8"), True)
+        for skills_dir in SKILL_DIRS:
+            changes.disown(f"{skills_dir}/add-module/SKILL.md", text, "--no-modules doesn't use it")
     skills = (["add-module"] if modules else []) + (["db-migration"] if "flyway" in pom.lower() else [])
     for skill in skills:
         text = render((ASSETS / "project-skills" / skill / "SKILL.md").read_text(encoding="utf-8"))
