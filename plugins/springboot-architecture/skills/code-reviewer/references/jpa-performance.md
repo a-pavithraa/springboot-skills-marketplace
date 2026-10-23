@@ -1,6 +1,6 @@
 # JPA Performance Guide
 
-Spring Data JPA performance on Boot 4 (Hibernate 7), plus the few Jakarta Persistence 3.2 / Hibernate 7 facts that differ from older guidance. General JPA advice that models already apply (fetch joins, projections, pagination, bulk updates) is kept short: in a trial, Sonnet fixed N+1, unbounded lists, a bad cascade and a save-per-row loop the same way with and without it (`tests/baseline-results/scenario-14.md`).
+Spring Data JPA performance on Boot 4 (Hibernate 7), plus the few Jakarta Persistence 3.2 / Hibernate 7 facts that differ from older guidance.
 
 ## Contents
 

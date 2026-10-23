@@ -35,7 +35,3 @@ Verified on Spring Boot 4.1.1 with Postgres 18, Kafka 4.1 and WireMock 3.13. Tak
 ## Report
 
 List the tests added (behavior and level), how each was shown to fail, tests that fail on the current code with the contract clause they rely on, and contract clauses left untested.
-
-## Evidence
-
-Trials on Sonnet (`tests/baseline-results/scenario-11.md` to `scenario-13.md`): general testing guidance made no difference, so it was removed. The traps and the real-infrastructure rule made the difference at service edges. Copying a template's cases instead of the contract made things worse, which is why rule 1 exists.

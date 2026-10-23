@@ -1,6 +1,6 @@
 # Spring Boot 4 Test Toolkit
 
-Boot 4 split the test support into modules, and agents most often get these imports wrong. Packages were checked against the Boot 4.1.1 jars on Maven Central (October 2026). For more depth on each test level, see Siva Prasad Reddy's [spring-boot skill references](https://github.com/sivaprasadreddy/sivalabs-agent-skills/tree/main/skills/spring-boot/references) (MIT).
+Boot 4 split the test support into modules, and agents most often get these imports wrong. Packages were checked against the Boot 4.1.1 jars on Maven Central (October 2026).
 
 ## Imports
 
