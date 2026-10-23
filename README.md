@@ -125,6 +125,25 @@ For tests where the framework decides whether a test proves anything: calls betw
 
 Trials on Sonnet showed that general testing advice (slice vs `@SpringBootTest`, no getter tests) made no difference, because the model already follows it. So this skill is deliberately small. See `tests/baseline-results/scenario-11.md` to `scenario-13.md`.
 
+### spring-boot-team-harness
+
+Gives every developer on a team the same agent setup, in Claude Code or Codex, by putting the rules in the build instead of in prompts. `scripts/apply_harness.py` adds to a Maven Boot 4 project:
+
+- `AGENTS.md`, which both tools read, plus a one-line `CLAUDE.md` that imports it;
+- a committed `.claude/settings.json`;
+- `./mvnw verify` gates.
+
+The gates fail the build on:
+
+- a null-safety bug (NullAway with JSpecify);
+- a module-boundary breach (Spring Modulith);
+- a Boot property key that no dependency defines, or one that is deprecated (Boot ignores such keys silently);
+- unformatted code (Spotless).
+
+It also commits two project skills, `add-module` and `db-migration`, to both `.claude/skills/` and `.agents/skills/`, so Claude Code and Codex users get the same ones. And it offers this plugin to every teammate through `enabledPlugins`. On a progen project it keeps what progen already set up and adds only what's missing. `creating-springboot-projects` runs it as its last step.
+
+Every gate was checked against a planted violation and on a fresh progen project. There, NullAway found three methods that return `null` without declaring it, and the key test found two Spring Modulith event settings that no dependency reads. It adds no MCP servers, so day-to-day sessions load only the short `AGENTS.md` and the project skills' names and descriptions.
+
 ## Usage Examples
 
 **"I need a REST API for products with basic CRUD."**

@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""Add the team harness to a Maven Spring Boot project: AGENTS.md, Claude Code settings, and ./mvnw verify gates.
+
+Usage:
+    python3 apply_harness.py <project-dir> [--base-package com.example.app] [--dry-run]
+
+The pom gets NullAway (JSpecify mode, main code only) through Error Prone, Spotless with palantir-java-format, and Spring
+Modulith's test starter. Two tests are added: ConfigurationKeysTests and ModuleBoundariesTests. Files that
+already exist are left alone and reported, except CLAUDE.md, which gets an `@AGENTS.md` import as its first
+line. Running it twice changes nothing.
+"""
+
+import argparse
+import re
+import shutil
+import sys
+from pathlib import Path
+
+ASSETS = Path(__file__).resolve().parent.parent / "assets"
+MARKER = "harness:begin"
+TAG = re.compile(r"<!--.*?-->|<(/?)([\w.:-]+)[^>]*?(/?)>", re.S)
+ITEM = re.compile(r"^ *<(?P<kind>dependency|plugin)>.*?^ *</(?P=kind)>\n|^ *<(?P<property>[\w.-]+)>[^<]*</(?P=property)>\n",
+                  re.S | re.M)
+MODULE_BLOCK = re.compile(r"<!-- modules:begin -->\n(.*?)<!-- modules:end -->\n", re.S)
+SKILL_DIRS = (".claude/skills", ".agents/skills")
+
+
+def element_spans(pom: str) -> dict[tuple[str, ...], list[tuple[int, int]]]:
+    """Map each element path, such as ('project', 'dependencies'), to the (start, end) offsets of its closing tags."""
+    stack: list[str] = []
+    spans: dict[tuple[str, ...], list[tuple[int, int]]] = {}
+    for match in TAG.finditer(pom):
+        closing, name, self_closing = match.group(1), match.group(2), match.group(3)
+        if name is None or self_closing or name.startswith("?"):
+            continue
+        if closing:
+            if stack and stack[-1] == name:
+                spans.setdefault(tuple(stack), []).append((match.start(), match.end()))
+                stack.pop()
+        else:
+            stack.append(name)
+    return spans
+
+
+def insert_before_close(pom: str, path: tuple[str, ...], fragment: str) -> str | None:
+    closes = element_spans(pom).get(path)
+    if not closes:
+        return None
+    start = closes[0][0]
+    line_start = pom.rfind("\n", 0, start) + 1
+    return pom[:line_start] + fragment + pom[line_start:]
+
+
+def wrap(fragment: str, *tags: str, indent: str) -> str:
+    opening = "".join(f"{indent}{'  ' * i}<{tag}>\n" for i, tag in enumerate(tags))
+    closing = "".join(f"{indent}{'  ' * i}</{tag}>\n" for i, tag in reversed(list(enumerate(tags))))
+    return opening + fragment + closing
+
+
+def missing_items(fragment: str, pom: str) -> str:
+    """Keep only the fragment's properties, dependencies and plugins that the pom doesn't declare yet."""
+    kept = []
+    for item in ITEM.finditer(fragment):
+        block = item.group(0)
+        artifact = re.search(r"<artifactId>([^<]+)</artifactId>", block)
+        if artifact:
+            present = re.search(rf"<artifactId>\s*{re.escape(artifact.group(1))}\s*</artifactId>", pom)
+        else:
+            present = re.search(rf"<{re.escape(item.group('property'))}>", pom)
+        if not present:
+            kept.append(block)
+    if not kept:
+        return ""
+    begin, end = fragment.splitlines(keepends=True)[0], fragment.splitlines(keepends=True)[-1]
+    return begin + "".join(kept) + end
+
+
+def patch_pom(pom: str, base_package: str, modules: bool) -> str:
+    if MARKER in pom:
+        return pom
+    build_plugins = re.sub(r"<!--.*?-->|<pluginManagement>.*?</pluginManagement>|<profiles>.*?</profiles>", "", pom, flags=re.S)
+    if re.search(r"<artifactId>\s*maven-compiler-plugin\s*</artifactId>", build_plugins):
+        sys.exit(f"ERROR: pom.xml already configures maven-compiler-plugin. Merge its part of "
+                 f"{ASSETS / 'pom' / 'plugins.xml'} by hand.")
+
+    fragments = {name: (ASSETS / "pom" / f"{name}.xml").read_text(encoding="utf-8").replace("{{BASE_PACKAGE}}", base_package)
+                 for name in ("properties", "dependencies", "modules-dependencies", "managed-dependencies", "plugins")}
+    if not modules:
+        fragments["properties"] = re.sub(r".*spring-modulith\.version.*\n", "", fragments["properties"])
+    properties = missing_items(fragments["properties"], pom)
+    dependencies = missing_items(fragments["dependencies"], pom)
+    if modules:
+        dependencies += missing_items(fragments["modules-dependencies"], pom)
+    managed = missing_items(fragments["managed-dependencies"], pom) if modules else ""
+    plugins = missing_items(fragments["plugins"], build_plugins)
+
+    if properties:
+        patched = insert_before_close(pom, ("project", "properties"), properties)
+        pom = patched or insert_before_close(pom, ("project",), wrap(properties, "properties", indent="  "))
+    if dependencies:
+        patched = insert_before_close(pom, ("project", "dependencies"), dependencies)
+        pom = patched or insert_before_close(pom, ("project",), wrap(dependencies, "dependencies", indent="  "))
+    if managed:
+        patched = insert_before_close(pom, ("project", "dependencyManagement", "dependencies"), managed)
+        if patched is None:
+            patched = insert_before_close(pom, ("project",), wrap(managed, "dependencyManagement", "dependencies", indent="  "))
+        pom = patched
+    if plugins:
+        patched = insert_before_close(pom, ("project", "build", "plugins"), plugins)
+        if patched is None:
+            patched = insert_before_close(pom, ("project", "build"), wrap(plugins, "plugins", indent="    "))
+        if patched is None:
+            patched = insert_before_close(pom, ("project",), wrap(plugins, "build", "plugins", indent="  "))
+        pom = patched
+    return pom
+
+
+def find_application(project: Path) -> tuple[str, str]:
+    for source in sorted((project / "src" / "main" / "java").rglob("*.java")):
+        text = source.read_text(encoding="utf-8", errors="replace")
+        if "@SpringBootApplication" in text:
+            package = re.search(r"^\s*package\s+([\w.]+)\s*;", text, re.M)
+            if package:
+                return package.group(1), source.stem
+    sys.exit("ERROR: no @SpringBootApplication class under src/main/java. Pass --base-package and add the "
+             "boundary test by hand.")
+
+
+def pom_value(pom: str, pattern: str, default: str) -> str:
+    match = re.search(pattern, pom, re.S)
+    return match.group(1).strip() if match else default
+
+
+class Changes:
+    def __init__(self, project: Path, dry_run: bool):
+        self.project, self.dry_run, self.lines = project, dry_run, []
+
+    def write(self, relative: str, text: str, note: str):
+        target = self.project / relative
+        if not self.dry_run:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8", newline="\n")
+        self.lines.append(f"{note:8} {relative}")
+
+    def keep(self, relative: str, reason: str):
+        self.lines.append(f"{'kept':8} {relative} ({reason})")
+
+
+def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool = True) -> list[str]:
+    pom_path = project / "pom.xml"
+    if not pom_path.exists():
+        sys.exit("ERROR: no pom.xml. The harness supports Maven projects only.")
+    app_package, app_class = find_application(project)
+    base_package = base_package or app_package
+    pom = pom_path.read_text(encoding="utf-8")
+    changes = Changes(project, dry_run)
+
+    patched = patch_pom(pom, base_package, modules)
+    if patched == pom:
+        changes.keep("pom.xml", "harness already present")
+    else:
+        changes.write("pom.xml", patched, "patched")
+
+    values = {
+        "{{PROJECT_NAME}}": pom_value(pom, r"</parent>.*?<artifactId>([^<]+)</artifactId>", project.name),
+        "{{BOOT_VERSION}}": pom_value(pom, r"<parent>.*?<version>([^<]+)</version>", "4"),
+        "{{JAVA_VERSION}}": pom_value(pom, r"<java.version>([^<]+)</java.version>", "25"),
+        "{{BASE_PACKAGE}}": base_package,
+        "{{TEST_PACKAGE}}": base_package,
+        "{{APP_CLASS}}": f"{app_package}.{app_class}",
+        "{{BASE_PATH}}": base_package.replace(".", "/"),
+    }
+
+    def render(text: str) -> str:
+        text = MODULE_BLOCK.sub(lambda match: match.group(1) if modules else "", text)
+        for placeholder, value in values.items():
+            text = text.replace(placeholder, value)
+        return text
+
+    agents_template = render((ASSETS / "project" / "AGENTS.md").read_text(encoding="utf-8"))
+    agents = project / "AGENTS.md"
+    if not agents.exists():
+        changes.write("AGENTS.md", agents_template, "added")
+    elif "## Done means verify passes" in agents.read_text(encoding="utf-8"):
+        changes.keep("AGENTS.md", "has the harness section")
+    else:
+        section = agents_template[agents_template.index("## Done means"):agents_template.index("## Team conventions")]
+        existing = agents.read_text(encoding="utf-8").rstrip("\n")
+        changes.write("AGENTS.md", f"{existing}\n\n<!-- harness:begin -->\n{section.rstrip()}\n<!-- harness:end -->\n",
+                      "patched")
+
+    settings = ".claude/settings.json"
+    if (project / settings).exists():
+        changes.keep(settings, f"exists; compare with {ASSETS / 'project' / settings}")
+    else:
+        changes.write(settings, render((ASSETS / "project" / settings).read_text(encoding="utf-8")), "added")
+
+    claude_md = project / "CLAUDE.md"
+    if not claude_md.exists():
+        changes.write("CLAUDE.md", "@AGENTS.md\n", "added")
+    elif "@AGENTS.md" in claude_md.read_text(encoding="utf-8"):
+        changes.keep("CLAUDE.md", "already imports AGENTS.md")
+    else:
+        changes.write("CLAUDE.md", "@AGENTS.md\n\n" + claude_md.read_text(encoding="utf-8"), "patched")
+
+    jvm_config = project / ".mvn" / "jvm.config"
+    wanted = (ASSETS / "project" / ".mvn" / "jvm.config").read_text(encoding="utf-8").splitlines()
+    present = jvm_config.read_text(encoding="utf-8").splitlines() if jvm_config.exists() else []
+    missing = [line for line in wanted if line not in present]
+    if missing:
+        changes.write(".mvn/jvm.config", "\n".join(present + missing) + "\n", "patched" if present else "added")
+    else:
+        changes.keep(".mvn/jvm.config", "has the Error Prone flags")
+
+    test_dir = Path("src/test/java", *base_package.split("."))
+    existing_boundary_test = next((path for path in (project / "src" / "test").rglob("*.java")
+                                   if "ApplicationModules.of(" in path.read_text(encoding="utf-8", errors="replace")), None)
+    tests = ["ConfigurationKeysTests.java"]
+    if modules and existing_boundary_test:
+        changes.keep(existing_boundary_test.relative_to(project).as_posix(), "already verifies module boundaries")
+    elif modules:
+        tests.append("ModuleBoundariesTests.java")
+    for test in tests:
+        relative = (test_dir / test).as_posix()
+        if (project / relative).exists():
+            changes.keep(relative, "exists")
+        else:
+            changes.write(relative, render((ASSETS / "tests" / test).read_text(encoding="utf-8")), "added")
+
+    skills = (["add-module"] if modules else []) + (["db-migration"] if "flyway" in pom.lower() else [])
+    for skill in skills:
+        text = render((ASSETS / "project-skills" / skill / "SKILL.md").read_text(encoding="utf-8"))
+        for skills_dir in SKILL_DIRS:
+            relative = f"{skills_dir}/{skill}/SKILL.md"
+            if (project / relative).exists():
+                changes.keep(relative, "exists")
+            else:
+                changes.write(relative, text, "added")
+    return changes.lines
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("project")
+    parser.add_argument("--base-package", help="Package NullAway checks; defaults to the @SpringBootApplication package")
+    parser.add_argument("--dry-run", action="store_true", help="Report what would change without writing")
+    parser.add_argument("--no-modules", action="store_true",
+                        help="Skip Spring Modulith boundaries, for layered or hexagonal projects whose subpackages are layers")
+    args = parser.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8")
+    for line in apply(Path(args.project).resolve(), args.base_package, args.dry_run, not args.no_modules):
+        print(line)
+    if not args.dry_run:
+        print("\nNext: ./mvnw spotless:apply, then ./mvnw verify, and fix what NullAway reports.")
+
+
+if __name__ == "__main__":
+    main()

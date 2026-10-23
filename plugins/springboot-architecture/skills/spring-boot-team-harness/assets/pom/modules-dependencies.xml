@@ -1,0 +1,7 @@
+    <!-- harness:begin modules-dependencies -->
+    <dependency>
+      <groupId>org.springframework.modulith</groupId>
+      <artifactId>spring-modulith-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- harness:end modules-dependencies -->

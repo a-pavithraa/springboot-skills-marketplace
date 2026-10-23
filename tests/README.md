@@ -23,6 +23,7 @@ To add a scenario, write the task and how it's scored in `baseline-scenarios.md`
 - `test_scan_migration_issues.py`: Maven dependency boundaries, exclusions and namespaces, Modulith schema detection in properties and YAML, SQL comments.
 - `test_progen_config.py`: package and app-name validation, the existing-directory guard, progen failure handling, and Java version patching. A fake `progen` on `PATH` replaces the real binary.
 - `test_check_new_project.py`: the new-project checks.
+- `test_apply_harness.py`: where the harness script puts each pom fragment, the files it adds or appends to, idempotency, `--no-modules` and `--dry-run`.
 
 ```bash
 python3 -m unittest discover -s tests/scripts -v

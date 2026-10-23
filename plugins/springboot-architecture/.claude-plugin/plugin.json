@@ -1,0 +1,8 @@
+{
+  "name": "springboot-architecture",
+  "version": "2.2.0",
+  "description": "Skills for creating, testing and reviewing Spring Boot projects with architecture patterns (Layered to DDD+Hexagonal)",
+  "author": {
+    "name": "Pavithra"
+  }
+}

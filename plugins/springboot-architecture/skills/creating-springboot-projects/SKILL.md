@@ -151,7 +151,17 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/check_new_project.py" /path/to/project
 
 It fails on unresolved `{{PLACEHOLDER}}` tokens, a Spring Boot version before 4.x, a missing Taikai test or dependency, and Boot 3 starter or Testcontainers 1 names. It warns on an older 4.x line and on H2. Then run the build (`./mvnw verify` or `./gradlew build`).
 
-### Step 7: Hand off specialized concerns when needed
+### Step 7: Apply the team harness (Maven)
+
+Give the project the shared agent setup from the `spring-boot-team-harness` skill: `AGENTS.md`, `.claude/settings.json`, project skills, and the `./mvnw verify` gates. Pass `--no-modules` for `layered` and `ddd-hexagonal`, whose subpackages are layers that the Taikai rules already govern:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/../spring-boot-team-harness/scripts/apply_harness.py" /path/to/project [--no-modules]
+```
+
+On a progen project, it keeps what progen already set up (Spotless, Spring Modulith, `ModularityTests`, `AGENTS.md`) and adds only what's missing. Then run `./mvnw spotless:apply` and `./mvnw verify`. Expect NullAway to flag progen methods that return `null` without `@Nullable`: annotate them and handle the null at the callers. Fill in the `Modules` and `Team conventions` sections of `AGENTS.md` with the user.
+
+### Step 8: Hand off specialized concerns when needed
 
 - Use `springboot-migration` for upgrades of existing applications rather than new-project setup.
 - Use `writing-springboot-tests` for tests at the service's edges (HTTP clients, messaging, published events): it has verified Boot 4 templates and the traps that make such tests pass without proving anything.

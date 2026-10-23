@@ -36,3 +36,4 @@ __pycache__/
 
 # Internal working doc (kept local, not part of the marketplace)
 MIGRATION_AUDIT.md
+.project-map/
