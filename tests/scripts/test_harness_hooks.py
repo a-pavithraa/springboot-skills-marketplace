@@ -150,5 +150,49 @@ class StopHookTests(unittest.TestCase):
         self.assertEqual(self.checks_run(), runs + 1, "the failed run was cached as a pass")
 
 
+@unittest.skipUnless(BASH, "bash not found")
+class StopHookInSubfolderTests(unittest.TestCase):
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        backend = self.root / "backend"
+        (backend / "src").mkdir(parents=True)
+        (backend / "src" / "A.java").write_text("class A {}\n")
+        (backend / "pom.xml").write_text("<project/>\n")
+        mvnw = backend / "mvnw"
+        mvnw.write_text(FAKE_MVNW, newline="\n")
+        mvnw.chmod(0o755)
+        (self.root / "frontend").mkdir()
+        (self.root / "frontend" / "app.js").write_text("1\n")
+        (self.root / ".gitignore").write_text("mvnw.log\n")
+        git(self.root, "init", "-q", "-b", "main")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "start")
+
+    def stop(self) -> subprocess.CompletedProcess:
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+        return subprocess.run([BASH, str(HOOKS / "verify-on-stop.sh"), "backend"],
+                              input=json.dumps({"stop_hook_active": False}), capture_output=True, text=True, env=env)
+
+    def checks_run(self) -> int:
+        log = self.root / "backend" / "mvnw.log"
+        return log.read_text().count(" test ") if log.exists() else 0
+
+    def test_checks_only_changes_to_the_maven_project(self):
+        self.assertEqual(self.stop().returncode, 0)
+        checked = self.checks_run()
+        self.assertEqual(checked, 1)
+
+        (self.root / "frontend" / "app.js").write_text("2\n")
+        git(self.root, "commit", "-qam", "frontend")
+        self.stop()
+        self.assertEqual(self.checks_run(), checked, "a frontend change ran the backend checks")
+
+        (self.root / "backend" / "src" / "A.java").write_text("class A { int b; }\n")
+        git(self.root, "commit", "-qam", "backend")
+        self.stop()
+        self.assertEqual(self.checks_run(), checked + 1, "a committed backend change was not checked")
+
+
 if __name__ == "__main__":
     unittest.main()

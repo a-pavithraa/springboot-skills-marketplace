@@ -15,8 +15,10 @@ first line. Running it twice changes nothing.
 
 import argparse
 import json
+import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -142,6 +144,12 @@ def merge_settings(current: dict, wanted: dict) -> dict:
     return merged
 
 
+def repository_root(project: Path) -> Path:
+    result = subprocess.run(["git", "-C", str(project), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    root = Path(result.stdout.strip()).resolve() if result.returncode == 0 and result.stdout.strip() else project
+    return root if project.is_relative_to(root) else project
+
+
 def find_application(project: Path) -> tuple[str, str]:
     for source in sorted((project / "src" / "main" / "java").rglob("*.java")):
         text = source.read_text(encoding="utf-8", errors="replace")
@@ -181,6 +189,12 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     base_package = base_package or app_package
     pom = pom_path.read_text(encoding="utf-8")
     changes = Changes(project, dry_run)
+    # CI, Claude Code settings and hooks only work at the repository root, which can be above the Maven project.
+    root = repository_root(project)
+    folder = project.relative_to(root).as_posix() if root != project else ""
+
+    def at_root(relative: str | Path) -> str:
+        return Path(os.path.relpath(root / relative, project)).as_posix()
 
     patched = patch_pom(pom, base_package, modules)
     if patched == pom:
@@ -196,6 +210,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         "{{TEST_PACKAGE}}": base_package,
         "{{APP_CLASS}}": f"{app_package}.{app_class}",
         "{{BASE_PATH}}": base_package.replace(".", "/"),
+        "{{MAVEN_DIR}}": folder or ".",
     }
 
     def render(text: str) -> str:
@@ -216,36 +231,52 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         changes.write("AGENTS.md", f"{existing}\n\n<!-- harness:begin -->\n{section.rstrip()}\n<!-- harness:end -->\n",
                       "patched")
 
-    settings = ".claude/settings.json"
-    wanted_settings = render((ASSETS / "project" / settings).read_text(encoding="utf-8"))
+    if folder:
+        pointer = (f"The rules and build gates for `{folder}/` are in `{folder}/AGENTS.md`. Read it before you change "
+                   "anything there.\n")
+        root_agents = root / "AGENTS.md"
+        present = root_agents.read_text(encoding="utf-8") if root_agents.exists() else ""
+        if f"{folder}/AGENTS.md" in present:
+            changes.keep(at_root("AGENTS.md"), f"points to {folder}/AGENTS.md")
+        else:
+            lead = present.rstrip("\n") + "\n\n" if present else ""
+            changes.write(at_root("AGENTS.md"), lead + pointer, "patched" if present else "added")
+
+    template = ASSETS / "project" / ".claude" / "settings.json"
+    wanted_settings = json.loads(render(template.read_text(encoding="utf-8")))
+    if folder:
+        for group in wanted_settings["hooks"]["Stop"]:
+            for hook in group["hooks"]:
+                hook["command"] += f' "{folder}"'
+    settings = at_root(".claude/settings.json")
     if not (project / settings).exists():
-        changes.write(settings, wanted_settings, "added")
+        changes.write(settings, json.dumps(wanted_settings, indent=2) + "\n", "added")
     else:
         try:
             current = json.loads((project / settings).read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             current = None
         if not isinstance(current, dict):
-            changes.keep(settings, f"not valid JSON; merge {ASSETS / 'project' / settings} by hand")
+            changes.keep(settings, f"not valid JSON; merge {template} by hand")
         else:
-            merged = merge_settings(current, json.loads(wanted_settings))
+            merged = merge_settings(current, wanted_settings)
             if merged == current:
                 changes.keep(settings, "has the harness entries")
             else:
                 changes.write(settings, json.dumps(merged, indent=2) + "\n", "patched")
     for hook in HOOKS:
-        if (project / hook).exists():
-            changes.keep(hook, "exists")
+        if (project / at_root(hook)).exists():
+            changes.keep(at_root(hook), "exists")
         else:
-            changes.write(hook, (ASSETS / "project" / hook).read_text(encoding="utf-8"), "added")
+            changes.write(at_root(hook), (ASSETS / "project" / hook).read_text(encoding="utf-8"), "added")
 
-    attributes = project / ".gitattributes"
+    attributes = root / ".gitattributes"
     present = attributes.read_text(encoding="utf-8") if attributes.exists() else ""
     if re.search(r"^\*\.sh\s.*eol=lf", present, re.M):
-        changes.keep(".gitattributes", "keeps shell scripts LF")
+        changes.keep(at_root(".gitattributes"), "keeps shell scripts LF")
     else:
         lead = "" if not present or present.endswith("\n") else "\n"
-        changes.write(".gitattributes", present + lead + "*.sh text eol=lf\n", "patched" if present else "added")
+        changes.write(at_root(".gitattributes"), present + lead + "*.sh text eol=lf\n", "patched" if present else "added")
 
     claude_md = project / "CLAUDE.md"
     if not claude_md.exists():
@@ -279,14 +310,14 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         else:
             changes.write(relative, render((ASSETS / "tests" / test).read_text(encoding="utf-8")), "added")
 
-    workflows = project / ".github" / "workflows"
+    workflows = root / ".github" / "workflows"
     runs_maven = next((path for path in sorted(workflows.glob("*.y*ml")) if workflows.is_dir()
                        and re.search(r"\bmvnw?\b", path.read_text(encoding="utf-8", errors="replace"))), None)
     if runs_maven:
-        changes.keep(runs_maven.relative_to(project).as_posix(), "already runs Maven in CI")
+        changes.keep(at_root(runs_maven.relative_to(root)), "already runs Maven in CI")
     else:
-        target = WORKFLOW if not (project / WORKFLOW).exists() else ".github/workflows/harness-verify.yml"
-        changes.write(target, render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")), "added")
+        target = WORKFLOW if not (root / WORKFLOW).exists() else ".github/workflows/harness-verify.yml"
+        changes.write(at_root(target), render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")), "added")
 
     skills = (["add-module"] if modules else []) + (["db-migration"] if "flyway" in pom.lower() else [])
     for skill in skills:

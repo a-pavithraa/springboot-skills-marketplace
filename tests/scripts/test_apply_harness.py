@@ -343,6 +343,52 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("archunit", direct)
         self.assertIn("jspecify", direct)
 
+    def monorepo(self, extra: dict[str, str] | None = None) -> tuple[Path, Path]:
+        backend = self.project(STANDARD)
+        root = Path(tempfile.mkdtemp())
+        backend.rename(root / "backend")
+        (root / "frontend").mkdir()
+        (root / "frontend" / "package.json").write_text("{}\n", encoding="utf-8")
+        for relative, text in (extra or {}).items():
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).write_text(text, encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        return root, root / "backend"
+
+    def test_project_in_a_subfolder_gets_ci_settings_and_hooks_at_the_repository_root(self):
+        root, backend = self.monorepo()
+        self.assertEqual(self.run_script(backend).returncode, 0)
+
+        workflow = (root / ".github/workflows/verify.yml").read_text(encoding="utf-8")
+        self.assertIn("working-directory: backend", workflow)
+        self.assertFalse((backend / ".github").exists())
+
+        settings = json.loads((root / ".claude/settings.json").read_text(encoding="utf-8"))
+        stop = [hook["command"] for group in settings["hooks"]["Stop"] for hook in group["hooks"]]
+        self.assertTrue(any(command.endswith('verify-on-stop.sh" "backend"') for command in stop), stop)
+        for hook in ("guard.sh", "verify-on-stop.sh"):
+            self.assertTrue((root / ".claude/hooks" / hook).exists())
+        self.assertFalse((backend / ".claude/settings.json").exists())
+        self.assertIn("*.sh text eol=lf", (root / ".gitattributes").read_text(encoding="utf-8"))
+
+        self.assertIn("## Done means verify passes", (backend / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertIn("backend/AGENTS.md", (root / "AGENTS.md").read_text(encoding="utf-8"))
+
+        before = {path: path.read_bytes() for path in root.rglob("*") if path.is_file() and ".git" not in path.parts}
+        self.run_script(backend)
+        after = {path: path.read_bytes() for path in root.rglob("*") if path.is_file() and ".git" not in path.parts}
+        self.assertEqual(after, before)
+
+    def test_subfolder_project_keeps_a_root_workflow_that_builds_it(self):
+        ci = "jobs:\n  build:\n    steps:\n      - run: cd backend && ./mvnw -B verify\n"
+        root, backend = self.monorepo({".github/workflows/ci.yml": ci, "AGENTS.md": "# Repo\n"})
+        result = self.run_script(backend)
+        self.assertIn("../.github/workflows/ci.yml", result.stdout)
+        self.assertEqual(sorted(p.name for p in (root / ".github/workflows").iterdir()), ["ci.yml"])
+        self.assertEqual((root / "AGENTS.md").read_text(encoding="utf-8"),
+                         "# Repo\n\nThe rules and build gates for `backend/` are in `backend/AGENTS.md`. Read it "
+                         "before you change anything there.\n")
+
     def test_dry_run_writes_nothing(self):
         root = self.project(STANDARD)
         result = self.run_script(root, "--dry-run")

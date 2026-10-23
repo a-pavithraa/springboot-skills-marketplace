@@ -2,9 +2,10 @@
 # Claude Code Stop hook. When the code under src or pom.xml differs from what last passed, committed or not, it
 # formats the code and runs the gates that need no Docker: compile with NullAway, then the rules,
 # configuration-key and module tests. On failure it exits 2, which sends the errors back to Claude to fix before
-# the turn ends. The full ./mvnw verify still runs in CI.
+# the turn ends. The full ./mvnw verify still runs in CI. The optional argument is the Maven project's folder,
+# relative to the repository root, when it isn't the root itself.
 set -u
-cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
+cd "${CLAUDE_PROJECT_DIR:-.}/${1:-.}" || exit 0
 input=$(cat)
 git rev-parse --git-dir > /dev/null 2>&1 || exit 0
 
@@ -16,8 +17,8 @@ FAILED="$STAMPS/failed"
 
 code_state() {
   {
-    git rev-parse -q --verify HEAD:src 2> /dev/null
-    git rev-parse -q --verify HEAD:pom.xml 2> /dev/null
+    git rev-parse -q --verify HEAD:./src 2> /dev/null
+    git rev-parse -q --verify HEAD:./pom.xml 2> /dev/null
     git diff HEAD -- src pom.xml 2> /dev/null || git diff -- src pom.xml
     git ls-files -o --exclude-standard -- src | while IFS= read -r file; do
       printf '%s\n' "$file"
