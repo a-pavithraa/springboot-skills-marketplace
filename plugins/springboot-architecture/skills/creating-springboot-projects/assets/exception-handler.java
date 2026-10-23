@@ -19,7 +19,7 @@ import java.util.List;
  */
 @RestControllerAdvice
 class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
-    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private static final Logger LOG = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
@@ -28,23 +28,23 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpStatusCode status,
             WebRequest request) {
 
-        log.error("Validation error", ex);
+        LOG.error("Validation error", ex);
 
         var errors = ex.getAllErrors().stream()
             .map(e -> e.getDefaultMessage())
             .toList();
 
         ProblemDetail problemDetail = ProblemDetail
-            .forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, "Validation failed");
+            .forStatusAndDetail(HttpStatus.BAD_REQUEST, "Validation failed");
         problemDetail.setTitle("Validation Error");
         problemDetail.setProperty("errors", errors);
 
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problemDetail);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
 
     @ExceptionHandler(DomainException.class)
     public ProblemDetail handleDomainException(DomainException e) {
-        log.info("Domain exception: {}", e.getMessage());
+        LOG.info("Domain exception: {}", e.getMessage());
 
         ProblemDetail problemDetail = ProblemDetail
             .forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
@@ -56,7 +56,7 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ProblemDetail handleNotFound(ResourceNotFoundException e) {
-        log.info("Resource not found: {}", e.getMessage());
+        LOG.info("Resource not found: {}", e.getMessage());
 
         ProblemDetail problemDetail = ProblemDetail
             .forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
@@ -67,7 +67,7 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception e) {
-        log.error("Unexpected exception", e);
+        LOG.error("Unexpected exception", e);
 
         ProblemDetail problemDetail = ProblemDetail
             .forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");

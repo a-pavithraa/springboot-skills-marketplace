@@ -1,6 +1,6 @@
 ---
 name: springboot-migration
-description: Use when upgrading an existing Spring Boot application to Boot 4 — dependency transitions, starter renames, test-annotation migration (e.g. @MockBean → @MockitoBean), Jackson 3 issues, related Spring Modulith 2 or Testcontainers 2 upgrade work, or planning a phased migration. Not for greenfield project creation or isolated repository design.
+description: Use when upgrading an existing Spring Boot application to Boot 4. That covers dependency transitions, starter renames, test-annotation migration (such as @MockBean to @MockitoBean), Jackson 3 issues, related Spring Modulith 2 or Testcontainers 2 upgrade work, or planning a phased migration. Not for greenfield project creation or isolated repository design.
 ---
 
 # Spring Boot Migration
@@ -13,7 +13,7 @@ Use this skill for phased upgrade work on existing Spring Boot applications. Thi
 
 - Never migrate blindly. Scan the codebase first.
 - Never apply every migration at once. Follow phased upgrades.
-- Treat Spring Boot 4, Spring Modulith 2, and Testcontainers 2 as the intended target stack for this skill unless the user asks for a narrower target. Boot 4's Java baseline is 17; recommend Java 25 for new compile targets but do not force an upgrade past what the migration actually requires.
+- Treat Spring Boot 4, Spring Modulith 2, and Testcontainers 2 as the intended target stack for this skill unless the user asks for a narrower target. Boot 4's Java baseline is 17; recommend Java 25 for new compile targets but do not force an upgrade past what the migration actually requires. For Java 26+ targets, read `../creating-springboot-projects/references/java-version-policy.md`.
 - Verify after each phase and stop when failures appear.
 
 ## Workflow
@@ -34,6 +34,7 @@ Use the scan output to identify:
 - configuration changes
 - Spring Modulith compatibility
 - Testcontainers compatibility
+- Java preview APIs (`StableValue`, `StructuredTaskScope`) that break on a newer JDK
 
 ### Step 2: Identify which migrations apply
 
@@ -72,6 +73,12 @@ Use the reference guides to plan and execute in this order.
 
 #### Phase 4: Verification
 
+- run the scanner again with `--check`; it exits with 1 while any CRITICAL issue remains (a missing modular starter, for example, compiles but fails at startup):
+
+  ```bash
+  python3 "${CLAUDE_SKILL_DIR}/scripts/scan_migration_issues.py" /path/to/project --check
+  ```
+
 - run unit tests
 - run integration tests
 - run container-based tests where present
@@ -105,7 +112,7 @@ After each phase, report:
 
 ## Available script
 
-- `scripts/scan_migration_issues.py`
+- `scripts/scan_migration_issues.py`: `--check` exits with 1 while CRITICAL issues remain. It skips build output and hidden directories, including project-level skill installs.
 
 ## Output format
 
@@ -132,4 +139,3 @@ When planning or reporting the migration, return:
 
 - Creating a new Spring Boot project from scratch
 - Broad architecture advice without an actual migration task
-- JPA-specific implementation work that belongs in `spring-data-jpa`

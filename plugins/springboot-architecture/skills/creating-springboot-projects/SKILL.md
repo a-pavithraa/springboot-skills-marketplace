@@ -1,6 +1,6 @@
 ---
 name: creating-springboot-projects
-description: Use when starting a new Spring Boot 4 project — scaffolding a service, REST API, or modular backend; picking an architecture (layered, package-by-module, modular-monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
+description: Use when starting a new Spring Boot 4 project. That covers scaffolding a service, REST API, or modular backend; picking an architecture (layered, package-by-module, modular-monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; generating the base project with progen or Spring Initializr; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
 ---
 
 # Creating Spring Boot Projects
@@ -13,7 +13,7 @@ Use this skill to create new Spring Boot 4 projects or define their structure be
 
 - Never jump straight to implementation before assessing project complexity.
 - Default to the simplest architecture that fits the domain.
-- Treat Spring Boot 4 as the target. Default new projects to Java 25 (current LTS). Boot 4's official baseline is Java 17 — accept Java 21 (previous LTS) or Java 17 when the user asks for them. Java 26 is the newest feature release (GA 2026-03-17) but is non-LTS; only pick it if the project tracks non-LTS Java.
+- Treat Spring Boot 4 as the target. Default new projects to Java 25 (LTS). Accept 21 or 17 when the user asks. Read `references/java-version-policy.md` before you pick a newer, non-LTS Java.
 - Read the reference files before choosing a higher-complexity architecture or optional framework feature.
 - Reuse the templates in `assets/` instead of rewriting the same scaffolding from scratch.
 
@@ -44,14 +44,19 @@ Use this matrix as the default decision aid. If the choice is not obvious, read 
 
 > `tomato` is a value-object-heavy modular monolith: JPA entities embed VOs, validation lives in VO constructors, and Spring converters bind VOs at the request boundary. See `references/architecture-guide.md` for the full definition.
 
-### Step 3: Define the initial Boot 4 setup
+### Step 3: Generate the base project
 
-Use Spring Initializr and capture the baseline:
+Pick the generator:
+
+- **Progen** (preferred when installed): check with `command -v progen`. Read `references/progen-integration.md` before you use it, and run it with JDK 25: on JDK 27 its output doesn't compile. Progen deletes `./<app-name>/` if it exists, so always run it through `scripts/progen_config.py`, which validates values and refuses to overwrite.
+- **Spring Initializr**: use it when progen is not installed and the user does not want it, or the project does not fit progen (see the reference).
+
+For Spring Initializr, capture the baseline:
 
 - Project: Maven or Gradle
 - Language: Java
 - Spring Boot: 4.1.x
-- Java: 25 (recommended — current LTS). Boot 4's minimum is Java 17; use 21 for the previous LTS, or 17 for stricter compatibility. Java 26 (GA 2026-03-17) is the latest feature release but is non-LTS.
+- Java: 25 (LTS). See `references/java-version-policy.md`.
 
 Baseline dependencies for most projects:
 
@@ -66,7 +71,7 @@ Baseline dependencies for most projects:
 Optional dependencies based on architecture or features:
 
 - Spring Modulith for modular monolith or tomato designs
-- ArchUnit for stronger architecture enforcement
+- Taikai architecture rules (`assets/architecture-rules-test.java`) for every project; progen projects already have most of them
 - Additional Spring Boot 4 features only when the use case needs them
 
 Read `references/spring-boot-4-features.md` before selecting:
@@ -79,11 +84,11 @@ Read `references/spring-boot-4-features.md` before selecting:
 
 ### Step 4: Apply the matching assets
 
-Use the bundled templates from `assets/` and replace placeholders only after the package and module names are settled.
+Use the bundled templates from `assets/` and replace placeholders only after the package and module names are settled. If progen generated the project, skip the assets it already covers (see `references/progen-integration.md`).
 
 #### Placeholder convention
 
-Every template uses `{{TOKEN}}` placeholders. Resolve all of them before applying — templates do not compile until every placeholder is replaced. The full set used across `assets/`:
+Every template uses `{{TOKEN}}` placeholders. Resolve all of them before applying. The templates do not compile until every placeholder is replaced. The full set used across `assets/`:
 
 | Placeholder | Replace with | Example |
 |-------------|--------------|---------|
@@ -93,9 +98,9 @@ Every template uses `{{TOKEN}}` placeholders. Resolve all of them before applyin
 | `{{TYPE}}` | Wrapped scalar type inside a value object | `String`, `Long`, `BigDecimal` |
 | `{{FIELD}}` | Record field name (camelCase) | `code`, `amount` |
 | `{{TABLE_NAME}}` | Database table name (used in JPA `@Table`) | `orders` |
-| `{{TABLE}}` | Same meaning as `{{TABLE_NAME}}` — legacy variant kept only in `flyway-migration.sql` | `orders` |
+| `{{TABLE}}` | Same meaning as `{{TABLE_NAME}}`. A legacy variant, used only in `flyway-migration.sql` | `orders` |
 | `{{PROJECT_NAME}}` | Project artifactId / docker prefix (used only in `docker-compose.yml`) | `shop-api` |
-| `{{name}}` | HTTP service group identifier — **not** a lowercase variant of `{{NAME}}`. Appears only in commented `@ImportHttpServices(group = "...")` examples. | `orders` |
+| `{{name}}` | HTTP service group identifier, **not** a lowercase variant of `{{NAME}}`. Appears only in commented `@ImportHttpServices(group = "...")` examples. | `orders` |
 
 If a template uses a placeholder not listed here, treat it as a typo and confirm the intended value before applying.
 
@@ -119,6 +124,7 @@ Boot 4 and modularity templates:
 - `assets/resttestclient-test.java`
 - `assets/package-info-jspecify.java`
 - `assets/modularity-test.java`
+- `assets/architecture-rules-test.java`: Taikai rules that fail the build (naming, injection, self-invoked proxied methods, controllers using repositories, `@Disabled` tests). Adjust per style as its header says
 - `assets/resilience-service.java`
 - `assets/pom-additions.xml`
 - `assets/testcontainers-test.java`
@@ -133,15 +139,34 @@ Read `references/architecture-guide.md` for package structure and apply the matc
 - `tomato`: add value objects and rich domain entities where they protect important invariants
 - `ddd-hexagonal`: separate application, domain, and infrastructure explicitly
 
-### Step 6: Hand off specialized concerns when needed
+### Step 6: Add the architecture test
 
-- Use `spring-data-jpa` when the user needs deeper query, projection, repository, or relationship decisions.
+Every project gets `assets/architecture-rules-test.java` as `src/test/java/<package>/ArchitectureRulesTest.java`, with the Taikai test dependency from `assets/pom-additions.xml`. Adjust it for the chosen style as its header says. For a progen project, add only the `[beyond progen]` rules to the generated `ArchUnitTests.java`, after the three changes in `references/progen-integration.md`. Run it and confirm it passes before you hand the project over: these rules keep holding after the session ends.
+
+Then check the project, and fix every `FAIL` before you hand it over:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/check_new_project.py" /path/to/project
+```
+
+It fails on unresolved `{{PLACEHOLDER}}` tokens, a Spring Boot version before 4.x, a missing Taikai test or dependency, and Boot 3 starter or Testcontainers 1 names. It warns on an older 4.x line and on H2. Then run the build (`./mvnw verify` or `./gradlew build`).
+
+### Step 7: Hand off specialized concerns when needed
+
 - Use `springboot-migration` for upgrades of existing applications rather than new-project setup.
+- Use `writing-springboot-tests` for tests at the service's edges (HTTP clients, messaging, published events): it has verified Boot 4 templates and the traps that make such tests pass without proving anything.
 
 ## Reference loading guide
 
 - Package structures, anti-patterns, and upgrade paths: `references/architecture-guide.md`
 - Spring Boot 4 feature-specific guidance: `references/spring-boot-4-features.md`
+- Java version choice, preview-API changes, JDK 26/27 runtime changes: `references/java-version-policy.md`
+- Generating the base project with progen: `references/progen-integration.md`
+
+## Available script
+
+- `scripts/progen_config.py`: builds and validates `.progen.json`, and runs progen with `--run`.
+- `scripts/check_new_project.py`: checks the finished project against this skill (Step 6). Exit 1 means at least one failure.
 
 ## Output format
 
@@ -153,6 +178,7 @@ When the user asks for a plan or scaffold recommendation, return:
 - Why:
 
 ## Initial setup
+- Generator: progen or Spring Initializr
 - Build tool:
 - Java version:
 - Spring Boot version:

@@ -1,631 +1,200 @@
 # Security Review Checklist
 
-## Table of Contents
+Organized by [OWASP Top 10:2025](https://owasp.org/Top10/). Targets Spring Boot 4 / Spring Security 7. Report exploitability and the affected entry point, not only the rule.
 
-1. [OWASP Top 10 (2021)](#owasp-top-10)
-2. [Spring Security Patterns](#spring-security-patterns)
-3. [Input Validation](#input-validation)
-4. [Review Checklist](#review-checklist)
-5. [Official Documentation](#official-documentation)
+## Contents
 
-Authentication / authorization, cryptography, session management, API security, and logging are folded into the [OWASP Top 10](#owasp-top-10) subsections (A01–A10) below.
-
----
-
-## OWASP Top 10
-
-### A01:2021 – Broken Access Control
-
-❌ **Insecure: No authorization checks**
-```java
-@GetMapping("/admin/users")
-public List<User> getAllUsers() {
-    return userRepository.findAll();  // Anyone can access!
-}
-```
-
-✅ **Secure: Proper authorization**
-```java
-@GetMapping("/admin/users")
-@PreAuthorize("hasRole('ADMIN')")
-public List<User> getAllUsers() {
-    return userRepository.findAll();
-}
-```
-
-✅ **Secure: Method-level security**
-```java
-@Service
-public class UserService {
-    @PreAuthorize("hasRole('ADMIN') or #userId == authentication.principal.id")
-    public User getUser(Long userId) {
-        return userRepository.findById(userId)
-            .orElseThrow(() -> new UserNotFoundException(userId));
-    }
-}
-```
-
-**Review Points:**
-- [ ] All sensitive endpoints have authorization checks
-- [ ] Authorization is method-level, not just URL-based
-- [ ] Users can only access their own resources (or have proper role)
+1. [OWASP Top 10:2025](#owasp-top-102025)
+2. [Spring Security 7 configuration](#spring-security-7-configuration)
+3. [Tokens and JWT](#tokens-and-jwt)
+4. [Review checklist](#review-checklist)
 
 ---
 
-### A02:2021 – Cryptographic Failures
+## OWASP Top 10:2025
 
-❌ **Insecure: Plain text passwords**
-```java
-@Entity
-public class User {
-    private String password;  // Stored as plain text!
-}
+### A01 Broken Access Control (includes SSRF)
 
-user.setPassword(request.getPassword());  // NO!
-```
+| Flag | Fix |
+|------|-----|
+| Privileged endpoint with no rule in the filter chain and no `@PreAuthorize` | Deny by default (`anyRequest().authenticated()`), add role/authority checks |
+| Object fetched by ID with no ownership check (IDOR): `repository.findById(id)` for the current user's data | Check ownership: `@PreAuthorize("#userId == authentication.principal.id")`, or query by `(id, ownerId)` |
+| URL rules only; services callable from other entry points (messaging, schedulers) | Method security (`@EnableMethodSecurity`) on services |
+| Client-controlled role or tenant fields bound into entities | Bind request DTOs, not entities; set owner/tenant on the server |
 
-✅ **Secure: Encrypted passwords**
-```java
-@Service
-public class UserService {
-    private final PasswordEncoder passwordEncoder;
+**SSRF.** Flag any outbound call to a URL or host that comes from the request.
 
-    public void createUser(UserRequest request) {
-        User user = new User();
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-        userRepository.save(user);
-    }
-}
+- Use an allowlist of hosts, and fail closed when the host is missing or not on it.
+- Disable redirects for those calls, or re-check the target after a redirect. An allowed host can redirect to an internal one.
+- If an allowlist is not possible, resolve the host and reject loopback, site-local, link-local, and any-local addresses (`InetAddress.isLoopbackAddress()`, `isSiteLocalAddress()`, `isLinkLocalAddress()`, `isAnyLocalAddress()`), plus `169.254.169.254`. Check every resolved address, and connect to the checked address so DNS rebinding cannot swap it. String prefix checks like `host.startsWith("172.16.")` miss `172.17`-`172.31`, IPv6, and encoded forms.
 
-@Configuration
-public class SecurityConfig {
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();  // Or Argon2PasswordEncoder
-    }
-}
-```
+### A02 Security Misconfiguration
 
-❌ **Insecure: Weak encryption**
-```java
-// MD5/SHA1 are broken
-String hash = DigestUtils.md5Hex(password);
-```
+| Flag | Fix |
+|------|-----|
+| `management.endpoints.web.exposure.include=*` in production | Expose `health` (and metrics behind auth) only |
+| `management.endpoint.health.show-details=always` | `when-authorized` |
+| `spring.h2.console.enabled=true` outside local profiles | Disable |
+| CORS `allowedOrigins("*")` with credentials, or `@CrossOrigin` everywhere | Explicit origins in one `CorsConfigurationSource` |
+| Security headers disabled (`headers(h -> h.disable())`) | Keep Spring Security defaults; add CSP for browser apps; HSTS behind TLS |
+| Stack traces or exception messages in responses (`ex.getMessage()` in a 500) | `ProblemDetail` with a generic message; log details on the server; `server.error.include-stacktrace=never` (default) |
 
-✅ **Secure: Strong algorithms**
-```java
-// BCrypt or Argon2
-String hash = passwordEncoder.encode(password);
-```
+### A03 Software Supply Chain Failures
 
-❌ **Insecure: Sensitive data in logs**
-```java
-log.info("User login: {}", userRequest);  // May contain password!
-```
+- [ ] Versions come from the Boot BOM; no unmanaged overrides of Spring, Jackson, or Netty without a reason.
+- [ ] A dependency scanner runs in CI (OWASP Dependency-Check, GitHub Dependabot/Renovate, or similar).
+- [ ] No unmaintained libraries or end-of-life runtimes.
+- [ ] Build plugins and Maven/Gradle wrappers come from trusted repositories, with wrapper checksums verified.
 
-✅ **Secure: Sanitize logs**
-```java
-log.info("User login attempt: username={}", userRequest.getUsername());
-```
+### A04 Cryptographic Failures
 
-**Review Points:**
-- [ ] Passwords use BCrypt or Argon2 (never MD5/SHA1)
-- [ ] Sensitive data (passwords, tokens, PII) never logged
-- [ ] Secrets not hardcoded (use environment variables)
-- [ ] TLS/HTTPS enforced for all endpoints
+| Flag | Fix |
+|------|-----|
+| Plain-text, MD5, SHA-1, or unsalted SHA-256 passwords | `PasswordEncoderFactories.createDelegatingPasswordEncoder()` (bcrypt by default, `{id}` prefix allows later upgrades), or Argon2 |
+| `new Random()` for tokens, reset codes, IDs that must be secret | `SecureRandom`, 32+ bytes, Base64URL |
+| Secrets in source or `application.properties` | Environment variables or a secret manager |
+| HTTP between services that carry credentials or personal data | TLS |
+| Passwords, tokens, or full request bodies in logs | Log identifiers only |
 
----
+For key derivation (not passwords), see `java-25-features.md` (`javax.crypto.KDF`, HKDF).
 
-### A03:2021 – Injection
+### A05 Injection
 
-#### SQL Injection
+| Flag | Fix |
+|------|-----|
+| String concatenation into JPQL/SQL (`"... where name = '" + name + "'"`), including `nativeQuery = true` and `JdbcClient.sql(...)` | Bind parameters (`:name`, `?`) |
+| User input as a sort property or column name | Map to an allowlist of properties before `Sort.by(...)` |
+| MongoDB: a request `Map`/`Document` used as query criteria, or a JSON query built by string concatenation (`new BasicQuery("{name: '" + n + "'}")`) | Typed parameters: `Criteria.where("name").is(name)` with a `String` is safe; `@Query("{ 'name': ?0 }")` binds safely |
+| `Runtime.exec` / `ProcessBuilder` with user input | Avoid; if needed, fixed command plus argument list, never a shell string |
+| SpEL or template expressions built from user input | Never evaluate user input |
+| Unescaped output in Thymeleaf (`th:utext`) | `th:text` |
 
-❌ **Insecure: String concatenation**
-```java
-@Query(value = "SELECT * FROM users WHERE username = '" + username + "'", nativeQuery = true)
-List<User> findByUsername(String username);
-```
+### A06 Insecure Design
 
-✅ **Secure: Parameterized queries**
-```java
-@Query("SELECT u FROM User u WHERE u.username = :username")
-List<User> findByUsername(@Param("username") String username);
-```
+- [ ] Login, password reset, and OTP endpoints have rate limits (gateway, Bucket4j, or Resilience4j `@RateLimiter`). In-memory counters do not work across instances.
+- [ ] Failed-login handling slows attackers without letting them lock out any account at will (progressive delays, CAPTCHA, or MFA rather than hard lockout).
+- [ ] Error messages do not reveal whether a user exists ("Invalid credentials").
+- [ ] Business limits are enforced on the server (quantities, amounts, workflow order).
 
-✅ **Secure: JPA methods**
-```java
-List<User> findByUsername(String username);  // Spring Data JPA
-```
+### A07 Authentication Failures
 
-#### NoSQL Injection
+- [ ] Passwords: minimum length (NIST SP 800-63B rev. 4: 15 characters without MFA, 8 with MFA), maximum at least 64, all characters allowed, checked against breached-password lists. No forced character-class rules and no periodic forced changes. Flag regexes that require "uppercase + digit + special".
+- [ ] MFA for admin and sensitive operations.
+- [ ] Session fixation protection stays on (Spring Security default); session cookies `Secure`, `HttpOnly`, `SameSite`.
+- [ ] Idle session timeout set (`server.servlet.session.timeout`).
 
-❌ **Insecure: Direct query building**
-```java
-Query query = new Query(Criteria.where("username").is(username));
-// If username = {$ne: null}, returns all users!
-```
+### A08 Software or Data Integrity Failures
 
-✅ **Secure: Validate input**
-```java
-if (!username.matches("^[a-zA-Z0-9_]+$")) {
-    throw new IllegalArgumentException("Invalid username");
-}
-Query query = new Query(Criteria.where("username").is(username));
-```
+- [ ] No `ObjectInputStream.readObject()` on untrusted data.
+- [ ] No Jackson default typing on untrusted input (`activateDefaultTyping`, `enableUnsafeDefaultTyping`). If polymorphic types are needed, use a `PolymorphicTypeValidator` limited to app packages.
+- [ ] Webhooks and callbacks verify signatures.
+- [ ] CI artifacts are signed or checksummed.
 
-#### Command Injection
+### A09 Security Logging and Alerting Failures
 
-❌ **Insecure: Runtime.exec with user input**
-```java
-Runtime.getRuntime().exec("convert " + userFile + " output.pdf");
-```
+- [ ] Login success/failure, access denied, password and role changes are logged with time, user, source IP, and action. Spring Security publishes `AuthenticationSuccessEvent` / `AbstractAuthenticationFailureEvent` / `AuthorizationDeniedEvent`; listen to them instead of logging in controllers.
+- [ ] Logs never contain passwords, tokens, or full personal data.
+- [ ] User input in logs cannot forge log lines (structured logging, or strip CR/LF).
+- [ ] Alerts exist for spikes in authentication failures.
 
-✅ **Secure: Use libraries, not shell commands**
-```java
-// Use Apache PDFBox, iText, etc. instead of shell commands
-```
+### A10 Mishandling of Exceptional Conditions
 
-**Review Points:**
-- [ ] All queries use parameterized queries or JPA methods
-- [ ] No `Runtime.exec()` or `ProcessBuilder` with user input
-- [ ] Input validated before use in queries
+| Flag | Fix |
+|------|-----|
+| `catch (Exception e) { return true; }` around an authorization or validation check | Fail closed: deny on error |
+| Swallowed exceptions in security filters or token validation | Log and reject |
+| Exception details returned to clients | Generic `ProblemDetail`; details only in server logs |
+| Missing timeouts on outbound calls | Connect and read timeouts (`spring.http.clients.*`), so failures do not hang threads |
+| Partial updates left after an exception | Transaction boundaries around multi-step writes |
 
 ---
 
-### A04:2021 – Insecure Design
+## Spring Security 7 configuration
 
-❌ **Insecure: No rate limiting**
-```java
-@PostMapping("/login")
-public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest request) {
-    // No rate limiting - brute force attacks possible
-}
-```
-
-✅ **Secure: Rate limiting**
-```java
-@PostMapping("/login")
-@RateLimiter(name = "login", fallbackMethod = "loginRateLimitFallback")
-public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest request) {
-    // Rate limited
-}
-
-private ResponseEntity<TokenResponse> loginRateLimitFallback(LoginRequest request, Throwable t) {
-    return ResponseEntity.status(429).build();  // Too Many Requests
-}
-```
-
-✅ **Secure: Account lockout**
-```java
-@Service
-public class LoginService {
-    private static final int MAX_ATTEMPTS = 5;
-    private final Map<String, Integer> loginAttempts = new ConcurrentHashMap<>();
-
-    public void recordLoginFailure(String username) {
-        int attempts = loginAttempts.getOrDefault(username, 0) + 1;
-        loginAttempts.put(username, attempts);
-
-        if (attempts >= MAX_ATTEMPTS) {
-            // Lock account or add delay
-            throw new AccountLockedException("Too many failed attempts");
-        }
-    }
-
-    public void recordLoginSuccess(String username) {
-        loginAttempts.remove(username);
-    }
-}
-```
-
-**Review Points:**
-- [ ] Rate limiting on authentication endpoints
-- [ ] Account lockout after N failed attempts
-- [ ] CAPTCHA for sensitive operations
-- [ ] Proper error messages (don't leak info: "Invalid credentials" not "User not found")
-
----
-
-### A05:2021 – Security Misconfiguration
-
-❌ **Insecure: Defaults exposed**
-```yaml
-# application.properties
-spring.h2.console.enabled=true  # In production!
-management.endpoints.web.exposure.include=*  # All endpoints exposed!
-```
-
-✅ **Secure: Minimal exposure**
-```yaml
-# application-prod.properties
-spring.h2.console.enabled=false
-management.endpoints.web.exposure.include=health,metrics
-management.endpoint.health.show-details=when-authorized
-```
-
-❌ **Insecure: Verbose error messages**
-```java
-@ExceptionHandler(Exception.class)
-public ResponseEntity<String> handleException(Exception ex) {
-    return ResponseEntity.status(500).body(ex.getMessage());  // Leaks stack trace!
-}
-```
-
-✅ **Secure: Generic error messages**
-```java
-@ExceptionHandler(Exception.class)
-public ProblemDetail handleException(Exception ex) {
-    log.error("Internal error", ex);  // Log details server-side
-    return ProblemDetail.forStatusAndDetail(
-        HttpStatus.INTERNAL_SERVER_ERROR,
-        "An unexpected error occurred"  // Generic message to client
-    );
-}
-```
-
-**Review Points:**
-- [ ] Debug endpoints disabled in production
-- [ ] Error messages don't leak sensitive info
-- [ ] CORS properly configured (not `allowedOrigins=*`)
-- [ ] Security headers enabled (CSP, HSTS, X-Frame-Options)
-
----
-
-### A06:2021 – Vulnerable and Outdated Components
-
-**Review Points:**
-- [ ] All dependencies up to date (check with `mvn versions:display-dependency-updates`)
-- [ ] No known vulnerabilities (check with `mvn dependency-check:check`)
-- [ ] Spring Boot BOM manages versions
-- [ ] No deprecated APIs in use
-
----
-
-### A07:2021 – Identification and Authentication Failures
-
-❌ **Insecure: Weak password policy**
-```java
-// No password requirements
-```
-
-✅ **Secure: Strong password policy**
-```java
-@Service
-public class PasswordValidator {
-    private static final Pattern PASSWORD_PATTERN = Pattern.compile(
-        "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{12,}$"
-    );
-
-    public void validate(String password) {
-        if (!PASSWORD_PATTERN.matcher(password).matches()) {
-            throw new WeakPasswordException(
-                "Password must be at least 12 characters with uppercase, lowercase, digit, and special character"
-            );
-        }
-    }
-}
-```
-
-❌ **Insecure: Predictable session IDs**
-```java
-String sessionId = username + System.currentTimeMillis();  // Predictable!
-```
-
-✅ **Secure: Random session IDs**
-```java
-// Spring Security handles this automatically
-// Or use SecureRandom for custom tokens
-SecureRandom random = new SecureRandom();
-byte[] bytes = new byte[32];
-random.nextBytes(bytes);
-String token = Base64.getUrlEncoder().encodeToString(bytes);
-```
-
-**Review Points:**
-- [ ] Strong password policy enforced
-- [ ] Multi-factor authentication for sensitive operations
-- [ ] Session IDs cryptographically random
-- [ ] Secure session timeout (15-30 minutes)
-
----
-
-### A08:2021 – Software and Data Integrity Failures
-
-❌ **Insecure: Deserialization without validation**
-```java
-ObjectInputStream ois = new ObjectInputStream(request.getInputStream());
-Object obj = ois.readObject();  // Arbitrary code execution risk!
-```
-
-✅ **Secure: Use JSON with validation**
-```java
-@PostMapping("/data")
-public ResponseEntity<Result> processData(@Valid @RequestBody DataRequest request) {
-    // Jackson handles deserialization safely with validation
-}
-```
-
-**Review Points:**
-- [ ] No Java serialization (use JSON instead)
-- [ ] Dependencies verified (checksums, signatures)
-- [ ] CI/CD pipeline secured
-
----
-
-### A09:2021 – Security Logging and Monitoring Failures
-
-❌ **Insecure: No security logging**
-```java
-@PostMapping("/login")
-public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest request) {
-    // No logging of authentication attempts
-}
-```
-
-✅ **Secure: Comprehensive security logging**
-```java
-@PostMapping("/login")
-public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest request) {
-    log.info("Login attempt: username={}, ip={}",
-        request.getUsername(),
-        httpRequest.getRemoteAddr()
-    );
-
-    try {
-        TokenResponse response = authService.authenticate(request);
-        log.info("Login successful: username={}", request.getUsername());
-        return ResponseEntity.ok(response);
-    } catch (AuthenticationException e) {
-        log.warn("Login failed: username={}, reason={}",
-            request.getUsername(),
-            e.getMessage()
-        );
-        throw e;
-    }
-}
-```
-
-**Review Points:**
-- [ ] All authentication attempts logged (success and failure)
-- [ ] Authorization failures logged
-- [ ] Sensitive operations logged (password reset, role changes)
-- [ ] Logs include timestamp, user, IP, action
-- [ ] Logs don't contain sensitive data (passwords, tokens)
-
----
-
-### A10:2021 – Server-Side Request Forgery (SSRF)
-
-❌ **Insecure: Unvalidated URL**
-```java
-@GetMapping("/fetch")
-public String fetchContent(@RequestParam String url) {
-    return restClient.get().uri(url).retrieve().body(String.class);
-    // Can access internal services: http://localhost:8080/admin
-}
-```
-
-✅ **Secure: URL validation**
-```java
-@GetMapping("/fetch")
-public String fetchContent(@RequestParam String url) {
-    if (!isAllowedUrl(url)) {
-        throw new IllegalArgumentException("URL not allowed");
-    }
-    return restClient.get().uri(url).retrieve().body(String.class);
-}
-
-// Whitelist approach (preferred — fail closed):
-private static final Set<String> ALLOWED_HOSTS =
-    Set.of("api.example.com", "cdn.example.com");
-
-private boolean isAllowedUrl(String url) {
-    try {
-        URI uri = new URI(url);
-        String host = uri.getHost();
-        if (host == null) {
-            return false;
-        }
-        return ALLOWED_HOSTS.contains(host);
-    } catch (URISyntaxException e) {
-        return false;
-    }
-}
-```
-
-If you genuinely cannot enumerate allowed hosts (e.g., open-fetcher service), fall back to blocking localhost and RFC 1918 private ranges instead — but be aware blacklists miss IPv6 link-local, IPv4-mapped IPv6, hostname → private-IP DNS rebinding, and cloud metadata endpoints like `169.254.169.254`:
-
-```java
-private boolean isPublicHost(String host) {
-    if (host == null) {
-        return false;
-    }
-    return !(host.equals("localhost") ||
-             host.equals("127.0.0.1") ||
-             host.startsWith("192.168.") ||
-             host.startsWith("10.") ||
-             host.startsWith("172.16.") ||
-             host.equals("169.254.169.254")); // cloud metadata
-}
-```
-
-**Review Points:**
-- [ ] All user-provided URLs validated
-- [ ] Whitelist approach preferred
-- [ ] Internal IPs/hostnames blocked
-
----
-
-## Spring Security Patterns
-
-### Security Configuration
-
-✅ **Modern Spring Security (Spring Boot 4)**
 ```java
 @Configuration
-@EnableWebSecurity
-@EnableMethodSecurity(prePostEnabled = true)
-public class SecurityConfig {
+@EnableMethodSecurity
+class SecurityConfig {
 
+    // Stateless JSON API with bearer tokens: only requests under /api/**
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    @Order(1)
+    SecurityFilterChain api(HttpSecurity http) throws Exception {
         http
-            .csrf(csrf -> csrf
-                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-            )
+            .securityMatcher("/api/**")
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/public/**").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                .anyRequest().authenticated()
-            )
-            .sessionManagement(session -> session
-                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            )
-            .oauth2ResourceServer(oauth2 -> oauth2
-                .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtConverter()))
-            );
+                .anyRequest().authenticated())
+            .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .csrf(csrf -> csrf.disable())   // no cookies carry credentials here
+            .oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()));
+        return http.build();
+    }
 
+    // Fallback for every other path. Without it, requests outside /api/**
+    // match no chain and Spring Security does not protect them.
+    @Bean
+    @Order(2)
+    SecurityFilterChain fallback(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health/**").permitAll()
+                .anyRequest().denyAll());
         return http.build();
     }
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();  // Or Argon2PasswordEncoder
+    PasswordEncoder passwordEncoder() {
+        return PasswordEncoderFactories.createDelegatingPasswordEncoder();
     }
 }
 ```
 
-### JWT Security
+Review rules:
 
-❌ **Insecure: Weak JWT secret**
-```java
-String secret = "secret";  // Too short, too weak
-```
-
-✅ **Secure: Strong JWT secret**
-```java
-@Value("${jwt.secret}")
-private String secret;  // From environment, at least 256 bits
-
-// Or better: use asymmetric keys (RS256)
-```
-
-✅ **Secure: JWT validation (JJWT 0.12+)**
-```java
-public boolean validateToken(String token) {
-    try {
-        Jwts.parser()
-            .verifyWith(key)          // SecretKey or PublicKey
-            .build()
-            .parseSignedClaims(token);
-        return true;
-    } catch (JwtException | IllegalArgumentException e) {
-        log.error("Invalid JWT token: {}", e.getMessage());
-        return false;
-    }
-}
-```
-
-> `Jwts.parserBuilder() / setSigningKey() / parseClaimsJws()` is the pre-0.12 API and is deprecated. Use `parser() / verifyWith() / parseSignedClaims()` on JJWT 0.12+.
-
-**Review Points:**
-- [ ] JWT secret at least 256 bits (or use RS256)
-- [ ] JWT expiration set (short-lived: 15-60 minutes)
-- [ ] Refresh tokens implemented for long-lived sessions
-- [ ] Token validation on every request
+- **CSRF:** keep it on for browser apps that use session cookies. Disabling it is correct only when no cookie carries credentials (bearer-token APIs). Flag `csrf.disable()` together with form login or session cookies.
+- **Spring Security 7 removals:** `AntPathRequestMatcher` and `MvcRequestMatcher` are gone (use `requestMatchers("/path/**")` or `PathPatternRequestMatcher`), and the `.and()` chaining DSL is gone (use lambda customizers). Old code does not compile.
+- `@EnableWebSecurity` is optional in Boot. `@EnableMethodSecurity` already enables `@PreAuthorize`/`@PostAuthorize` (`prePostEnabled` defaults to `true`).
+- **Flag a `securityMatcher(...)` chain with no catch-all chain.** Requests that match no chain bypass Spring Security entirely. Give scoped chains `@Order` and add a last chain without a matcher that ends in `anyRequest().authenticated()` or `denyAll()`. If there is only one chain, drop the matcher and use `requestMatchers(...)` inside `authorizeHttpRequests`.
+- Test rules with `spring-boot-starter-security-test` (`@WithMockUser`, `SecurityMockMvcRequestPostProcessors.jwt()`).
 
 ---
 
-## Input Validation
+## Tokens and JWT
 
-✅ **Bean Validation**
-```java
-public record CreateUserRequest(
-    @NotBlank(message = "Username is required")
-    @Size(min = 3, max = 50)
-    @Pattern(regexp = "^[a-zA-Z0-9_]+$", message = "Username can only contain alphanumeric characters and underscores")
-    String username,
-
-    @NotBlank(message = "Email is required")
-    @Email(message = "Email must be valid")
-    String email,
-
-    @NotBlank(message = "Password is required")
-    @Size(min = 12, message = "Password must be at least 12 characters")
-    String password
-) {}
-
-@PostMapping("/users")
-public ResponseEntity<User> createUser(@Valid @RequestBody CreateUserRequest request) {
-    // Validation happens automatically
-    return ResponseEntity.ok(userService.create(request));
-}
-```
-
-✅ **Custom validators**
-```java
-@Target(ElementType.FIELD)
-@Retention(RetentionPolicy.RUNTIME)
-@Constraint(validatedBy = StrongPasswordValidator.class)
-public @interface StrongPassword {
-    String message() default "Password must meet strength requirements";
-    Class<?>[] groups() default {};
-    Class<? extends Payload>[] payload() default {};
-}
-
-public class StrongPasswordValidator implements ConstraintValidator<StrongPassword, String> {
-    @Override
-    public boolean isValid(String password, ConstraintValidatorContext context) {
-        if (password == null) return false;
-
-        return password.length() >= 12 &&
-               password.matches(".*[a-z].*") &&
-               password.matches(".*[A-Z].*") &&
-               password.matches(".*\\d.*") &&
-               password.matches(".*[@$!%*?&].*");
-    }
-}
-```
-
-**Review Points:**
-- [ ] All user input validated with `@Valid`
-- [ ] Size limits on all string inputs
-- [ ] Pattern validation where applicable
-- [ ] Custom validators for complex rules
+- Prefer Spring Security's resource server (`spring-boot-starter-oauth2-resource-server`, `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri`) over hand-written JWT parsing. It validates signature, expiry, and issuer.
+- If the code parses JWTs itself (JJWT 0.12+): `Jwts.parser().verifyWith(key).build().parseSignedClaims(token)`. Flag the pre-0.12 `parserBuilder()/setSigningKey()/parseClaimsJws()` API.
+- HS256 keys need at least 256 bits from a secret store. Prefer asymmetric keys (RS256/ES256) when other services verify tokens.
+- Check `exp`, `iss`, and `aud`. Reject `alg: none`. Access tokens are short-lived (minutes); refresh tokens are revocable.
+- Do not put tokens in URLs or `localStorage` for browser apps when an `HttpOnly` cookie (with CSRF protection) is possible.
 
 ---
 
-## Review Checklist
+## Review checklist
 
-### Critical Security Issues
+Critical:
 
-- [ ] **SQL Injection**: All queries parameterized or use JPA methods
-- [ ] **XSS**: Output encoding enabled, no `innerHTML` with user input
-- [ ] **Authentication**: Passwords hashed with BCrypt/Argon2
-- [ ] **Authorization**: All sensitive endpoints have `@PreAuthorize`
-- [ ] **CSRF**: CSRF protection enabled for state-changing operations
-- [ ] **Secrets**: No hardcoded secrets, use environment variables
-- [ ] **Logging**: No sensitive data in logs (passwords, tokens, PII)
+- [ ] Every privileged endpoint and service method has an authorization rule; object-level ownership is checked
+- [ ] Every request matches some `SecurityFilterChain` (a catch-all chain exists when others use `securityMatcher`)
+- [ ] No string-built SQL/JPQL/Mongo queries; no user input in sort fields without an allowlist
+- [ ] Passwords via `DelegatingPasswordEncoder`/bcrypt/Argon2; no secrets in source or logs
+- [ ] CSRF on for cookie-based sessions; disabled only for bearer-token APIs
+- [ ] No SSRF: user-supplied URLs allowlisted, redirects controlled
+- [ ] No unsafe deserialization or Jackson default typing on untrusted input
+- [ ] Errors fail closed and do not leak details
 
-### Best Practices
+Important:
 
-- [ ] TLS/HTTPS enforced
-- [ ] Security headers configured (CSP, HSTS, X-Frame-Options)
-- [ ] Rate limiting on authentication endpoints
-- [ ] Input validation on all user input
-- [ ] Error messages don't leak info
-- [ ] Session timeout configured (15-30 minutes)
-- [ ] Dependencies up to date, no known vulnerabilities
+- [ ] Actuator exposure minimal; H2 console off; CORS explicit
+- [ ] Rate limits on authentication endpoints; no account-enumeration messages
+- [ ] Password policy follows NIST length rules, not composition rules
+- [ ] Security events logged; dependency scanning in CI
+- [ ] Spring Security 7 APIs (no `AntPathRequestMatcher`, no `.and()`)
 
----
+## Official documentation
 
-## Official Documentation
-
-- [OWASP Top 10 2021](https://owasp.org/Top10/)
+- [OWASP Top 10:2025](https://owasp.org/Top10/), [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/)
 - [Spring Security Reference](https://docs.spring.io/spring-security/reference/)
-- [Spring Security Architecture](https://spring.io/guides/topicals/spring-security-architecture)
-- [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/)
-- [Spring Boot Security Best Practices](https://docs.spring.io/spring-boot/reference/web/spring-security.html)
-- [JWT Best Practices (RFC 8725)](https://datatracker.ietf.org/doc/html/rfc8725)
-- [OWASP SQL Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)
-- [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- [NIST SP 800-63B](https://pages.nist.gov/800-63-4/sp800-63b.html)
+- [JWT Best Current Practices (RFC 8725)](https://datatracker.ietf.org/doc/html/rfc8725)

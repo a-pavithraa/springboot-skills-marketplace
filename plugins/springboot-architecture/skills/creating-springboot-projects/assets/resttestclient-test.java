@@ -99,7 +99,7 @@ class {{NAME}}ControllerIntegrationTest {
 
         Create{{NAME}}Response response = client.post()
                 .uri("/api/{{MODULE}}")
-                .bodyValue(request)
+                .body(request)
                 .exchange()
                 .expectStatus().isCreated()
                 .expectBody(Create{{NAME}}Response.class)
@@ -116,7 +116,7 @@ class {{NAME}}ControllerIntegrationTest {
 
         client.post()
                 .uri("/api/{{MODULE}}")
-                .bodyValue(invalidRequest)
+                .body(invalidRequest)
                 .exchange()
                 .expectStatus().isBadRequest();
     }
@@ -175,7 +175,7 @@ class {{NAME}}ControllerIntegrationTest {
 
         client.patch()
                 .uri("/api/{{MODULE}}/{id}", id)
-                .bodyValue(request)
+                .body(request)
                 .exchange()
                 .expectStatus().isOk();
 

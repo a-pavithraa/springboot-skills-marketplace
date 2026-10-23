@@ -6,17 +6,125 @@ Scans a Spring Boot project for migration issues related to:
 - Spring Boot 4.0
 - Spring Modulith 2.0
 - Testcontainers 2.x
+- Java preview APIs that change between JDK releases
 
 Usage:
-    python3 scan_migration_issues.py /path/to/project
+    python3 scan_migration_issues.py /path/to/project [--check]
+
+--check exits with 1 when any CRITICAL issue remains, so a finished migration
+can be confirmed with a single command.
 """
 
+import argparse
 import os
 import re
 import sys
 from pathlib import Path
 from typing import List, Dict, Set
 from dataclasses import dataclass, field
+
+
+# Newest Spring Boot minor line (checked 2026-10-21). Projects on an older 4.x
+# line get a warning, because the skill's references describe this one.
+CURRENT_BOOT = (4, 1)
+
+# Build output, VCS data, and hidden directories. Hidden ones include
+# project-level skill installs (.claude/skills, .codex/skills), whose
+# templates and docs would otherwise be scanned as project code.
+_SKIP_DIRS = {"target", "build", "node_modules", "out", "bin"}
+
+
+def _is_project_file(path: Path, root: Path) -> bool:
+    parts = path.relative_to(root).parts[:-1]
+    return not any(part in _SKIP_DIRS or part.startswith('.') for part in parts)
+
+
+_MAVEN_DEPENDENCY_RE = re.compile(r'<(?:[\w-]+:)?dependency\b[^>]*>(.*?)</(?:[\w-]+:)?dependency>', re.S)
+
+
+def _maven_tag(block: str, tag: str):
+    return re.search(rf'<(?:[\w-]+:)?{tag}>\s*([^<\s]+)\s*</(?:[\w-]+:)?{tag}>', block)
+
+
+def _maven_dependencies(content: str):
+    """Yield (group_id, artifact_id, line) per <dependency> element.
+
+    Reads groupId and artifactId from the same element, so values from a
+    neighbouring dependency or from <exclusions> are never combined.
+    `content` must already have XML comments blanked out.
+    """
+    for dep in _MAVEN_DEPENDENCY_RE.finditer(content):
+        body = dep.group(1)
+        own = re.split(r'<(?:[\w-]+:)?exclusions\b', body, maxsplit=1)[0]
+        group, artifact = _maven_tag(own, 'groupId'), _maven_tag(own, 'artifactId')
+        if not group or not artifact:
+            continue
+        offset = dep.start(1) + artifact.start()
+        yield group.group(1), artifact.group(1), content.count('\n', 0, offset) + 1
+
+
+def _yaml_values(content: str) -> Dict[str, str]:
+    """Map full dotted paths to scalar values for simple block-style YAML.
+
+    Handles nesting by indentation, dotted keys (`spring.modulith: ...`),
+    comments, quotes, and several documents (`---`; later ones win, as with
+    Spring profiles). Flow mappings and multi-line scalars are ignored.
+    """
+    values: Dict[str, str] = {}
+    stack: List[tuple] = []  # (indent, path parts)
+    for raw in content.splitlines():
+        if raw.strip() == '---':
+            stack = []
+            continue
+        line = re.sub(r'(^|\s)#.*$', '', raw).rstrip()
+        match = re.match(r'^(\s*)([^\s:#][^:]*?)\s*:(?:\s+(.*))?$', line)
+        if not match or match.group(1).count('\t') or line.lstrip().startswith('- '):
+            continue
+        indent = len(match.group(1))
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        parts = (stack[-1][1] if stack else []) + match.group(2).strip('"\'').split('.')
+        value = (match.group(3) or '').strip()
+        if value and value not in ('|', '>'):
+            values['.'.join(parts)] = value.strip('"\'')
+        else:
+            stack.append((indent, parts))
+    return values
+
+
+def _strip_sql_comments(sql: str) -> str:
+    """Remove -- and /* */ comments, leaving quoted strings and identifiers intact."""
+    out, i, n = [], 0, len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch in ("'", '"'):
+            end = i + 1
+            while end < n:
+                if sql[end] == ch:
+                    if end + 1 < n and sql[end + 1] == ch:  # doubled quote escape
+                        end += 2
+                        continue
+                    break
+                end += 1
+            out.append(sql[i:end + 1])
+            i = end + 1
+        elif sql.startswith('--', i):
+            end = sql.find('\n', i)
+            i = n if end == -1 else end
+        elif sql.startswith('/*', i):
+            end = sql.find('*/', i + 2)
+            out.append(' ')
+            i = n if end == -1 else end + 2
+        else:
+            out.append(ch)
+            i += 1
+    return ''.join(out)
+
+
+def _is_old_testcontainers_artifact(artifact_id: str) -> bool:
+    """1.x module artifacts lack the testcontainers- prefix used in 2.x."""
+    return artifact_id not in ('testcontainers', 'testcontainers-bom') \
+        and not artifact_id.startswith('testcontainers-')
 
 
 @dataclass
@@ -50,6 +158,7 @@ class MigrationScanner:
         self.project_path = Path(project_path)
         self.result = ScanResult()
         self.modulith_schema_configured = False
+        self.modulith_schema_name = None
         self.modulith_in_use = False
         self.has_restclient_starter = False
         self.has_webclient_starter = False
@@ -76,10 +185,7 @@ class MigrationScanner:
         if pom_path.exists():
             poms = [pom_path]
             for child in sorted(self.project_path.rglob("pom.xml")):
-                if child == pom_path:
-                    continue
-                parts = set(child.relative_to(self.project_path).parts)
-                if parts & {"target", ".git", "node_modules", "build"}:
+                if child == pom_path or not _is_project_file(child, self.project_path):
                     continue
                 poms.append(child)
             for pom in poms:
@@ -116,10 +222,12 @@ class MigrationScanner:
             build_file_ref = "build file"
 
         # Post-scan: check for missing modular HTTP client starters
+        # CRITICAL: without the starter there is no RestClient.Builder bean, and
+        # the context fails to start (seen on 4.1.1 in Scenario 15)
         if self.uses_restclient and not self.has_restclient_starter:
             self.result.add_issue(
                 "Spring Boot 4 - Dependencies",
-                "WARNING",
+                "CRITICAL",
                 build_file_ref,
                 0,
                 "RestClient used but spring-boot-starter-restclient not found",
@@ -128,14 +236,31 @@ class MigrationScanner:
         if self.uses_webclient and not self.has_webclient_starter:
             self.result.add_issue(
                 "Spring Boot 4 - Dependencies",
-                "WARNING",
+                "CRITICAL",
                 build_file_ref,
                 0,
                 "WebClient used but spring-boot-starter-webclient not found",
                 "Boot 4 modular starters require spring-boot-starter-webclient for WebClient auto-configuration"
             )
 
+        self._check_boot_line(build_file_ref)
         return self.result
+
+    def _check_boot_line(self, build_file_ref: str):
+        match = re.match(r'(\d+)\.(\d+)', self.result.spring_boot_version)
+        if not match:
+            return
+        line = (int(match.group(1)), int(match.group(2)))
+        if line[0] == CURRENT_BOOT[0] and line < CURRENT_BOOT:
+            current = f"{CURRENT_BOOT[0]}.{CURRENT_BOOT[1]}"
+            self.result.add_issue(
+                "Spring Boot 4 - Version",
+                "WARNING",
+                build_file_ref,
+                0,
+                f"Spring Boot {self.result.spring_boot_version} is not on the current {current}.x line",
+                f"Target the latest {current}.x release; the references in this skill describe {current}"
+            )
 
     def _scan_pom(self, pom_path: Path):
         """Scan pom.xml for dependency issues"""
@@ -158,7 +283,6 @@ class MigrationScanner:
             content,
             flags=re.DOTALL,
         )
-        lines = content.split('\n')
 
         # Version patterns intentionally accept pre-release/snapshot suffixes
         # (e.g. 4.0.0-RC1, 2.0.0-SNAPSHOT, 2.0.0-M3) instead of truncating to
@@ -233,72 +357,55 @@ class MigrationScanner:
             'spring-boot-starter-aop': 'spring-boot-starter-aspectj',
         }
 
-        for i, line in enumerate(lines, 1):
-            for old, new in old_starters.items():
-                if f'<artifactId>{old}</artifactId>' in line:
-                    context = '\n'.join(lines[max(0, i-3):min(len(lines), i+2)])
-                    if '<groupId>org.springframework.boot</groupId>' not in context:
-                        continue
-                    self.result.add_issue(
-                        "Spring Boot 4 - Dependencies",
-                        "CRITICAL",
-                        str(pom_path),
-                        i,
-                        f"Old starter: {old}",
-                        f"Change to: {new} (or use spring-boot-starter-classic for gradual migration)"
-                    )
+        spring_retry_reported = False
+        for group_id, artifact_id, i in _maven_dependencies(content):
+            if group_id == 'org.springframework.boot' and artifact_id in old_starters:
+                self.result.add_issue(
+                    "Spring Boot 4 - Dependencies",
+                    "CRITICAL",
+                    str(pom_path),
+                    i,
+                    f"Old starter: {artifact_id}",
+                    f"Change to: {old_starters[artifact_id]} (or use spring-boot-starter-classic for gradual migration)"
+                )
 
-        # Check for spring-security-test
-        for i, line in enumerate(lines, 1):
-            if '<artifactId>spring-security-test</artifactId>' in line:
-                # Check if it's the old spring-security version
-                context = '\n'.join(lines[max(0, i-3):min(len(lines), i+2)])
-                if '<groupId>org.springframework.security</groupId>' in context:
-                    self.result.add_issue(
-                        "Spring Boot 4 - Dependencies",
-                        "CRITICAL",
-                        str(pom_path),
-                        i,
-                        "Old spring-security-test dependency",
-                        "Change to: spring-boot-starter-security-test"
-                    )
+            if group_id == 'org.springframework.security' and artifact_id == 'spring-security-test':
+                self.result.add_issue(
+                    "Spring Boot 4 - Dependencies",
+                    "CRITICAL",
+                    str(pom_path),
+                    i,
+                    "Old spring-security-test dependency",
+                    "Change to: spring-boot-starter-security-test"
+                )
 
-        # Check for Testcontainers 1.x artifacts
-        tc_old_artifacts = ['junit-jupiter', 'postgresql', 'mysql', 'localstack', 'mongodb']
-        for i, line in enumerate(lines, 1):
-            for artifact in tc_old_artifacts:
-                if f'<artifactId>{artifact}</artifactId>' in line:
-                    # Check if it's under org.testcontainers
-                    context = '\n'.join(lines[max(0, i-3):min(len(lines), i+2)])
-                    if '<groupId>org.testcontainers</groupId>' in context:
-                        self.result.add_issue(
-                            "Testcontainers 2.x - Dependencies",
-                            "WARNING",
-                            str(pom_path),
-                            i,
-                            f"Old Testcontainers artifact: {artifact}",
-                            f"Change to: testcontainers-{artifact}"
-                        )
+            # In 2.x every Testcontainers module artifact has the testcontainers-
+            # prefix, and Boot 4 only manages the new names
+            if group_id == 'org.testcontainers' and _is_old_testcontainers_artifact(artifact_id):
+                self.result.add_issue(
+                    "Testcontainers 2.x - Dependencies",
+                    "CRITICAL",
+                    str(pom_path),
+                    i,
+                    f"Old Testcontainers artifact: {artifact_id}",
+                    f"Change to: testcontainers-{artifact_id} (Boot 4 manages only the 2.x names)"
+                )
+
+            if (not spring_retry_reported and group_id == 'org.springframework.retry'
+                    and artifact_id == 'spring-retry'):
+                spring_retry_reported = True
+                self.result.add_issue(
+                    "Spring Boot 4 - Legacy Spring Retry",
+                    "WARNING",
+                    str(pom_path),
+                    i,
+                    "Legacy spring-retry dependency found",
+                    "Remove spring-retry dependency — Spring Framework 7 provides native @Retryable via org.springframework.resilience.annotation.*"
+                )
 
         # Track modular HTTP client starters
         self.has_restclient_starter = 'spring-boot-starter-restclient' in content
         self.has_webclient_starter = 'spring-boot-starter-webclient' in content
-
-        # Check for legacy spring-retry dependency — require the real coordinate
-        # so incidental mentions in <description> / text don't fire.
-        for i, line in enumerate(lines, 1):
-            if '<artifactId>spring-retry</artifactId>' in line:
-                context = '\n'.join(lines[max(0, i-3):min(len(lines), i+2)])
-                if '<groupId>org.springframework.retry</groupId>' in context:
-                    self.result.add_issue(
-                        "Spring Boot 4 - Legacy Spring Retry",
-                        "WARNING",
-                        str(pom_path),
-                        i,
-                        "Legacy spring-retry dependency found",
-                        "Remove spring-retry dependency — Spring Framework 7 provides native @Retryable via org.springframework.resilience.annotation.*"
-                    )
-                    break
 
     def _scan_gradle(self, gradle_path: Path):
         """Scan build.gradle or build.gradle.kts for dependency issues.
@@ -412,7 +519,6 @@ class MigrationScanner:
             'spring-boot-starter-web': 'spring-boot-starter-webmvc',
             'spring-boot-starter-aop': 'spring-boot-starter-aspectj',
         }
-        tc_old_artifacts = {'junit-jupiter', 'postgresql', 'mysql', 'localstack', 'mongodb'}
 
         spring_retry_reported = False
         for i, line in enumerate(lines, 1):
@@ -443,14 +549,14 @@ class MigrationScanner:
                         "Change to: spring-boot-starter-security-test"
                     )
 
-                if group_id == 'org.testcontainers' and artifact_id in tc_old_artifacts:
+                if group_id == 'org.testcontainers' and _is_old_testcontainers_artifact(artifact_id):
                     self.result.add_issue(
                         "Testcontainers 2.x - Dependencies",
-                        "WARNING",
+                        "CRITICAL",
                         str(gradle_path),
                         i,
                         f"Old Testcontainers artifact: {artifact_id}",
-                        f"Change to: testcontainers-{artifact_id}"
+                        f"Change to: testcontainers-{artifact_id} (Boot 4 manages only the 2.x names)"
                     )
 
                 # Legacy spring-retry — coordinate-based, not substring, so
@@ -482,7 +588,8 @@ class MigrationScanner:
         """Scan Java files for code issues"""
         print("\n☕ Scanning Java files...")
 
-        java_files = list(self.project_path.rglob("*.java"))
+        java_files = [f for f in self.project_path.rglob("*.java")
+                      if _is_project_file(f, self.project_path)]
         print(f"   Found {len(java_files)} Java files")
 
         for java_file in java_files:
@@ -580,8 +687,16 @@ class MigrationScanner:
                 'org.testcontainers.mysql.MySQLContainer',
             'org.testcontainers.containers.MongoDBContainer':
                 'org.testcontainers.mongodb.MongoDBContainer',
+            'org.testcontainers.containers.MariaDBContainer':
+                'org.testcontainers.mariadb.MariaDBContainer',
+            'org.testcontainers.containers.RabbitMQContainer':
+                'org.testcontainers.rabbitmq.RabbitMQContainer',
             'org.testcontainers.containers.localstack.LocalStackContainer':
                 'org.testcontainers.localstack.LocalStackContainer',
+            'org.testcontainers.containers.KafkaContainer':
+                'org.testcontainers.kafka.ConfluentKafkaContainer (same confluentinc/cp-kafka image) '
+                'or org.testcontainers.kafka.KafkaContainer (apache/kafka image only); '
+                'required for @ServiceConnection in Boot 4',
         }
 
         for i, line in enumerate(lines, 1):
@@ -591,10 +706,10 @@ class MigrationScanner:
                 if f'import {old_import}' in line:
                     self.result.add_issue(
                         "Testcontainers 2.x - Package Changes",
-                        "CRITICAL",
+                        "WARNING",
                         str(rel_path),
                         i,
-                        f"Old Testcontainers import: {old_import}",
+                        f"Deprecated Testcontainers class: {old_import}",
                         f"Change to: {new_import}"
                     )
 
@@ -607,9 +722,37 @@ class MigrationScanner:
                         "CRITICAL",
                         str(rel_path),
                         i,
-                        "LocalStackContainer.Service enum removed in Testcontainers 2.x",
-                        "Replace enum constants with string service names: .withServices(LocalStackContainer.Service.S3) -> .withServices(\"s3\"). The withServices(String...) method itself still exists."
+                        "LocalStackContainer.Service exists only on the deprecated org.testcontainers.containers.localstack class",
+                        "With org.testcontainers.localstack.LocalStackContainer use strings: .withServices(\"s3\") and getEndpoint()"
                     )
+
+        # JUnit 4 rules: GenericContainer no longer implements TestRule in 2.x
+        if any(i in ('org.junit.Rule', 'org.junit.ClassRule') for i in imports) and 'Container' in content:
+            for i, line in enumerate(lines, 1):
+                if re.search(r'@(Class)?Rule\b', line) and not line.strip().startswith('//'):
+                    self.result.add_issue(
+                        "Testcontainers 2.x - JUnit 4",
+                        "CRITICAL",
+                        str(rel_path),
+                        i,
+                        "JUnit 4 @Rule/@ClassRule container: containers are no longer TestRules, and junit:junit is no longer transitive in 2.x",
+                        "Move to JUnit 5 (@Testcontainers/@Container) or Spring Boot @ServiceConnection beans"
+                    )
+                    break
+
+        # LocalStack images from 2026.03 need an auth token
+        if 'localstack/localstack' in content:
+            for i, line in enumerate(lines, 1):
+                if 'localstack/localstack' in line and not line.strip().startswith('//'):
+                    self.result.add_issue(
+                        "Testcontainers 2.x - LocalStack Image",
+                        "INFO",
+                        str(rel_path),
+                        i,
+                        "LocalStack images from 2026.03 require LOCALSTACK_AUTH_TOKEN",
+                        "Pin a tag; with 2026.03+ (and latest) set LOCALSTACK_AUTH_TOKEN in CI"
+                    )
+                    break
 
         # Note: org.springframework.resilience.* is used in the external sample repo.
         # Keep this as informational instead of treating it as invalid.
@@ -622,7 +765,7 @@ class MigrationScanner:
                         str(rel_path),
                         i,
                         "Using org.springframework.resilience annotations",
-                        "Native retry detected; ensure @EnableResilientMethods + spring-boot-starter-aspectj"
+                        "Native retry detected; ensure @EnableResilientMethods on a @Configuration class"
                     )
 
         # Check for @Retryable usage and align suggestion with imports
@@ -633,13 +776,13 @@ class MigrationScanner:
             for i, line in enumerate(lines, 1):
                 if '@Retryable' in line and not line.strip().startswith('//'):
                     if uses_resilience:
-                        suggestion = "Ensure @EnableResilientMethods + spring-boot-starter-aspectj"
+                        suggestion = "Ensure @EnableResilientMethods on a @Configuration class"
                         category = "Spring Boot 4 - Retry/Resilience"
                     elif uses_spring_retry:
                         suggestion = "Migrate to native org.springframework.resilience.annotation.* — Spring Retry is maintenance-only"
                         category = "Spring Boot 4 - Legacy Spring Retry"
                     else:
-                        suggestion = "Add imports from org.springframework.resilience.annotation.* + @EnableResilientMethods + aspectj starter"
+                        suggestion = "Add imports from org.springframework.resilience.annotation.* + @EnableResilientMethods"
                         category = "Spring Boot 4 - Retry/Resilience"
 
                     self.result.add_issue(
@@ -695,6 +838,20 @@ class MigrationScanner:
                         f"Change to Jackson 3: {new_class}"
                     )
 
+        # jackson-annotations keeps the com.fasterxml.jackson.annotation package in Jackson 3, so only
+        # databind and core imports are Jackson 2.
+        for i, line in enumerate(lines, 1):
+            match = re.match(r'\s*import\s+(?:static\s+)?(com\.fasterxml\.jackson\.(?:databind|core))\.', line)
+            if match:
+                self.result.add_issue(
+                    "Spring Boot 4 - Jackson 3",
+                    "CRITICAL",
+                    str(rel_path),
+                    i,
+                    f"Jackson 2 import: {match.group(1)}",
+                    "Change to tools.jackson.databind / tools.jackson.core (ObjectMapper becomes JsonMapper)"
+                )
+
         # Check for generic Testcontainers types
         if 'PostgreSQLContainer<?>' in content or 'MySQLContainer<?>' in content:
             for i, line in enumerate(lines, 1):
@@ -723,6 +880,34 @@ class MigrationScanner:
                         "Change to: getEndpoint()"
                     )
 
+        # Check for preview APIs whose shape changes between JDK releases
+        preview_api_patterns = {
+            'StableValue': (
+                "StableValue preview API (JDK 25 only, removed in JDK 26)",
+                "On JDK 26+ use LazyConstant.of(supplier) and get(); "
+                "see java-version-policy.md"
+            ),
+            'StructuredTaskScope': (
+                "StructuredTaskScope preview API (shape changes each JDK release)",
+                "Match the code to the target JDK; on JDK 27 join() throws "
+                "ExecutionException; see java-version-policy.md"
+            ),
+        }
+        for api, (issue, suggestion) in preview_api_patterns.items():
+            if api not in content:
+                continue
+            for i, line in enumerate(lines, 1):
+                if re.search(rf'\b{api}\b', line) and not line.strip().startswith('//'):
+                    self.result.add_issue(
+                        "Java - Preview APIs",
+                        "WARNING",
+                        str(rel_path),
+                        i,
+                        issue,
+                        suggestion
+                    )
+                    break
+
     def _scan_properties(self):
         """Scan application.properties for configuration issues"""
         print("\n⚙️  Scanning application.properties...")
@@ -730,6 +915,7 @@ class MigrationScanner:
         props_paths = [
             self.project_path / "src/main/resources/application.properties",
             self.project_path / "src/main/resources/application.yml",
+            self.project_path / "src/main/resources/application.yaml",
         ]
 
         for props_path in props_paths:
@@ -750,9 +936,19 @@ class MigrationScanner:
 
         content = ''.join(lines)
 
-        # Check for Spring Modulith event store config
-        has_modulith_jdbc = 'spring.modulith.events.jdbc.schema' in content
-        return has_modulith_jdbc
+        # Spring Modulith dedicated event schema: the exact key only, not
+        # spring.modulith.events.jdbc.schema-initialization.enabled or an
+        # unrelated *.jdbc.schema elsewhere in the file
+        key = 'spring.modulith.events.jdbc.schema'
+        if file_path.suffix in ('.yml', '.yaml'):
+            value = _yaml_values(content).get(key)
+        else:
+            match = re.search(r'^[ \t]*spring\.modulith\.events\.jdbc\.schema[ \t]*[=:][ \t]*(\S+)', content, re.M)
+            value = match.group(1) if match else None
+        if value:
+            self.modulith_schema_name = value.strip('"\'')
+            return True
+        return False
 
     def _scan_flyway_migrations(self):
         """Scan Flyway migrations for Spring Modulith event schema"""
@@ -765,19 +961,26 @@ class MigrationScanner:
 
         # Check for events schema migration only if configured
         if self.modulith_in_use and self.modulith_schema_configured:
-            events_schema_files = list(migration_dir.glob("V*__*events*.sql"))
-            root_migrations = migration_dir / "__root"
-            if root_migrations.exists():
-                events_schema_files += list(root_migrations.glob("V*__*events*.sql"))
+            schema = re.escape(self.modulith_schema_name or 'events')
+            create_schema = re.compile(rf'CREATE\s+SCHEMA\s+(IF\s+NOT\s+EXISTS\s+)?"?{schema}"?\b', re.I)
+            found = False
+            for sql in migration_dir.rglob("*.sql"):
+                try:
+                    if create_schema.search(_strip_sql_comments(sql.read_text(encoding='utf-8'))):
+                        found = True
+                        break
+                except Exception:
+                    continue
 
-            if not events_schema_files:
+            if not found:
                 self.result.add_issue(
                     "Spring Modulith 2.0 - Database",
                     "CRITICAL",
                     "src/main/resources/db/migration/",
                     0,
-                    "Missing events schema migration",
-                    "Create: V1__create_events_schema.sql with 'CREATE SCHEMA events;'"
+                    f"No migration creates the '{self.modulith_schema_name}' schema set in spring.modulith.events.jdbc.schema",
+                    f"Add a migration with 'CREATE SCHEMA IF NOT EXISTS {self.modulith_schema_name};' "
+                    "(schema names work only on PostgreSQL, H2, HSQLDB)"
                 )
 
     def print_report(self):
@@ -839,19 +1042,28 @@ class MigrationScanner:
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 scan_migration_issues.py /path/to/project")
+    # Windows consoles and pipes default to a code page that cannot encode the report's emoji,
+    # and `python -I` ignores PYTHONIOENCODING, so set the encoding here.
+    sys.stdout.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser(description="Scan a Spring Boot project for Boot 4 migration issues")
+    parser.add_argument("project_path")
+    parser.add_argument("--check", action="store_true",
+                        help="Exit with 1 when any CRITICAL issue remains")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.project_path):
+        print(f"Error: Path does not exist: {args.project_path}")
         sys.exit(1)
 
-    project_path = sys.argv[1]
-
-    if not os.path.exists(project_path):
-        print(f"Error: Path does not exist: {project_path}")
-        sys.exit(1)
-
-    scanner = MigrationScanner(project_path)
+    scanner = MigrationScanner(args.project_path)
     result = scanner.scan()
     scanner.print_report()
+    if args.check:
+        critical = sum(1 for issue in result.issues if issue.severity == "CRITICAL")
+        if critical:
+            print(f"\nCHECK FAILED: {critical} critical issue(s) remain")
+            sys.exit(1)
+        print("\nCHECK PASSED: no critical issues")
 
 
 if __name__ == "__main__":

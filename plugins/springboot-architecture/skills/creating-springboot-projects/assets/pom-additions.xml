@@ -6,8 +6,8 @@
 <!-- ============================================================ -->
 <!-- TSID - For application-generated IDs (Tomato/DDD patterns)   -->
 <!-- ============================================================ -->
-<!-- Spring Boot 4.1.x ships Hibernate 7.4.1.Final. hypersistence-utils has no -hibernate-74
-     module yet, so use the newest published one, -hibernate-73 (verify it runs against 7.4.1).
+<!-- Spring Boot 4.1.x ships Hibernate 7.4.x. hypersistence-utils has no -hibernate-74
+     module yet, so use the newest published one, -hibernate-73 (verify it runs against 7.4.x).
      Confirm latest version: https://central.sonatype.com/artifact/io.hypersistence/hypersistence-utils-hibernate-73/versions -->
 <dependency>
     <groupId>io.hypersistence</groupId>
@@ -62,16 +62,19 @@ public class TSIDUtil {
 
 
 <!-- ============================================================ -->
-<!-- ArchUnit - For DDD+Hexagonal architecture tests              -->
+<!-- Taikai (ArchUnit rules) - architecture tests for every style -->
 <!-- ============================================================ -->
+<!-- Rules: assets/architecture-rules-test.java. Taikai 2.1.0 is built against Boot 4.1.1 and Spring 7.0.9, and
+     brings ArchUnit 1.5.1. progen projects already have it. Check Maven Central for a newer version:
+     https://central.sonatype.com/artifact/com.enofex/taikai -->
 <dependency>
-    <groupId>com.tngtech.archunit</groupId>
-    <artifactId>archunit-junit5</artifactId>
-    <version>1.2.1</version>
+    <groupId>com.enofex</groupId>
+    <artifactId>taikai</artifactId>
+    <version>2.1.0</version>
     <scope>test</scope>
 </dependency>
 
-<!-- Usage:
+<!-- DDD+Hexagonal: add an onion rule with ArchUnit's core API (comes with Taikai). Usage:
 @ParameterizedTest
 @ValueSource(strings = {"products", "orders"})
 void shouldVerifyHexagonalArchitecture(String moduleName) {

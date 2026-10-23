@@ -2,121 +2,29 @@
 
 ## Table of Contents
 
-1. [N+1 Query Problem](#n1-query-problem)
+1. [Database access](#database-access)
 2. [Caching Strategies](#caching-strategies)
 3. [Virtual Threads](#virtual-threads)
-4. [Database Performance](#database-performance)
-5. [Async Processing](#async-processing)
-6. [Connection Pooling](#connection-pooling)
-7. [Resource Management](#resource-management)
+4. [Async Processing](#async-processing)
+5. [Resource Management](#resource-management)
 
 ---
 
-## N+1 Query Problem
+## Database access
 
-The most common JPA performance issue.
+Full guidance and fixes: `jpa-performance.md`.
 
-### Problem Detection
-
-❌ **Classic N+1 pattern**
-```java
-@Entity
-public class Order {
-    @Id
-    private Long id;
-
-    // @ManyToOne defaults to EAGER in JPA — left as default here, which is
-    // already loading 'user' with every query (one of the two N+1 sources).
-    @ManyToOne
-    private User user;
-
-    // @OneToMany defaults to LAZY — accessing it inside the loop below
-    // triggers a separate query per Order (the second N+1 source).
-    @OneToMany(mappedBy = "order")
-    private List<OrderItem> items;
-}
-
-// Service layer
-List<Order> orders = orderRepository.findAll();
-for (Order order : orders) {
-    System.out.println(order.getUser().getName());  // N+1 here!
-    System.out.println(order.getItems().size());    // Another N+1!
-}
-```
-
-**What happens:**
-- 1 query to fetch all orders
-- N queries to fetch each user (one per order)
-- N queries to fetch each order's items
-- Total: **1 + N + N = 1 + 2N queries**
-
-### Solutions
-
-✅ **Solution 1: Fetch Joins**
-```java
-public interface OrderRepository extends JpaRepository<Order, Long> {
-    @Query("SELECT o FROM Order o " +
-           "LEFT JOIN FETCH o.user " +
-           "LEFT JOIN FETCH o.items")
-    List<Order> findAllWithUserAndItems();
-}
-```
-
-✅ **Solution 2: Entity Graphs**
-```java
-public interface OrderRepository extends JpaRepository<Order, Long> {
-    @EntityGraph(attributePaths = {"user", "items"})
-    List<Order> findAll();
-}
-```
-
-✅ **Solution 3: @NamedEntityGraph**
-```java
-@Entity
-@NamedEntityGraph(
-    name = "Order.full",
-    attributeNodes = {
-        @NamedAttributeNode("user"),
-        @NamedAttributeNode("items")
-    }
-)
-public class Order {
-    // ...
-}
-
-public interface OrderRepository extends JpaRepository<Order, Long> {
-    @EntityGraph("Order.full")
-    List<Order> findAll();
-}
-```
-
-### Detection Tools
-
-✅ **Enable Hibernate statistics**
-```yaml
-spring:
-  jpa:
-    properties:
-      hibernate:
-        generate_statistics: true
-        session:
-          events:
-            log:
-              LOG_QUERIES_SLOWER_THAN_MS: 10
-```
-
-✅ **Use p6spy for query logging**
-```xml
-<dependency>
-    <groupId>com.github.gavlyukovskiy</groupId>
-    <artifactId>p6spy-spring-boot-starter</artifactId>
-</dependency>
-```
-
-**Review Checklist:**
-- [ ] No lazy loading in loops
-- [ ] Associations fetched eagerly when needed (fetch join or entity graph)
-- [ ] Query logging enabled during development
+| Flag | Impact | Fix |
+|------|--------|-----|
+| Lazy association accessed in a loop | N+1 queries | `JOIN FETCH`, `@EntityGraph`, DTO projection, or `hibernate.default_batch_fetch_size` |
+| `@ManyToOne` / `@OneToOne` without `fetch = LAZY` | Extra queries on every load | Set `LAZY`; fetch per use case |
+| `JOIN FETCH` of a collection with `Pageable` | Hibernate pages in memory over all rows | Page IDs first, or project to DTOs |
+| `findAll()` on a growing table | Memory and latency grow with data | `Pageable` / `Slice` |
+| Entities loaded only to map to DTOs | Over-fetching | DTO or interface projection |
+| `save()` in a loop; `IDENTITY` IDs on bulk-insert paths | No JDBC batching | `hibernate.jdbc.batch_size`, `SEQUENCE`/TSID IDs, flush and clear per batch |
+| Read services without `@Transactional(readOnly = true)` | Dirty checking and flush cost | Add it at class level |
+| `maximum-pool-size: 100` or more | Contention; exceeds database connection limit | Size from measurement; start near `cores * 2 + 1` |
+| `hibernate.session.events.log.LOG_QUERIES_SLOWER_THAN_MS` | Ignored on Hibernate 7 | `hibernate.log_slow_query` |
 
 ---
 
@@ -234,19 +142,27 @@ spring:
 public class RedisCacheConfig {
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+        // Jackson 3 serializer (Spring Data Redis 4). Type info is needed so cached
+        // values come back as their classes, not LinkedHashMap. Restrict it to your packages.
+        var values = GenericJacksonJsonRedisSerializer.builder()
+            .enableDefaultTyping(BasicPolymorphicTypeValidator.builder()
+                .allowIfSubType("com.example.")
+                .build())
+            .build();
         RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
             .entryTtl(Duration.ofMinutes(10))
-            .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(
-                new StringRedisSerializer()))
-            .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
-                new GenericJackson2JsonRedisSerializer()));
-
-        return RedisCacheManager.builder(connectionFactory)
-            .cacheDefaults(config)
-            .build();
+            .serializeKeysWith(SerializationPair.fromSerializer(new StringRedisSerializer()))
+            .serializeValuesWith(SerializationPair.fromSerializer(values));
+        return RedisCacheManager.builder(connectionFactory).cacheDefaults(config).build();
     }
 }
 ```
+
+Boot 4 gotchas (Spring Data Redis 4):
+
+- `GenericJackson2JsonRedisSerializer` and `Jackson2JsonRedisSerializer` are deprecated (Jackson 2). Use `GenericJacksonJsonRedisSerializer` or `JacksonJsonRedisSerializer<T>`.
+- `GenericJacksonJsonRedisSerializer.builder().build()` has no type info by default. Cached objects deserialize as `LinkedHashMap`, and `@Cacheable` methods fail with `ClassCastException`. Enable typing with a validator, as above, or use a typed `JacksonJsonRedisSerializer<>(User.class)` per cache.
+- Do not use `enableUnsafeDefaultTyping()`. It allows any class in the cache data to be instantiated.
 
 **Review Checklist:**
 - [ ] Caching enabled for expensive operations
@@ -254,6 +170,7 @@ public class RedisCacheConfig {
 - [ ] Cache keys properly defined
 - [ ] Cache invalidation on updates/deletes
 - [ ] Cache size limits set
+- [ ] Redis value serializer is the Jackson 3 one, with type info limited to app packages
 
 ---
 
@@ -263,103 +180,9 @@ public class RedisCacheConfig {
 
 **Quick review checklist:**
 - [ ] `spring.threads.virtual.enabled: true` is set (Spring Boot 4 config)
-- [ ] No `synchronized` blocks wrapping blocking I/O — use `ReentrantLock`
+- [ ] Java 21-23 only: no `synchronized` blocks wrapping blocking I/O (use `ReentrantLock`). On Java 24+ `synchronized` does not pin (JEP 491), so do not flag it
 - [ ] Virtual threads are not recommended for CPU-bound workloads
 - [ ] Recommendation to use virtual threads is backed by measured workload evidence, not assumed
-
----
-
-## Database Performance
-
-### Batch Operations
-
-❌ **One-by-one inserts**
-```java
-for (User user : users) {
-    userRepository.save(user);  // N queries!
-}
-```
-
-✅ **Batch insert**
-```java
-userRepository.saveAll(users);  // Batched!
-```
-
-✅ **Configure batch size**
-```yaml
-spring:
-  jpa:
-    properties:
-      hibernate:
-        jdbc:
-          batch_size: 50
-        order_inserts: true
-        order_updates: true
-```
-
-### Pagination
-
-❌ **Loading all records**
-```java
-List<User> users = userRepository.findAll();  // Loads entire table!
-```
-
-✅ **Pagination**
-```java
-Pageable pageable = PageRequest.of(0, 20, Sort.by("name"));
-Page<User> users = userRepository.findAll(pageable);
-```
-
-### Projections
-
-❌ **Loading entire entity when only few fields needed**
-```java
-List<User> users = userRepository.findAll();
-return users.stream()
-    .map(u -> new UserDTO(u.getId(), u.getName()))
-    .toList();
-```
-
-✅ **Interface projections**
-```java
-public interface UserSummary {
-    Long getId();
-    String getName();
-}
-
-public interface UserRepository extends JpaRepository<User, Long> {
-    List<UserSummary> findAllProjectedBy();
-}
-```
-
-✅ **DTO projections**
-```java
-public record UserDTO(Long id, String name) {}
-
-@Query("SELECT new com.example.UserDTO(u.id, u.name) FROM User u")
-List<UserDTO> findAllDTOs();
-```
-
-### Read-Only Queries
-
-✅ **Mark read-only transactions**
-```java
-@Transactional(readOnly = true)
-public List<User> findActiveUsers() {
-    return userRepository.findByActiveTrue();
-}
-```
-
-**Benefits:**
-- Optimizations at JDBC driver level
-- No dirty checking overhead
-- Can route to read replicas
-
-**Review Checklist:**
-- [ ] Batch operations for bulk inserts/updates
-- [ ] Pagination used for large result sets
-- [ ] Projections used when only few fields needed
-- [ ] Read-only transactions marked as such
 
 ---
 
@@ -367,54 +190,28 @@ public List<User> findActiveUsers() {
 
 ### Spring @Async
 
-✅ **Configure async executor**
-```java
-@Configuration
-@EnableAsync
-public class AsyncConfig implements AsyncConfigurer {
-    @Override
-    public Executor getAsyncExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(5);
-        executor.setMaxPoolSize(10);
-        executor.setQueueCapacity(100);
-        executor.setThreadNamePrefix("async-");
-        executor.initialize();
-        return executor;
-    }
-}
+Add `@EnableAsync` and use Boot's auto-configured executor. Tune it with properties instead of a custom bean:
+
+```yaml
+spring:
+  task:
+    execution:
+      thread-name-prefix: async-
+      pool:                 # platform threads (ThreadPoolTaskExecutor)
+        core-size: 5
+        max-size: 10
+        queue-capacity: 100
+      simple:               # used when spring.threads.virtual.enabled=true
+        concurrency-limit: 50
 ```
 
-✅ **Async methods**
-```java
-@Service
-public class NotificationService {
-    @Async
-    public CompletableFuture<Void> sendEmail(String to, String subject, String body) {
-        // Send email asynchronously
-        emailClient.send(to, subject, body);
-        return CompletableFuture.completedFuture(null);
-    }
-}
-
-@Service
-public class OrderService {
-    private final NotificationService notificationService;
-
-    public Order createOrder(OrderRequest request) {
-        Order order = orderRepository.save(new Order(request));
-
-        // Send email asynchronously - doesn't block
-        notificationService.sendEmail(
-            request.getEmail(),
-            "Order Confirmation",
-            "Your order has been placed"
-        );
-
-        return order;
-    }
-}
-```
+| Flag | Why | Fix |
+|------|-----|-----|
+| Custom `AsyncConfigurer` or `TaskExecutor` bean while `spring.threads.virtual.enabled=true` | The custom executor replaces Boot's, so `@Async` does not run on virtual threads | Remove the custom bean, or build it on virtual threads on purpose |
+| `@Async` method called from the same class | The proxy is skipped; the call runs synchronously | Call it through another bean |
+| `@Async` side effect (email, message) sent inside a transaction | It can run before the commit, or for a rolled-back change | Publish an event and handle it with `@TransactionalEventListener` (or `@ApplicationModuleListener`) |
+| `@Async void` method with no error handling | Exceptions are only logged | Return `CompletableFuture`, or configure an `AsyncUncaughtExceptionHandler` |
+| Unbounded queue or no limit with virtual threads | Memory growth; overloads downstream systems | Set `queue-capacity` or `simple.concurrency-limit` |
 
 ### CompletableFuture Composition
 
@@ -442,76 +239,46 @@ public class DashboardService {
 }
 ```
 
-### Structured Concurrency (Java 25 Alternative)
+### Structured Concurrency (preview only)
 
-**Preview in Java 25** (JEP 505 — compile and run with `--enable-preview`): Structured Concurrency is a cleaner alternative to CompletableFuture for parallel execution. The API below — `StructuredTaskScope.open(...)` driven by a `Joiner` — is the JDK 25 shape; the earlier previews (Java 21–23) used the now-removed `ShutdownOnFailure` / `ShutdownOnSuccess` classes.
+**Status:** Preview in every release so far: JDK 25 (JEP 505), JDK 26 (JEP 525), JDK 27 (JEP 533). It needs `--enable-preview` at compile time and at run time. The API changes between releases.
 
-✅ **Structured Concurrency approach**
+**Review rule:** in code built without `--enable-preview`, do not suggest Structured Concurrency, and do not flag `CompletableFuture` as outdated. `CompletableFuture` is the standard choice for parallel calls.
+
+If the project already uses preview features, match the sample to its exact JDK:
+
 ```java
-@Service
-public class DashboardService {
-    private final UserService userService;
-    private final OrderService orderService;
-    private final ProductService productService;
-
-    public Dashboard getDashboard(Long userId) throws InterruptedException {
-        try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) {
-            Subtask<User> userTask = scope.fork(() -> userService.findById(userId));
-            Subtask<List<Order>> ordersTask = scope.fork(() -> orderService.findByUserId(userId));
-            Subtask<List<Product>> productsTask = scope.fork(() -> productService.findRecommended(userId));
-
-            scope.join();  // Wait for all; allSuccessfulOrThrow propagates any failure
-
-            return new Dashboard(
-                userTask.get(),
-                ordersTask.get(),
-                productsTask.get()
-            );
-        }
-    }
-}
-```
-
-### When to Use What in Java 25
-
-| Use Case | Recommended Approach | Reason |
-|----------|---------------------|--------|
-| **Spring @Async integration** | CompletableFuture | Spring @Async returns CompletableFuture, maintains framework compatibility |
-| **Complex composition chains** | CompletableFuture | `.thenCompose()`, `.thenApply()`, `.exceptionally()` provide fluent API |
-| **Parallel execution of independent tasks** | Structured Concurrency | Cleaner error handling, automatic cancellation, structured lifecycle |
-| **Simple blocking I/O with virtual threads** | Direct blocking calls | Virtual threads make blocking acceptable - no async wrapper needed |
-| **Timeout/cancellation requirements** | Structured Concurrency | Built-in timeout support via the scope's timeout configuration |
-
-### Migration Example
-
-❌ **Old CompletableFuture pattern**
-```java
-public Dashboard getDashboard(Long userId) {
-    CompletableFuture<User> user = CompletableFuture.supplyAsync(() -> fetchUser(userId));
-    CompletableFuture<List<Order>> orders = CompletableFuture.supplyAsync(() -> fetchOrders(userId));
-
-    return user.thenCombine(orders, (u, o) -> new Dashboard(u, o)).join();
-}
-```
-
-✅ **Modern Structured Concurrency**
-```java
+// JDK 25 shape (JEP 505)
 public Dashboard getDashboard(Long userId) throws InterruptedException {
     try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) {
-        var userTask = scope.fork(() -> fetchUser(userId));
-        var ordersTask = scope.fork(() -> fetchOrders(userId));
-
+        Subtask<User> userTask = scope.fork(() -> userService.findById(userId));
+        Subtask<List<Order>> ordersTask = scope.fork(() -> orderService.findByUserId(userId));
         scope.join();  // allSuccessfulOrThrow propagates any subtask failure
+        return new Dashboard(userTask.get(), ordersTask.get());
+    }
+}
+
+// JDK 27 shape (JEP 533): join() now throws ExecutionException on failure
+public Dashboard getDashboard(Long userId) throws InterruptedException, ExecutionException {
+    try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) {
+        Subtask<User> userTask = scope.fork(() -> userService.findById(userId));
+        Subtask<List<Order>> ordersTask = scope.fork(() -> orderService.findByUserId(userId));
+        scope.join();
         return new Dashboard(userTask.get(), ordersTask.get());
     }
 }
 ```
 
-**Benefits of Structured Concurrency:**
-- **Automatic cancellation**: If one task fails, others are cancelled immediately
-- **Clear ownership**: Task lifetime bound to scope (like try-with-resources)
-- **Better error handling**: Single exception propagation point
-- **Works naturally with virtual threads**: No need for explicit executor configuration
+Other JDK 27 changes: `StructuredTaskScope` and `Joiner` take a third type parameter for the exception that `join()` throws, `Joiner.awaitAll()` is removed, and timeouts use `open(joiner, cfg -> cfg.withTimeout(duration))`.
+
+**Benefits once it is final:** automatic cancellation of sibling tasks, task lifetime bound to the scope, one place to handle errors, and natural use of virtual threads.
+
+| Use case | Without `--enable-preview` | With `--enable-preview` |
+|----------|----------------------------|-------------------------|
+| Spring `@Async` | `CompletableFuture` | `CompletableFuture` |
+| Composition chains (`thenCompose`, `exceptionally`) | `CompletableFuture` | `CompletableFuture` |
+| Parallel independent calls | `CompletableFuture` | Structured Concurrency (match the JDK) |
+| Simple blocking I/O on virtual threads | Direct blocking calls | Direct blocking calls |
 
 ### CompletableFuture Still Valuable For
 
@@ -525,53 +292,8 @@ public Dashboard getDashboard(Long userId) throws InterruptedException {
 - [ ] Async executor properly configured (or using virtual threads)
 - [ ] Independent operations run in parallel
 - [ ] Error handling in async methods
-- [ ] For Java 21+: Consider Structured Concurrency over CompletableFuture for parallel execution
+- [ ] Structured Concurrency suggested only if the project already uses `--enable-preview` (preview through JDK 27)
 - [ ] CompletableFuture used appropriately (Spring @Async, complex composition chains)
-
----
-
-## Connection Pooling
-
-### HikariCP Configuration (Default in Spring Boot 4)
-
-✅ **Tuned connection pool**
-```yaml
-spring:
-  datasource:
-    hikari:
-      maximum-pool-size: 10  # Not too high!
-      minimum-idle: 5
-      connection-timeout: 30000
-      idle-timeout: 600000
-      max-lifetime: 1800000
-      leak-detection-threshold: 60000  # Detect connection leaks
-```
-
-**Sizing formula:**
-```
-connections = ((core_count * 2) + effective_spindle_count)
-```
-
-For cloud/SSDs: `core_count * 2 + 1`
-
-❌ **Too many connections**
-```yaml
-spring:
-  datasource:
-    hikari:
-      maximum-pool-size: 100  # Way too high for most apps!
-```
-
-**Problems:**
-- Context switching overhead
-- Database connection limits exceeded
-- Memory waste
-
-**Review Checklist:**
-- [ ] Connection pool size tuned (not default)
-- [ ] Leak detection enabled
-- [ ] Connection timeout configured
-- [ ] Idle timeout configured
 
 ---
 
@@ -651,7 +373,7 @@ public class ExternalApiService {
 - [ ] **Read-only transactions**: Read operations marked `readOnly = true`
 - [ ] **Projections**: DTOs used instead of full entities when possible
 - [ ] **Async processing**: Independent operations run in parallel
-- [ ] **Virtual threads**: I/O-bound operations use virtual threads
+- [ ] **Virtual threads**: recommended only with 10,000+ concurrent I/O-bound tasks and measured pool exhaustion
 - [ ] **Batch operations**: Bulk inserts/updates batched
 - [ ] **Connection pool tuning**: HikariCP properly configured
 

@@ -12,14 +12,14 @@
     {
       "name": "springboot-architecture",
       "source": "./plugins/springboot-architecture",
-      "description": "Skills for creating Spring Boot projects with architecture patterns (Layered to DDD+Hexagonal)",
-      "version": "1.1.0",
+      "description": "Skills for creating, testing and reviewing Spring Boot projects with architecture patterns (Layered to DDD+Hexagonal)",
+      "version": "2.1.0",
       "author": {
         "name": "Pavithra"
       },
       "repository": "https://github.com/a-pavithraa/springboot-skills-marketplace",
       "category": "spring-boot",
-      "tags": ["spring-boot", "java", "architecture", "ddd", "hexagonal", "spring-data-jpa", "jpa", "hibernate"],
+      "tags": ["spring-boot", "java", "architecture", "ddd", "hexagonal", "jpa", "hibernate", "testing", "testcontainers", "junit"],
       "strict": false,
       "skills": "./skills"
     }
