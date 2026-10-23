@@ -8,12 +8,12 @@ Run `./mvnw verify` (`mvnw.cmd verify` on Windows) before you say a change is fi
 
 | Gate | Fails when | Fix |
 | --- | --- | --- |
-| NullAway, at compile | Code under `{{BASE_PACKAGE}}` can pass or return `null` where the type doesn't allow it | Annotate with `org.jspecify.annotations.Nullable` and handle the null. Don't add `@SuppressWarnings("NullAway")` |
+| NullAway, at compile | Code under `{{BASE_PACKAGE}}` can pass or return `null` where the type doesn't allow it | Annotate with `org.jspecify.annotations.Nullable` and handle the null. Don't add `@SuppressWarnings("NullAway")`, and don't add `@NullUnmarked`: classes that have it are legacy code waiting to be fixed |
 <!-- modules:begin -->
 | `ModuleBoundariesTests` | A module uses another module's nested (internal) package, or modules depend on each other in a cycle | Call the other module through a type in its top-level package, or publish an event |
 <!-- modules:end -->
 | `ConfigurationKeysTests` | A `spring.`, `management.`, `server.` or `logging.` key in `application*.properties` or `.yml` is unknown or deprecated | Use the key the message names, or the dependency that defines it |
-| `CodeRulesTests` | A class calls its own `@Transactional`, `@Async`, `@Cacheable` or `@Retryable` method; a controller starts a transaction or uses a repository; a field is `@Autowired`; code prints to `System.out`; code uses Jackson 2, Spring's nullness annotations or JUnit 4 | Each failure message says what to do instead |
+| `CodeRulesTests` | A class calls its own `@Transactional`, `@Async`, `@Cacheable` or `@Retryable` method; a controller starts a transaction or uses a repository; a field is `@Autowired`; code prints to `System.out`; code uses Jackson 2, Spring's nullness annotations or JUnit 4 | Each failure message says what to do instead. Violations recorded in `src/test/resources/archunit_store` are older than the harness and tolerated; never edit that record to get a new one through, and don't change `archunit.properties`. If the rules fail on many classes nobody changed and there is no record, the existing code was never baselined: ask the user to run the harness's `baseline.py` |
 | Spotless | Code isn't formatted | Run `./mvnw spotless:apply` |
 
 `verify` also runs the tests that start containers, so Docker must be running. If it isn't, say that those tests didn't run. Don't skip or disable them.

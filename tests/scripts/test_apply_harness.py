@@ -4,6 +4,7 @@ Run from the repository root:
     python3 -m unittest discover -s tests/scripts -v
 """
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -276,6 +277,48 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("kept     .github/workflows/ci.yml", result.stdout)
         self.assertFalse((root / ".github/workflows/verify.yml").exists())
 
+    def test_archunit_freeze_store_is_configured_without_dropping_existing_properties(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        properties = (root / "src/test/resources/archunit.properties").read_text(encoding="utf-8")
+        self.assertIn("freeze.store.default.path=src/test/resources/archunit_store", properties)
+        self.assertIn("freeze.store.default.allowStoreCreation=false", properties)
+
+        root = self.project(STANDARD, {"src/test/resources/archunit.properties":
+                                       "archRule.failOnEmptyShould=false\nfreeze.store.default.allowStoreCreation=false\n"})
+        self.run_script(root)
+        properties = (root / "src/test/resources/archunit.properties").read_text(encoding="utf-8")
+        self.assertEqual(properties, "archRule.failOnEmptyShould=false\nfreeze.store.default.allowStoreCreation=false\n"
+                                     "freeze.store.default.path=src/test/resources/archunit_store\n")
+
+    def test_rerun_updates_harness_files_nobody_edited_and_keeps_edited_ones(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        hook = root / ".claude/hooks/verify-on-stop.sh"
+        rules = root / "src/test/java/com/acme/orders/CodeRulesTests.java"
+        current_hook = hook.read_text(encoding="utf-8")
+
+        lock = json.loads((root / ".claude/harness.lock").read_text(encoding="utf-8"))
+        old_hook = "#!/usr/bin/env bash\n# an earlier version\n"
+        hook.write_text(old_hook, encoding="utf-8", newline="\n")
+        lock[".claude/hooks/verify-on-stop.sh"] = hashlib.sha256(old_hook.encode()).hexdigest()
+        (root / ".claude/harness.lock").write_text(json.dumps(lock), encoding="utf-8")
+        rules.write_text(rules.read_text(encoding="utf-8") + "// team rule\n", encoding="utf-8")
+
+        result = self.run_script(root)
+        self.assertIn("updated  .claude/hooks/verify-on-stop.sh", result.stdout)
+        self.assertEqual(hook.read_text(encoding="utf-8"), current_hook)
+        self.assertIn("kept     src/test/java/com/acme/orders/CodeRulesTests.java (edited", result.stdout)
+        self.assertTrue(rules.read_text(encoding="utf-8").endswith("// team rule\n"))
+
+    def test_a_harness_file_from_before_the_lock_is_kept_with_instructions(self):
+        root = self.project(STANDARD, {".claude/hooks/guard.sh": "#!/usr/bin/env bash\n# older harness\n"})
+        result = self.run_script(root)
+        self.assertIn("kept     .claude/hooks/guard.sh", result.stdout)
+        self.assertIn("delete it and rerun", result.stdout)
+        self.assertEqual((root / ".claude/hooks/guard.sh").read_text(encoding="utf-8"),
+                         "#!/usr/bin/env bash\n# older harness\n")
+
     def test_existing_workflow_is_never_overwritten(self):
         maven_ci = "steps:\n  - run: mvn -B verify\n"
         root = self.project(STANDARD, {".github/workflows/verify.yml": maven_ci})
@@ -366,6 +409,8 @@ class ApplyHarnessTests(unittest.TestCase):
         settings = json.loads((root / ".claude/settings.json").read_text(encoding="utf-8"))
         stop = [hook["command"] for group in settings["hooks"]["Stop"] for hook in group["hooks"]]
         self.assertTrue(any(command.endswith('verify-on-stop.sh" "backend"') for command in stop), stop)
+        start = [hook["command"] for group in settings["hooks"]["SessionStart"] for hook in group["hooks"]]
+        self.assertTrue(any(command.endswith('verify-on-stop.sh" --session-start "backend"') for command in start), start)
         for hook in ("guard.sh", "verify-on-stop.sh"):
             self.assertTrue((root / ".claude/hooks" / hook).exists())
         self.assertFalse((backend / ".claude/settings.json").exists())

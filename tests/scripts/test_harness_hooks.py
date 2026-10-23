@@ -75,6 +75,13 @@ class GuardHookTests(unittest.TestCase):
         self.assertEqual(edit("V2__lines.sql").returncode, 0)
         self.assertEqual(edit("V3__notes.sql").returncode, 0)
 
+    def test_blocks_edits_to_the_archunit_freeze_record(self):
+        record = Path("src/test/resources/archunit_store/stored.rules").resolve()
+        for tool in ("Edit", "Write"):
+            result = self.guard({"tool_name": tool, "tool_input": {"file_path": str(record)}})
+            self.assertEqual(result.returncode, 2, tool)
+            self.assertIn("frozen", result.stderr)
+
     def test_ignores_other_files(self):
         result = self.guard({"tool_name": "Write", "tool_input": {"file_path": str(Path("src/main/java/A.java").resolve())}})
         self.assertEqual(result.returncode, 0)
@@ -83,115 +90,190 @@ class GuardHookTests(unittest.TestCase):
 FAKE_MVNW = """#!/usr/bin/env bash
 echo "$*" >> mvnw.log
 case "$*" in
-  *spotless:apply*) [ -f fail-format ] && { echo "[ERROR] spotless failed"; exit 1; } ;;
-  *test*) [ -f fail-tests ] && { echo "[ERROR] CodeRulesTests failed"; exit 1; } ;;
+  *spotless:apply*)
+    [ -f fail-format ] && { echo "[ERROR] spotless failed"; exit 1; }
+    [ -f reformat-two ] && echo "// formatted" >> src/main/java/two/B.java ;;
+  *test*) [ -f fail-tests ] && { cat fail-tests; exit 1; } ;;
 esac
 exit 0
 """
 
+SOURCES = {"A": "src/main/java/one/A.java", "B": "src/main/java/two/B.java", "A2": "src/main/java/two/A.java"}
 
-@unittest.skipUnless(BASH, "bash not found")
-class StopHookTests(unittest.TestCase):
+
+class StopHookFixture:
+    """A git repository with a Maven project in `folder` and a fake mvnw that logs its calls."""
+
+    folder = ""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
-        (self.root / "src").mkdir()
-        (self.root / "src" / "A.java").write_text("class A {}\n")
-        (self.root / "pom.xml").write_text("<project/>\n")
-        mvnw = self.root / "mvnw"
+        self.project = self.root / self.folder if self.folder else self.root
+        for relative in SOURCES.values():
+            path = self.project / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"package {path.parent.name};\n\nclass {path.stem} {{}}\n")
+        (self.project / "pom.xml").write_text("<project/>\n")
+        mvnw = self.project / "mvnw"
         mvnw.write_text(FAKE_MVNW, newline="\n")
         mvnw.chmod(0o755)
-        (self.root / ".gitignore").write_text("mvnw.log\nfail-*\ntarget/\n")
+        (self.root / "frontend").mkdir()
+        (self.root / "frontend" / "app.js").write_text("1\n")
+        (self.root / ".gitignore").write_text("mvnw.log\nfail-*\nreformat-*\ntarget/\n")
         git(self.root, "init", "-q", "-b", "main")
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "start")
 
-    def stop(self, active: bool = False) -> subprocess.CompletedProcess:
+    def hook(self, *args: str, active: bool = False) -> subprocess.CompletedProcess:
         env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
-        return subprocess.run([BASH, str(HOOKS / "verify-on-stop.sh")], input=json.dumps({"stop_hook_active": active}),
-                              capture_output=True, text=True, env=env, cwd=self.root)
+        folder = [self.folder] if self.folder else []
+        payload = {"session_id": "s1", "stop_hook_active": active}
+        return subprocess.run([BASH, str(HOOKS / "verify-on-stop.sh"), *args, *folder], input=json.dumps(payload),
+                              capture_output=True, text=True, env=env)
+
+    def start_session(self):
+        self.assertEqual(self.hook("--session-start").returncode, 0)
+
+    def stop(self, active: bool = False) -> subprocess.CompletedProcess:
+        return self.hook(active=active)
+
+    def log(self) -> str:
+        log = self.project / "mvnw.log"
+        return log.read_text() if log.exists() else ""
 
     def checks_run(self) -> int:
-        log = self.root / "mvnw.log"
-        return log.read_text().count(" test ") if log.exists() else 0
+        return self.log().count(" test ")
 
-    def change(self, text: str):
-        (self.root / "src" / "A.java").write_text(text)
+    def edit(self, key: str):
+        path = self.project / SOURCES[key]
+        path.write_text(path.read_text().replace("{}", "{ int x; }"))
 
-    def test_committed_changes_are_still_checked(self):
+    def error_in(self, key: str, message: str = "[NullAway] returning @Nullable") -> str:
+        prefix = f"{self.folder}/" if self.folder else ""
+        return f"[ERROR] /x/{prefix}{SOURCES[key]}:[3,9] {message}\n"
+
+    def fail_with(self, text: str):
+        (self.project / "fail-tests").write_text(text)
+
+
+@unittest.skipUnless(BASH, "bash not found")
+class StopHookTests(StopHookFixture, unittest.TestCase):
+
+    def test_a_session_that_changes_no_code_is_not_checked(self):
+        self.fail_with(self.error_in("B"))
+        self.start_session()
         self.assertEqual(self.stop().returncode, 0)
-        checked = self.checks_run()
-        self.assertEqual(self.stop().returncode, 0)
-        self.assertEqual(self.checks_run(), checked, "unchanged code is checked again")
+        self.assertEqual(self.checks_run(), 0)
 
-        self.change("class A { int b; }\n")
+    def test_without_a_recorded_session_start_the_first_stop_only_records_the_code(self):
+        self.assertEqual(self.stop().returncode, 0)
+        self.assertEqual(self.checks_run(), 0)
+        self.edit("A")
+        self.stop()
+        self.assertEqual(self.checks_run(), 1)
+
+    def test_committed_changes_are_checked_and_a_pass_is_remembered(self):
+        self.start_session()
+        self.edit("A")
         git(self.root, "commit", "-qam", "change")
         self.assertEqual(self.stop().returncode, 0)
-        self.assertEqual(self.checks_run(), checked + 1, "a committed change was not checked")
+        self.assertEqual(self.checks_run(), 1, "a committed change was not checked")
+        self.assertEqual(self.stop().returncode, 0)
+        self.assertEqual(self.checks_run(), 1, "code that passed was checked again")
 
-    def test_failing_checks_block_and_are_not_recorded_as_passed(self):
-        (self.root / "fail-tests").write_text("")
-        self.change("class A { int b; }\n")
+    def test_blocks_on_errors_in_files_changed_in_this_session(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with(self.error_in("A") + self.error_in("B", "[NullAway] already broken"))
         result = self.stop()
         self.assertEqual(result.returncode, 2)
-        self.assertIn("CodeRulesTests failed", result.stderr)
+        self.assertIn("one/A.java:[3,9]", result.stderr)
+        self.assertNotIn("already broken", result.stderr)
         self.assertEqual(self.stop(active=True).returncode, 0, "a second block on the same code would loop")
 
+    def test_blocks_on_archunit_violations_in_classes_changed_in_this_session(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with("Rule 'no classes should access standard streams' was violated (1 times):\n"
+                       "Method <one.A.print()> gets field <java.lang.System.out> in (A.java:3)\n")
+        result = self.stop()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Method <one.A.print()>", result.stderr)
+
+    def test_does_not_block_on_errors_only_in_code_the_session_did_not_change(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with(self.error_in("B", "[NullAway] already broken"))
+        result = self.stop()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("could not be fully verified", json.loads(result.stdout)["systemMessage"])
+
+    def test_a_file_with_the_same_name_in_another_package_is_not_the_sessions(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with(self.error_in("A2", "[NullAway] already broken")
+                       + "Method <two.A.print()> gets field <java.lang.System.out> in (A.java:3)\n")
+        self.assertEqual(self.stop().returncode, 0)
+
+    def test_a_pom_change_does_not_make_every_failure_the_sessions(self):
+        self.start_session()
+        (self.project / "pom.xml").write_text("<project><!-- note --></project>\n")
+        self.fail_with(self.error_in("B", "[NullAway] already broken"))
+        result = self.stop()
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("pom.xml", json.loads(result.stdout)["systemMessage"])
+
+    def test_formats_only_the_files_the_session_changed(self):
+        self.start_session()
+        self.edit("A")
+        self.stop()
+        spotless = next(line for line in self.log().splitlines() if "spotless:apply" in line)
+        self.assertIn(r"-DspotlessFiles=.*src[\\/]main[\\/]java[\\/]one[\\/]A\.java", spotless)
+        self.assertNotIn("two", spotless)
+
+    def test_a_file_reformatted_by_the_check_is_not_the_sessions(self):
+        self.start_session()
+        self.edit("A")
+        (self.project / "reformat-two").write_text("")
+        self.fail_with(self.error_in("B", "[NullAway] already broken"))
+        self.assertEqual(self.stop().returncode, 0)
+
     def test_formatting_failure_blocks_and_is_not_recorded_as_passed(self):
-        (self.root / "fail-format").write_text("")
-        self.change("class A { int b; }\n")
+        self.start_session()
+        (self.project / "fail-format").write_text("")
+        self.edit("A")
         result = self.stop()
         self.assertEqual(result.returncode, 2)
         self.assertIn("spotless failed", result.stderr)
 
-        (self.root / "fail-format").unlink()
+        (self.project / "fail-format").unlink()
         runs = self.checks_run()
         self.assertEqual(self.stop().returncode, 0)
         self.assertEqual(self.checks_run(), runs + 1, "the failed run was cached as a pass")
 
 
 @unittest.skipUnless(BASH, "bash not found")
-class StopHookInSubfolderTests(unittest.TestCase):
+class StopHookInSubfolderTests(StopHookFixture, unittest.TestCase):
 
-    def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
-        backend = self.root / "backend"
-        (backend / "src").mkdir(parents=True)
-        (backend / "src" / "A.java").write_text("class A {}\n")
-        (backend / "pom.xml").write_text("<project/>\n")
-        mvnw = backend / "mvnw"
-        mvnw.write_text(FAKE_MVNW, newline="\n")
-        mvnw.chmod(0o755)
-        (self.root / "frontend").mkdir()
-        (self.root / "frontend" / "app.js").write_text("1\n")
-        (self.root / ".gitignore").write_text("mvnw.log\n")
-        git(self.root, "init", "-q", "-b", "main")
-        git(self.root, "add", "-A")
-        git(self.root, "commit", "-qm", "start")
-
-    def stop(self) -> subprocess.CompletedProcess:
-        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
-        return subprocess.run([BASH, str(HOOKS / "verify-on-stop.sh"), "backend"],
-                              input=json.dumps({"stop_hook_active": False}), capture_output=True, text=True, env=env)
-
-    def checks_run(self) -> int:
-        log = self.root / "backend" / "mvnw.log"
-        return log.read_text().count(" test ") if log.exists() else 0
+    folder = "backend"
 
     def test_checks_only_changes_to_the_maven_project(self):
-        self.assertEqual(self.stop().returncode, 0)
-        checked = self.checks_run()
-        self.assertEqual(checked, 1)
-
+        self.start_session()
         (self.root / "frontend" / "app.js").write_text("2\n")
         git(self.root, "commit", "-qam", "frontend")
         self.stop()
-        self.assertEqual(self.checks_run(), checked, "a frontend change ran the backend checks")
+        self.assertEqual(self.checks_run(), 0, "a frontend change ran the backend checks")
 
-        (self.root / "backend" / "src" / "A.java").write_text("class A { int b; }\n")
+        self.edit("A")
         git(self.root, "commit", "-qam", "backend")
         self.stop()
-        self.assertEqual(self.checks_run(), checked + 1, "a committed backend change was not checked")
+        self.assertEqual(self.checks_run(), 1, "a committed backend change was not checked")
+
+    def test_blocks_on_errors_in_changed_files_inside_the_subfolder(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with(self.error_in("A"))
+        self.assertEqual(self.stop().returncode, 2)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@ To add a scenario, write the task and how it's scored in `baseline-scenarios.md`
 - `test_progen_config.py`: package and app-name validation, the existing-directory guard, progen failure handling, and Java version patching. A fake `progen` on `PATH` replaces the real binary.
 - `test_check_new_project.py`: the new-project checks.
 - `test_apply_harness.py`: where the harness script puts each pom fragment, the files it adds or appends to, idempotency, `--no-modules` and `--dry-run`.
-- `test_harness_hooks.py`: the harness's hooks. The PreToolUse hook blocks destructive git commands, including ones with quoted arguments, and edits to migrations already on `main`, and allows everything else. The Stop hook, run against a fake `mvnw`, checks committed changes, blocks on formatting and test failures without recording them as passed, and lets a retry on unchanged failing code stop. Needs `bash` (Git for Windows on Windows).
+- `test_baseline.py`: reading NullAway errors from Maven output (Windows and POSIX paths), and marking a class `@NullUnmarked` without disturbing its annotations or line endings.
+- `test_harness_hooks.py`: the harness's hooks. The PreToolUse hook blocks destructive git commands, including ones with quoted arguments, and edits to migrations already on `main`, and allows everything else. The Stop hook, run against a fake `mvnw`, skips sessions that changed no code, checks committed changes, blocks only on errors in files the session changed, reports failures elsewhere without blocking, never records a failure as passed, and lets a retry on unchanged failing code stop. The archunit_store record can't be edited. Needs `bash` (Git for Windows on Windows).
 
 ```bash
 python3 -m unittest discover -s tests/scripts -v

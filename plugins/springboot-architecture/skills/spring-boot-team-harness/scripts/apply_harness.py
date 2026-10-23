@@ -10,10 +10,12 @@ ModuleBoundariesTests. A GitHub Actions workflow that runs ./mvnw verify is adde
 Claude Code hooks run the fast gates when a turn ends and block destructive git commands and edits to
 migrations already on main.
 Files that already exist are left alone and reported, except CLAUDE.md, which gets an `@AGENTS.md` import as its
-first line. Running it twice changes nothing.
+first line, and the files the harness owns (hooks, tests, project skills, its workflow): .claude/harness.lock records
+what was written, and a rerun updates each one nobody has edited since. Running it twice changes nothing.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -32,6 +34,17 @@ SKILL_DIRS = (".claude/skills", ".agents/skills")
 ARCHUNIT = re.compile(r"<artifactId>\s*(taikai|archunit[\w-]*)\s*</artifactId>")
 WORKFLOW = ".github/workflows/verify.yml"
 HOOKS = (".claude/hooks/guard.sh", ".claude/hooks/verify-on-stop.sh")
+LOCK = ".claude/harness.lock"
+# Hooks released before the lock file existed, by SHA-256 of their LF content: safe to replace on a rerun.
+RELEASED = {
+    ".claude/hooks/guard.sh": {"0eca37c90909f462612b1394097b51ee6fc9d3996b142bebd7e8ef6766f180e3"},
+    ".claude/hooks/verify-on-stop.sh": {"88ded00535a3c13dd5e1df5e8545c31fa1989b0c6cc37d21478fa87e96aa9448",
+                                        "286d721ca822c4ee6c36e4535d4d0014d248764e8d11f42daa24623920290b4f"},
+}
+
+
+def digest(text: str) -> str:
+    return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
 
 
 def element_spans(pom: str) -> dict[tuple[str, ...], list[tuple[int, int]]]:
@@ -167,8 +180,40 @@ def pom_value(pom: str, pattern: str, default: str) -> str:
 
 
 class Changes:
-    def __init__(self, project: Path, dry_run: bool):
-        self.project, self.dry_run, self.lines = project, dry_run, []
+    def __init__(self, project: Path, root: Path, dry_run: bool):
+        self.project, self.root, self.dry_run, self.lines = project, root, dry_run, []
+        lock = root / LOCK
+        try:
+            self.lock = json.loads(lock.read_text(encoding="utf-8")) if lock.exists() else {}
+        except json.JSONDecodeError:
+            self.lock = {}
+        self.locked = dict(self.lock)
+
+    def own(self, relative: str, text: str, source: Path):
+        """Write a file the harness owns: add it, or update it while nobody has edited the copy the harness wrote."""
+        target = self.project / relative
+        key = Path(os.path.relpath(target, self.root)).as_posix()
+        if not target.exists():
+            self.write(relative, text, "added")
+        else:
+            present = digest(target.read_text(encoding="utf-8"))
+            if present == digest(text):
+                self.keep(relative, "up to date")
+            elif present == self.lock.get(key) or present in RELEASED.get(key, ()):
+                self.write(relative, text, "updated")
+            elif key in self.lock:
+                self.keep(relative, f"edited since the harness wrote it; merge {source} by hand")
+                return
+            else:
+                self.keep(relative, f"not written by this harness; to take {source}, delete it and rerun")
+                return
+        self.locked[key] = digest(text)
+
+    def save_lock(self):
+        if self.locked != self.lock:
+            text = json.dumps(dict(sorted(self.locked.items())), indent=2) + "\n"
+            self.write(Path(os.path.relpath(self.root / LOCK, self.project)).as_posix(), text,
+                       "patched" if self.lock else "added")
 
     def write(self, relative: str, text: str, note: str):
         target = self.project / relative
@@ -188,9 +233,9 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     app_package, app_class = find_application(project)
     base_package = base_package or app_package
     pom = pom_path.read_text(encoding="utf-8")
-    changes = Changes(project, dry_run)
     # CI, Claude Code settings and hooks only work at the repository root, which can be above the Maven project.
     root = repository_root(project)
+    changes = Changes(project, root, dry_run)
     folder = project.relative_to(root).as_posix() if root != project else ""
 
     def at_root(relative: str | Path) -> str:
@@ -245,9 +290,10 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     template = ASSETS / "project" / ".claude" / "settings.json"
     wanted_settings = json.loads(render(template.read_text(encoding="utf-8")))
     if folder:
-        for group in wanted_settings["hooks"]["Stop"]:
-            for hook in group["hooks"]:
-                hook["command"] += f' "{folder}"'
+        for event in ("SessionStart", "Stop"):
+            for group in wanted_settings["hooks"][event]:
+                for hook in group["hooks"]:
+                    hook["command"] += f' "{folder}"'
     settings = at_root(".claude/settings.json")
     if not (project / settings).exists():
         changes.write(settings, json.dumps(wanted_settings, indent=2) + "\n", "added")
@@ -265,10 +311,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
             else:
                 changes.write(settings, json.dumps(merged, indent=2) + "\n", "patched")
     for hook in HOOKS:
-        if (project / at_root(hook)).exists():
-            changes.keep(at_root(hook), "exists")
-        else:
-            changes.write(at_root(hook), (ASSETS / "project" / hook).read_text(encoding="utf-8"), "added")
+        changes.own(at_root(hook), (ASSETS / "project" / hook).read_text(encoding="utf-8"), ASSETS / "project" / hook)
 
     attributes = root / ".gitattributes"
     present = attributes.read_text(encoding="utf-8") if attributes.exists() else ""
@@ -304,30 +347,39 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     elif modules:
         tests.append("ModuleBoundariesTests.java")
     for test in tests:
-        relative = (test_dir / test).as_posix()
-        if (project / relative).exists():
-            changes.keep(relative, "exists")
-        else:
-            changes.write(relative, render((ASSETS / "tests" / test).read_text(encoding="utf-8")), "added")
+        changes.own((test_dir / test).as_posix(), render((ASSETS / "tests" / test).read_text(encoding="utf-8")),
+                    ASSETS / "tests" / test)
+
+    properties = Path("src/test/resources/archunit.properties")
+    wanted = (ASSETS / "tests" / "archunit.properties").read_text(encoding="utf-8").splitlines()
+    present = (project / properties).read_text(encoding="utf-8").splitlines() if (project / properties).exists() else []
+    keys = {line.split("=", 1)[0].strip() for line in present if "=" in line}
+    missing = [line for line in wanted if line.split("=", 1)[0] not in keys]
+    if missing:
+        changes.write(properties.as_posix(), "\n".join(present + missing) + "\n", "patched" if present else "added")
+    else:
+        changes.keep(properties.as_posix(), "configures the ArchUnit freeze store")
 
     workflows = root / ".github" / "workflows"
+    ours = next((name for name in (WORKFLOW, ".github/workflows/harness-verify.yml") if name in changes.lock), None)
     runs_maven = next((path for path in sorted(workflows.glob("*.y*ml")) if workflows.is_dir()
                        and re.search(r"\bmvnw?\b", path.read_text(encoding="utf-8", errors="replace"))), None)
-    if runs_maven:
+    if ours:
+        changes.own(at_root(ours), render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")),
+                    ASSETS / "project" / WORKFLOW)
+    elif runs_maven:
         changes.keep(at_root(runs_maven.relative_to(root)), "already runs Maven in CI")
     else:
         target = WORKFLOW if not (root / WORKFLOW).exists() else ".github/workflows/harness-verify.yml"
-        changes.write(at_root(target), render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")), "added")
+        changes.own(at_root(target), render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")),
+                    ASSETS / "project" / WORKFLOW)
 
     skills = (["add-module"] if modules else []) + (["db-migration"] if "flyway" in pom.lower() else [])
     for skill in skills:
         text = render((ASSETS / "project-skills" / skill / "SKILL.md").read_text(encoding="utf-8"))
         for skills_dir in SKILL_DIRS:
-            relative = f"{skills_dir}/{skill}/SKILL.md"
-            if (project / relative).exists():
-                changes.keep(relative, "exists")
-            else:
-                changes.write(relative, text, "added")
+            changes.own(f"{skills_dir}/{skill}/SKILL.md", text, ASSETS / "project-skills" / skill / "SKILL.md")
+    changes.save_lock()
     return changes.lines
 
 

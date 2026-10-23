@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
-# Claude Code Stop hook. When the code under src or pom.xml differs from what last passed, committed or not, it
-# formats the code and runs the gates that need no Docker: compile with NullAway, then the rules,
-# configuration-key and module tests. On failure it exits 2, which sends the errors back to Claude to fix before
-# the turn ends. The full ./mvnw verify still runs in CI. The optional argument is the Maven project's folder,
-# relative to the repository root, when it isn't the root itself.
+# Claude Code hook that checks the agent's own changes before a turn ends.
+#
+#   verify-on-stop.sh --session-start [folder]   SessionStart: records the code the session starts from.
+#   verify-on-stop.sh [folder]                   Stop: if this session changed the code, formats it and runs the
+#                                                gates that need no Docker (compile with NullAway, then the rules,
+#                                                configuration-key and module tests).
+#
+# It blocks the turn (exit 2) only on errors in files this session changed, so the agent fixes its own mistakes and
+# never code it didn't touch. When the build fails only elsewhere, it tells the user the change couldn't be fully
+# verified. The full ./mvnw verify still runs in CI. folder is the Maven project, relative to the repository root.
 set -u
+start=false
+if [ "${1:-}" = "--session-start" ]; then
+  start=true
+  shift
+fi
 cd "${CLAUDE_PROJECT_DIR:-.}/${1:-.}" || exit 0
 input=$(cat)
 git rev-parse --git-dir > /dev/null 2>&1 || exit 0
@@ -12,43 +22,91 @@ git rev-parse --git-dir > /dev/null 2>&1 || exit 0
 FAST_TESTS="CodeRulesTests,ConfigurationKeysTests,ModuleBoundariesTests,ModularityTests,ArchUnitTests,ArchitectureRulesTest"
 STAMPS="$(git rev-parse --git-dir)/harness"
 mkdir -p "$STAMPS"
+session=$(printf '%s' "$input" | grep -o '"session_id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+SESSION="$STAMPS/session-${session:-unknown}"
 PASSED="$STAMPS/passed"
 FAILED="$STAMPS/failed"
 
-code_state() {
-  {
-    git rev-parse -q --verify HEAD:./src 2> /dev/null
-    git rev-parse -q --verify HEAD:./pom.xml 2> /dev/null
-    git diff HEAD -- src pom.xml 2> /dev/null || git diff -- src pom.xml
-    git ls-files -o --exclude-standard -- src | while IFS= read -r file; do
-      printf '%s\n' "$file"
-      cat "$file"
-    done
-  } | git hash-object --stdin
+# One line per file under src plus pom.xml, committed or not: "<content hash> <path>".
+manifest() {
+  local files
+  files=$(git ls-files -co --exclude-standard -- src pom.xml | sort -u | while IFS= read -r file; do
+    [ -f "$file" ] && printf '%s\n' "$file"
+  done)
+  [ -n "$files" ] || return 0
+  # --stdin-paths reads paths from the repository root, not from this folder.
+  paste -d ' ' <(printf '%s\n' "$files" | sed "s#^#$(git rev-parse --show-prefix)#" | git hash-object --stdin-paths) \
+    <(printf '%s\n' "$files")
 }
 
-fail() {
-  printf '%s\n' "$state" > "$FAILED"
-  {
-    echo "$1"
-    printf '%s\n' "$2" | grep -E '\[ERROR\]|was violated|^(Method|Field|Class|Constructor) <|is defined by no dependency|is deprecated' \
-      | grep -vE 'Re-run Maven|-> \[Help|To see the full stack trace|^\[ERROR\] *$' | awk '!seen[$0]++' | head -60
-  } >&2
-  exit 2
-}
+current=$(manifest)
+if $start || [ ! -f "$SESSION" ]; then
+  printf '%s\n' "$current" > "$SESSION"
+  ls -t "$STAMPS"/session-* 2> /dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
+  exit 0
+fi
+[ "$(cat "$SESSION")" = "$current" ] && exit 0
 
-state=$(code_state)
+state=$(printf '%s\n' "$current" | git hash-object --stdin)
 [ -f "$PASSED" ] && [ "$(cat "$PASSED")" = "$state" ] && exit 0
 # Claude already tried once on this exact code and couldn't fix it: let it stop and report the failure.
 if printf '%s' "$input" | grep -q '"stop_hook_active" *: *true' && [ -f "$FAILED" ] && [ "$(cat "$FAILED")" = "$state" ]; then
   exit 0
 fi
 
-output=$(./mvnw -q -B spotless:apply 2>&1) \
-  || fail "Formatting with ./mvnw spotless:apply failed. Fix the cause, then finish:" "$output"
-state=$(code_state)
-output=$(./mvnw -q -B test -Dtest="$FAST_TESTS" -Dsurefire.failIfNoSpecifiedTests=false 2>&1) \
-  || fail "The harness gates failed on your changes. Fix the cause (don't suppress or skip it), then finish:" "$output"
-printf '%s\n' "$state" > "$PASSED"
-rm -f "$FAILED"
+errors() {
+  grep -E '\[ERROR\]|was violated|^(Method|Field|Class|Constructor) <|is defined by no dependency|is deprecated' \
+    | grep -vE 'Re-run Maven|-> \[Help|To see the full stack trace|^\[ERROR\] *$' | awk '!seen[$0]++'
+}
+
+block() {
+  printf '%s\n' "$state" > "$FAILED"
+  { echo "$1"; printf '%s\n' "$2" | head -60; } >&2
+  exit 2
+}
+
+# The session owns the files that differ from its starting point before formatting, so a legacy file that Spotless
+# would touch never becomes the session's.
+changed=$(diff <(cat "$SESSION") <(printf '%s\n' "$current") | sed -n 's/^[<>] [0-9a-f]* //p' | sort -u | grep . || true)
+
+# Spotless matches these regexes against absolute paths: only the session's Java files get formatted.
+to_format=$(printf '%s\n' "$changed" | while IFS= read -r file; do
+  case "$file" in
+    *.java) [ -f "$file" ] && printf '.*%s\n' "$(printf '%s' "$file" | sed 's/[.^$*+?()[{|\\]/\\&/g; s#/#[\\\\/]#g')" ;;
+  esac
+done | paste -sd, -)
+if [ -n "$to_format" ]; then
+  output=$(./mvnw -q -B spotless:apply -DspotlessFiles="$to_format" 2>&1) \
+    || block "Formatting with ./mvnw spotless:apply failed. Fix the cause, then finish:" "$(printf '%s\n' "$output" | errors)"
+fi
+state=$(manifest | git hash-object --stdin)
+if output=$(./mvnw -q -B test -Dtest="$FAST_TESTS" -Dsurefire.failIfNoSpecifiedTests=false 2>&1); then
+  printf '%s\n' "$state" > "$PASSED"
+  rm -f "$FAILED"
+  exit 0
+fi
+
+# How a diagnostic names a file: compiler errors by path, ArchUnit by class name, other checks by file name.
+owned=$(printf '%s\n' "$changed" | while IFS= read -r file; do
+  case "$file" in
+    src/main/java/*.java | src/test/java/*.java)
+      class=$(printf '%s' "$file" | sed -E 's#^src/(main|test)/java/##; s#\.java$##; s#/#.#g')
+      printf '%s\n<%s.\n<%s>\n<%s$\n' "$file" "$class" "$class" "$class" ;;
+    *.java) printf '%s\n' "$file" ;;
+    pom.xml) ;;
+    *) printf '%s:\n' "${file##*/}" ;;
+  esac
+done)
+found=$(printf '%s\n' "$output" | errors)
+mine=$( [ -n "$owned" ] && printf '%s\n' "$found" | grep -F -f <(printf '%s\n' "$owned") || true)
+if [ -n "$mine" ]; then
+  block "The harness gates failed on code you changed. Fix the cause (don't suppress or skip it), then finish:" \
+    "$(printf '%s\n' "$found" | grep -F -e 'was violated' -f <(printf '%s\n' "$mine"))"
+fi
+printf '%s\n' "$state" > "$FAILED"
+if printf '%s\n' "$changed" | grep -qx 'pom.xml'; then
+  echo '{"systemMessage": "Harness: this session changed pom.xml and the build now fails only in files the session did not change. The change could not be fully verified: check whether the pom change caused it with ./mvnw verify."}'
+else
+  echo '{"systemMessage": "Harness: the build already fails on code this session did not change, so the change could not be fully verified. Run ./mvnw verify to see the failures."}'
+fi
 exit 0

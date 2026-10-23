@@ -23,6 +23,8 @@ fi
 
 path=$(printf '%s' "$input" | grep -o '"file_path" *: *"[^"]*"' | head -1 | sed 's/.*: *"//; s/"$//; s#\\\\#/#g')
 case "$path" in
+  */archunit_store/*)
+    block "src/test/resources/archunit_store records the rule violations that existed before the harness, so they're frozen. Fix the new violation instead. To accept one on purpose, ask the user." ;;
   */db/migration/*.sql) ;;
   *) exit 0 ;;
 esac
