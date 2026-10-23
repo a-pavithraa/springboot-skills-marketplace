@@ -125,6 +125,33 @@ For tests where the framework decides whether a test proves anything: calls betw
 
 Trials on Sonnet showed that general testing advice (slice vs `@SpringBootTest`, no getter tests) made no difference, because the model already follows it. So this skill is deliberately small. See `tests/baseline-results/scenario-11.md` to `scenario-13.md`.
 
+### spring-boot-team-harness
+
+Gives every developer on a team the same agent setup, in Claude Code or Codex. It steers the agent in three places:
+
+- **Before it starts:** `AGENTS.md`, which both tools read, says how this repository works: its modules, how to run and test it, the team's conventions, and how to work (plan first for larger changes, a failing test first for bugs, a review before the pull request). The agent drafts the repository-specific sections from the code, and the team corrects them.
+- **Before it says it's done:** a Claude Code Stop hook runs the gates that need no Docker whenever a turn ends with changed code. On failure, the agent gets the errors and keeps working, so it fixes its own mistakes. A second hook refuses force-pushes, `git reset --hard`, `git clean -f`, and edits to Flyway migrations already on the main branch.
+- **Before merge:** a CI workflow runs `./mvnw verify` on every pull request, unless one already runs `mvnw`.
+
+`./mvnw verify` fails the build on:
+
+- a null-safety bug (NullAway with JSpecify);
+- a module-boundary breach (Spring Modulith);
+- a Boot property key that no dependency defines, or one that is deprecated (Boot ignores such keys silently);
+- mistakes that compile but break at runtime (ArchUnit): a class calling its own `@Transactional` or `@Cacheable` method, controllers using repositories, `@Autowired` fields, Jackson 2 code that Boot 4 ignores, and JUnit 4 tests that never run;
+- unformatted code (Spotless).
+
+Each failure message says how to fix the problem. On an existing codebase, `scripts/baseline.py` makes `verify` pass on day one without lowering the bar for new code: it marks the classes NullAway rejects today `@NullUnmarked`, and records today's rule violations with ArchUnit's `FreezingArchRule`. New code is checked in full, and fixed violations drop out of the record. The Stop hook does the same per session: it only blocks on errors in files the agent changed, and stays silent when a session changed no code. The harness also commits two project skills, `add-module` and `db-migration`, to both `.claude/skills/` and `.agents/skills/`, and offers this plugin to every teammate through `enabledPlugins`. `scripts/apply_harness.py` adds only what a project lacks, so it works on existing services, including a Maven project in a subfolder of a larger repository, and keeps what progen already set up. Rerun it after updating the plugin to pick up new pieces. `creating-springboot-projects` runs it as its last step.
+
+Each gate, rule and hook was checked against a planted violation. On a fresh progen project, NullAway found three methods that return `null` without declaring it, and the key test found two Spring Modulith event settings that no dependency reads. The harness adds no MCP servers, so day-to-day sessions load only the short `AGENTS.md` and the project skills' names and descriptions.
+
+#### Why it's built this way
+
+- **Rules go in checks, not prose.** Instructions in `CLAUDE.md` are advisory, while hooks "are deterministic and guarantee the action happens" ([Best practices for Claude Code](https://code.claude.com/docs/en/best-practices)). OpenAI's Codex team enforces its architecture "with custom linters and structural tests", and writes the lint messages "to inject remediation instructions into agent context" ([Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/)).
+- **The agent checks its own work before it stops.** Anthropic's guidance names a Stop hook as the deterministic way to block a turn from ending until a check passes ([Best practices for Claude Code](https://code.claude.com/docs/en/best-practices); [hooks reference](https://code.claude.com/docs/en/hooks)). Birgitta Böckeler calls such checks sensors, and recommends running the fast, deterministic ones "on every change, alongside the agent", and the slow ones after integration ([Harness engineering](https://martinfowler.com/articles/harness-engineering.html)).
+- **`AGENTS.md` is a short map.** OpenAI's team found that "one big `AGENTS.md`" failed, and keeps theirs to about 100 lines as a table of contents. Anthropic's test for each line is "Would removing this cause Claude to make mistakes?" Microsoft ISE adopted `AGENTS.md` and repository skills because "every invocation started from zero context", and keeps them in the repository so they change through code review ([Coordinating AI-Assisted Development with AGENTS.md and Skills](https://devblogs.microsoft.com/ise/ai-assisted-development-agents-skills-copilot-cli/)). [AGENTS.md](https://agents.md/) is the format both Claude Code and Codex read.
+- **Behaviour is the open problem.** Böckeler calls functional correctness "the elephant in the room", and Anthropic's long-running agent harness relies on end-to-end checks of the running app ([Effective harnesses for long-running agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)). These gates check structure, so tests and review still carry behaviour.
+
 ## Usage Examples
 
 **"I need a REST API for products with basic CRUD."**

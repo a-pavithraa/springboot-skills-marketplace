@@ -1,0 +1,7 @@
+    <!-- harness:begin dependencies -->
+    <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+      <version>${jspecify.version}</version>
+    </dependency>
+    <!-- harness:end dependencies -->

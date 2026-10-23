@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(./mvnw *)",
+      "Bash(./mvnw.cmd *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/verify-on-stop.sh\" --session-start",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/verify-on-stop.sh\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "springboot-skills-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "a-pavithraa/springboot-skills-marketplace"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "springboot-architecture@springboot-skills-marketplace": true
+  }
+}
