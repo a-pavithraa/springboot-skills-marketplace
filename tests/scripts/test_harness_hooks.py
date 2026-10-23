@@ -195,10 +195,13 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         self.start_session()
         self.edit("A")
         self.fail_with("Rule 'no classes should access standard streams' was violated (1 times):\n"
-                       "Method <one.A.print()> gets field <java.lang.System.out> in (A.java:3)\n")
+                       "Method <one.A.print()> gets field <java.lang.System.out> in (A.java:3)\n"
+                       "[ERROR]   CodeRulesTests.codeLogsInsteadOfPrinting:123 Architecture Violation - Rule "
+                       "'no classes should access standard streams' was violated (1 times):\n")
         result = self.stop()
         self.assertEqual(result.returncode, 2)
         self.assertIn("Method <one.A.print()>", result.stderr)
+        self.assertNotIn("codeLogsInsteadOfPrinting:123", result.stderr, "Surefire's summary repeats the violation")
 
     def test_does_not_block_on_errors_only_in_code_the_session_did_not_change(self):
         self.start_session()

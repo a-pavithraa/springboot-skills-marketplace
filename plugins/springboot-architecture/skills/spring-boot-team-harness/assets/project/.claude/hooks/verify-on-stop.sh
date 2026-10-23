@@ -56,7 +56,8 @@ fi
 
 errors() {
   grep -E '\[ERROR\]|was violated|^(Method|Field|Class|Constructor) <|is defined by no dependency|is deprecated' \
-    | grep -vE 'Re-run Maven|-> \[Help|To see the full stack trace|^\[ERROR\] *$' | awk '!seen[$0]++'
+    | grep -vE 'Re-run Maven|-> \[Help|To see the full stack trace|^\[ERROR\] *$|^\[ERROR\] +[A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*:[0-9]+ ' \
+    | awk '!seen[$0]++'
 }
 
 block() {
