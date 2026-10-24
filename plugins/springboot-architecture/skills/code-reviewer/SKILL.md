@@ -13,6 +13,10 @@ description: Use when reviewing Spring Boot 4 / Java 17+ code with concrete file
 - Recommend virtual threads, reactive code, or a new architecture only with evidence from the code: blocking I/O on request threads, a saturated pool, or a boundary that already leaks.
 - Use JSpecify as the null-safety baseline for new Boot 4 code. If the codebase is part way through moving to it, report the plan, not every legacy annotation.
 
+## Before Step 1: say who wrote the code
+
+If you wrote or changed the code under review in this session, tell the user that a review from a fresh context is less biased and offer to run it in a general-purpose subagent, giving it the commits and uncommitted changes to review and telling it to follow this skill (`code-reviewer`). Continue only if they decline. Otherwise, review inline.
+
 ## Step 1: Load only the references the review needs
 
 | Focus | Read |
