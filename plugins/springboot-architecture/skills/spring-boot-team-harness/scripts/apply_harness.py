@@ -287,8 +287,10 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     agents = project / "AGENTS.md"
     if not agents.exists():
         changes.write("AGENTS.md", agents_template, "added")
-    elif "## Done means verify passes" in agents.read_text(encoding="utf-8"):
-        if not modules and "ModuleBoundariesTests" in agents.read_text(encoding="utf-8"):
+    elif "## Done means verify passes" in (current := agents.read_text(encoding="utf-8")):
+        if render(current) != current:
+            changes.write("AGENTS.md", render(current), "patched")
+        elif not modules and "ModuleBoundariesTests" in current:
             changes.keep("AGENTS.md", "has the harness section; remove its ModuleBoundariesTests row and Modules "
                                       "section by hand")
         else:
@@ -384,6 +386,9 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     missing = [line for line in wanted if line.split("=", 1)[0] not in keys]
     if missing:
         changes.write(properties.as_posix(), "\n".join(present + missing) + "\n", "patched" if present else "added")
+    elif any(line.replace(" ", "") == "freeze.store.default.allowStoreCreation=true" for line in present):
+        changes.keep(properties.as_posix(), "allowStoreCreation=true records every new rule's violations as accepted; "
+                                            "set it to false and record a baseline with baseline.py")
     else:
         changes.keep(properties.as_posix(), "configures the ArchUnit freeze store")
 

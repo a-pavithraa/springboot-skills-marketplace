@@ -228,6 +228,19 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("ModuleBoundariesTests", agents)
         self.assertNotIn("modules:", agents)
 
+    def test_rerun_fills_in_an_agents_file_copied_from_the_template_by_hand(self):
+        root = self.project(STANDARD)
+        self.run_script(root, "--no-modules")
+        (root / "AGENTS.md").write_text((SKILL / "assets/project/AGENTS.md").read_text(encoding="utf-8"), encoding="utf-8")
+
+        result = self.run_script(root, "--no-modules")
+        self.assertIn("patched  AGENTS.md", result.stdout)
+        agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("Code under `com.acme.orders`", agents)
+        self.assertNotIn("{{", agents)
+        self.assertNotIn("ModuleBoundariesTests", agents)
+        self.assertNotIn("modules:", agents)
+
     def test_rules_test_gets_archunit_unless_taikai_or_archunit_is_declared(self):
         root = self.project(STANDARD)
         self.run_script(root)
@@ -290,6 +303,14 @@ class ApplyHarnessTests(unittest.TestCase):
         properties = (root / "src/test/resources/archunit.properties").read_text(encoding="utf-8")
         self.assertEqual(properties, "archRule.failOnEmptyShould=false\nfreeze.store.default.allowStoreCreation=false\n"
                                      "freeze.store.default.path=src/test/resources/archunit_store\n")
+
+    def test_store_creation_left_on_is_reported_not_changed(self):
+        allowed = ("freeze.store.default.path=src/test/resources/archunit_store\n"
+                   "freeze.store.default.allowStoreCreation=true\n")
+        root = self.project(STANDARD, {"src/test/resources/archunit.properties": allowed})
+        result = self.run_script(root)
+        self.assertIn("allowStoreCreation=true records every new rule's violations as accepted", result.stdout)
+        self.assertEqual((root / "src/test/resources/archunit.properties").read_text(encoding="utf-8"), allowed)
 
     def test_rerun_updates_harness_files_nobody_edited_and_keeps_edited_ones(self):
         root = self.project(STANDARD)

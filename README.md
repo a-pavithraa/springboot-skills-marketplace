@@ -143,7 +143,7 @@ Trials on Sonnet showed that general testing advice (slice vs `@SpringBootTest`,
 Gives every developer on a team the same agent setup, in Claude Code or Codex. It steers the agent in three places:
 
 - **Before it starts:** `AGENTS.md`, which both tools read, says how this repository works: its modules, how to run and test it, the team's conventions, and how to work (plan first for larger changes, a failing test first for bugs, a review before the pull request). The agent drafts the repository-specific sections from the code, and the team corrects them.
-- **Before it says it's done:** `AGENTS.md` tells the agent to run `./mvnw verify`, so it meets the gates in its own loop. As a safety net for a session that skips that step, a Claude Code Stop hook runs the gates that need no Docker whenever a turn ends with changed code. On failure, the agent gets the errors and keeps working, so it fixes its own mistakes. A second hook refuses force-pushes, `git reset --hard`, `git clean -f`, and edits to Flyway migrations already on the main branch.
+- **Before it says it's done:** `AGENTS.md` tells the agent to run `./mvnw verify`, so it meets the gates in its own loop. As a safety net for a session that skips that step, a Claude Code Stop hook runs the gates that need no Docker whenever a turn ends with changed code. On failure, the agent gets the errors and keeps working, so it fixes its own mistakes. A second hook refuses force-pushes, `git reset --hard`, `git clean -f`, edits to Flyway migrations already on the main branch, and edits to the ArchUnit freeze record and its settings.
 - **Before merge:** a CI workflow runs `./mvnw verify` on every pull request, unless one already runs `mvnw`.
 
 `./mvnw verify` fails the build on:
