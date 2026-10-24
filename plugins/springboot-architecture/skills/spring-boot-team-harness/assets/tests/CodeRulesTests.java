@@ -10,7 +10,9 @@ import static com.tngtech.archunit.library.freeze.FreezingArchRule.freeze;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -20,6 +22,7 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -55,6 +58,14 @@ class CodeRulesTests {
             "org.springframework.resilience.annotation.Retryable",
             "org.springframework.resilience.annotation.ConcurrencyLimit",
             "org.springframework.retry.annotation.Retryable");
+
+    /**
+     * On a class, these apply to each public method, so a call from the same class skips them too. A self-call in a
+     * class-level @Transactional or secured class already runs inside the caller's transaction or check.
+     */
+    private static final List<String> APPLIED_BY_PROXY_ON_CLASS = APPLIED_BY_PROXY.stream()
+            .filter(annotation -> !annotation.endsWith(".Transactional") && !annotation.contains(".prepost."))
+            .toList();
 
     @Test
     void proxiedMethodsAreNotCalledFromTheirOwnClass() {
@@ -177,16 +188,23 @@ class CodeRulesTests {
                     }
                     call.getTarget()
                             .resolveMember()
-                            .ifPresent(method -> APPLIED_BY_PROXY.stream()
-                                    .filter(method::isAnnotatedWith)
-                                    .findFirst()
-                                    .ifPresent(annotation -> events.add(SimpleConditionEvent.violated(
-                                            call,
-                                            call.getDescription() + " skips the proxy, so @"
-                                                    + annotation.substring(annotation.lastIndexOf('.') + 1)
-                                                    + " does nothing"))));
+                            .flatMap(method -> skippedAnnotation(javaClass, method))
+                            .ifPresent(annotation -> events.add(SimpleConditionEvent.violated(
+                                    call,
+                                    call.getDescription() + " skips the proxy, so @"
+                                            + annotation.substring(annotation.lastIndexOf('.') + 1)
+                                            + " does nothing")));
                 }
             }
         };
+    }
+
+    private static Optional<String> skippedAnnotation(JavaClass owner, JavaMethod method) {
+        return APPLIED_BY_PROXY.stream()
+                .filter(method::isAnnotatedWith)
+                .findFirst()
+                .or(() -> method.getModifiers().contains(JavaModifier.PUBLIC)
+                        ? APPLIED_BY_PROXY_ON_CLASS.stream().filter(owner::isAnnotatedWith).findFirst()
+                        : Optional.empty());
     }
 }
