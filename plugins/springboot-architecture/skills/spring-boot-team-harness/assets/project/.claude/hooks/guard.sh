@@ -25,6 +25,8 @@ path=$(printf '%s' "$input" | grep -o '"file_path" *: *"[^"]*"' | head -1 | sed 
 case "$path" in
   */archunit_store/*)
     block "src/test/resources/archunit_store records the rule violations that existed before the harness, so they're frozen. Fix the new violation instead. To accept one on purpose, ask the user." ;;
+  */archunit.properties)
+    block "archunit.properties sets how the freeze record works; with store creation allowed, new violations would be recorded as accepted. Fix the violation instead, or ask the user." ;;
   */db/migration/*.sql) ;;
   *) exit 0 ;;
 esac

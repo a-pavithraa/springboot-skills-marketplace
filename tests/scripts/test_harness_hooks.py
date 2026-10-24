@@ -82,6 +82,12 @@ class GuardHookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, tool)
             self.assertIn("frozen", result.stderr)
 
+    def test_blocks_edits_to_the_archunit_freeze_settings(self):
+        settings = Path("src/test/resources/archunit.properties").resolve()
+        result = self.guard({"tool_name": "Edit", "tool_input": {"file_path": str(settings)}})
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("store creation allowed", result.stderr)
+
     def test_ignores_other_files(self):
         result = self.guard({"tool_name": "Write", "tool_input": {"file_path": str(Path("src/main/java/A.java").resolve())}})
         self.assertEqual(result.returncode, 0)
