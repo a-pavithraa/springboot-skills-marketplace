@@ -26,6 +26,7 @@ The harness steers the agent in three places. `AGENTS.md` tells it how this repo
    Don't suppress warnings or skip tests to get green. The Stop hook only blocks on problems in files the agent changed, but until `verify` is green it can't fully check those either.
 4. Draft the `Modules`, `Run and test` and `Team conventions` sections of `AGENTS.md` from the code, then go through them with the user. Read the packages, the pom, compose files, the test setup, and repeated patterns such as error handling, DTO mapping and naming. Write only what an agent would get wrong without being told: one line per module, the commands and services the app needs, and the conventions the code follows. Mark each convention you inferred `(inferred)`; the user confirms or deletes it. Leave out generic Spring advice and anything the code makes obvious, and keep the file short: every session reads all of it.
 5. Commit everything, including `.claude/settings.json`, the marked classes and `archunit_store`.
+6. On an existing codebase, find the files where comments make up a large share of the lines, often DTOs and records. Agents write comments as densely as the code they read, so the comment rule in `AGENTS.md` holds only once those files follow it. Offer to prune them module by module, each module in its own pull request, with `code-reviewer`'s comment pass: it changes only comments.
 
 ## What each piece does
 

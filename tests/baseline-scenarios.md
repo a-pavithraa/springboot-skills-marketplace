@@ -336,3 +336,31 @@ Add a GET /api/products/{code}/price endpoint that returns the product price, an
 
 From the session transcript: whether the agent ran `run-app.sh start`, called the new endpoint, and ran `stop`; whether anything still listens on the port afterwards; and whether the answer reports the calls.
 
+
+## Scenario 22: Comment Density (spring-boot-team-harness `AGENTS.md`, code-reviewer Pass F)
+
+**Objective:** Check whether the comment rule and a pruning pass reduce the comments an agent writes, without losing comments that state a contract.
+
+### Fixture
+
+A private Spring Boot 4 service whose backend has about 18% comment lines, with DTOs and records at 40 to 50%. It is not in this repository. Three copies:
+
+- **current:** the code as it is, with an `AGENTS.md` that says only "comments only when really needed: a why, never a what";
+- **rule:** the same code, with the comment rule from the harness `AGENTS.md`;
+- **pruned:** the rule, plus a pruning pass already applied to the ten files the feature reads (DTOs, a scope type, a search service, a repository, a controller).
+
+### Prompts (`claude -p`, Sonnet, `acceptEdits`, read and edit tools only)
+
+Pruning pass (on the rule copy): prune the comments in the ten files against the rule, change only comments, and list what was kept.
+
+Feature (on each copy):
+
+```
+Add a POST search endpoint that finds records by an identifier the user reads out, shaped like the
+existing search results, with the same access checks and audit. Add a request record, a result
+record, a service and the repository query. Don't write tests or run the build.
+```
+
+### Scored
+
+Pruning: comment lines before and after, code lines changed (must be 0), and whether field contracts and stated reasons survive. Feature: comment and code lines the session added, new files included.

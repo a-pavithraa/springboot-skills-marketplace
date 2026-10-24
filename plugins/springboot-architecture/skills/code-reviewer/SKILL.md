@@ -65,6 +65,15 @@ Follow `references/test-review.md`:
 4. Prove each finding by running it. Restore every file you break with `git checkout -- <file>`.
 5. Report in the test-review format, with the bugs the suite would let through first.
 
+### Pass F: Comments
+
+For each comment the change adds or edits, keep it only if it states a constraint the code can't show (an external system's behaviour, a limit, an ordering), why the obvious alternative is wrong, or, on a record or DTO field, what its name can't say: when it is null or empty, or a meaning that depends on state. Use the project's comment rule in `AGENTS.md` if it has one.
+
+- **Delete:** comments that restate the name or the code, `@param` or `@return` that repeat the name, notes on what changed, ticket or plan references, and a rule already stated where it is enforced.
+- **Shorten:** the rest, to one or two sentences written as one thought. A design decision longer than that belongs in the project's docs, with a one-line pointer in the code.
+
+Report them as one Low finding listing each comment with "delete" or "shorten to: ...". When asked to fix the findings, change only comments, never code.
+
 ## Boot 4 findings the model often misses
 
 - `TestRestTemplate` where `RestTestClient` is available.
