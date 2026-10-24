@@ -24,6 +24,19 @@ Built on patterns from [spring-boot-application-architecture-patterns](https://g
 
 > **Using Codex?** Codex installation and usage instructions are inline below — see [Codex (Manual Installation)](#codex-manual-installation) and [Usage → Codex](#codex).
 
+### Everything, in one command
+
+The marketplace also lists a few skills from other authors that work well with the Spring Boot ones: grilling, PR writing, TDD and debugging from Matt Pocock, `html-plan`, and `grill-page`. Each entry points to the author's own repository, pinned to a reviewed commit, so you install their work unchanged. To install the Spring Boot plugin and those skills:
+
+```bash
+git clone https://github.com/a-pavithraa/springboot-skills-marketplace.git
+cd springboot-skills-marketplace
+python3 install.py            # Claude Code; add --with pstack for the optional pstack plugin
+python3 install.py --codex    # Codex
+```
+
+The script is safe to rerun. For Claude Code it installs the plugins at user scope and turns on auto-update for this marketplace. For Codex it copies the skill folders at the pinned commits. [GUIDE.md](GUIDE.md) is a one-page guide to what each skill does and what to type.
+
 ### Claude Code (Plugin Marketplace)
 
 ```bash
@@ -221,3 +234,10 @@ Layered → Package-by-Module → Modular Monolith → Tomato → DDD+Hexagonal
 - Modular monolith reference: [spring-modular-monolith](https://github.com/sivaprasadreddy/spring-modular-monolith)
 - Marketplace inspiration: [sivalabs-marketplace](https://github.com/sivaprasadreddy/sivalabs-marketplace)
 - JPA/Hibernate best practices: [Vlad Mihalcea](https://vladmihalcea.com/blog/)
+
+The marketplace also lists these plugins, unchanged and pinned. Their authors maintain them, and issues belong in their repositories:
+
+- `mattpocock-picks`: eight skills from [Matt Pocock's skills](https://github.com/mattpocock/skills) (MIT)
+- `html-plan`: by Thariq Shihipar, from [claude-plugins-community](https://github.com/anthropics/claude-plugins-community/tree/main/html-plan) (MIT)
+- `grill-page`: from [build-compass](https://github.com/a-pavithraa/build-compass) (MIT)
+- `pstack`: by Lauren Tan, from [cursor/plugins](https://github.com/cursor/plugins/tree/main/harness/pstack) (MIT)

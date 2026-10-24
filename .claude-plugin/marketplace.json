@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "A collection of Claude Code skills for creating Spring Boot applications with proper architecture patterns",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "pluginRoot": "./plugins"
   },
   "plugins": [
@@ -13,7 +13,7 @@
       "name": "springboot-architecture",
       "source": "./plugins/springboot-architecture",
       "description": "Skills for creating, testing and reviewing Spring Boot projects with architecture patterns (Layered to DDD+Hexagonal)",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "author": {
         "name": "Pavithra"
       },
@@ -22,6 +22,83 @@
       "tags": ["spring-boot", "java", "architecture", "ddd", "hexagonal", "jpa", "hibernate", "testing", "testcontainers", "junit"],
       "strict": false,
       "skills": "./skills"
+    },
+    {
+      "name": "mattpocock-picks",
+      "source": {
+        "source": "git-subdir",
+        "url": "mattpocock/skills",
+        "path": "skills",
+        "sha": "5beb35b040e3de97e54fa9e386d7e42d15c295c2"
+      },
+      "description": "Eight of Matt Pocock's engineering skills, unchanged and pinned: grilling, pr, tdd, diagnosing-bugs, prototype, domain-modeling, handoff and writing-for-agents. The full set is at github.com/mattpocock/skills.",
+      "author": {
+        "name": "Matt Pocock",
+        "url": "https://www.aihero.dev"
+      },
+      "homepage": "https://github.com/mattpocock/skills",
+      "license": "MIT",
+      "category": "engineering",
+      "strict": false,
+      "skills": [
+        "./productivity/grilling",
+        "./engineering/pr",
+        "./engineering/tdd",
+        "./engineering/diagnosing-bugs",
+        "./engineering/prototype",
+        "./engineering/domain-modeling",
+        "./productivity/handoff",
+        "./productivity/writing-for-agents"
+      ]
+    },
+    {
+      "name": "html-plan",
+      "source": {
+        "source": "git-subdir",
+        "url": "anthropics/claude-plugins-community",
+        "path": "html-plan",
+        "sha": "06ec7b6a0a82bdc4bec44bd82d4368c42f20d7c1"
+      },
+      "description": "Thariq Shihipar's html-plan, pinned: an implementation plan as one interactive HTML page, with the decisions placed where they matter.",
+      "author": {
+        "name": "Thariq Shihipar"
+      },
+      "license": "MIT",
+      "category": "development"
+    },
+    {
+      "name": "grill-page",
+      "source": {
+        "source": "git-subdir",
+        "url": "a-pavithraa/build-compass",
+        "path": "skills",
+        "sha": "c8f24da93ecb3ecd2a95ee312ac207c9f1d520c5"
+      },
+      "description": "The grill-page skill from build-compass, pinned: a grilling interview where each round opens as a page of clickable options.",
+      "author": {
+        "name": "Pavithra Aravamudhan",
+        "url": "https://github.com/a-pavithraa"
+      },
+      "homepage": "https://github.com/a-pavithraa/build-compass",
+      "license": "MIT",
+      "category": "productivity",
+      "strict": false,
+      "skills": ["./grill-page"]
+    },
+    {
+      "name": "pstack",
+      "source": {
+        "source": "git-subdir",
+        "url": "cursor/plugins",
+        "path": "harness/pstack/claude-code",
+        "sha": "8b3326d99fd4b993cb33a24dad8af03175c642c5"
+      },
+      "description": "Lauren Tan's pstack, pinned and optional: rigorous agent workflows such as technical-writing, unslop, blast-radius and correct. Most of its skills run only when you type them.",
+      "author": {
+        "name": "Lauren Tan"
+      },
+      "license": "MIT",
+      "category": "engineering"
     }
   ]
 }
