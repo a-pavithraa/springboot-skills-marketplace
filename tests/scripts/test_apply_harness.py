@@ -204,17 +204,6 @@ class ApplyHarnessTests(unittest.TestCase):
             self.assertIn("src/test/java/com/acme/orders/<module>", skill)
             self.assertFalse((root / skills_dir / "db-migration").exists())
 
-    def test_run_app_skill_ships_its_script_and_may_run_it_without_a_prompt(self):
-        root = self.project(STANDARD)
-        self.run_script(root)
-        for skills_dir in (".claude/skills", ".agents/skills"):
-            self.assertTrue((root / skills_dir / "run-app/run-app.sh").exists())
-            skill = (root / skills_dir / "run-app/SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("bash .claude/skills/run-app/run-app.sh start", skill)
-        settings = json.loads((root / ".claude/settings.json").read_text(encoding="utf-8"))
-        self.assertIn("Bash(bash .claude/skills/run-app/run-app.sh *)", settings["permissions"]["allow"])
-        self.assertIn("`run-app` skill", (root / "AGENTS.md").read_text(encoding="utf-8"))
-
     def test_migration_skill_is_added_only_for_flyway_projects(self):
         root = self.project(STANDARD.replace("spring-boot-starter-webmvc", "spring-boot-starter-flyway"))
         self.run_script(root)
@@ -488,9 +477,6 @@ class ApplyHarnessTests(unittest.TestCase):
             self.assertTrue((root / ".claude/hooks" / hook).exists())
         self.assertFalse((backend / ".claude/settings.json").exists())
         self.assertIn("*.sh text eol=lf", (root / ".gitattributes").read_text(encoding="utf-8"))
-        self.assertIn("Bash(bash backend/.claude/skills/run-app/run-app.sh *)", settings["permissions"]["allow"])
-        self.assertIn("bash backend/.claude/skills/run-app/run-app.sh start",
-                      (backend / ".claude/skills/run-app/SKILL.md").read_text(encoding="utf-8"))
 
         self.assertIn("## Done means verify passes", (backend / "AGENTS.md").read_text(encoding="utf-8"))
         self.assertIn("backend/AGENTS.md", (root / "AGENTS.md").read_text(encoding="utf-8"))

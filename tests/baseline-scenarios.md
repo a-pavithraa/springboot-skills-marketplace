@@ -320,6 +320,8 @@ Whether the final answer offers a fresh-context review and stops, or reviews inl
 
 **Objective:** Check that after an endpoint change, the agent checks it on the running app with `run-app` without being asked.
 
+`run-app` was later dropped from the harness; see the decision in `baseline-results/scenario-21.md`. The scenario needs commit `4b509bb` to rerun.
+
 ### Fixture
 
 The Scenario 19 shop service with the current harness applied fresh, including the `run-app` skill and the `AGENTS.md` line that asks for it. Each session runs on its own port through `RUN_APP_PORT`.

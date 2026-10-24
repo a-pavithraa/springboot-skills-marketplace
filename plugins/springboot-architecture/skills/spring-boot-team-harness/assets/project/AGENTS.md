@@ -16,8 +16,6 @@ Run `./mvnw verify` (`mvnw.cmd verify` on Windows) before you say a change is fi
 | `CodeRulesTests` | A class calls its own `@Transactional`, `@Async`, `@Cacheable` or `@Retryable` method; a controller starts a transaction or uses a repository; a field is `@Autowired`; code prints to `System.out`; code uses Jackson 2, Spring's nullness annotations or JUnit 4 | Each failure message says what to do instead. Violations recorded in `src/test/resources/archunit_store` are older than the harness and tolerated; never edit that record to get a new one through, and don't change `archunit.properties`. If the rules fail on many classes nobody changed and there is no record, the existing code was never baselined: ask the user to run the harness's `baseline.py` |
 | Spotless | Code isn't formatted | Run `./mvnw spotless:apply` |
 
-When you change what an endpoint returns or accepts, also check it on the running app with the `run-app` skill, and report the calls you made and what they returned.
-
 `verify` also runs the tests that start containers, so Docker must be running. If it isn't, say that those tests didn't run. Don't skip or disable them.
 
 In Claude Code, a hook runs the gates that need no Docker whenever a turn ends with changed code, and sends any failure back to you. In other tools, run `./mvnw verify` yourself.
@@ -27,6 +25,7 @@ In Claude Code, a hook runs the gates that need no Docker whenever a turn ends w
 - If you can describe the change in one sentence, make it. Otherwise read the code it touches and agree a plan with the user first, with the `grilling` or `html-plan` skill if installed.
 - For a bug, first write a test that fails because of it, then fix the code.
 - Write tests with the `writing-springboot-tests` skill if installed, also when working test-first with `tdd`: it has the Boot 4 wiring and the WireMock and Testcontainers templates.
+- When you change what an endpoint returns or accepts, add or update a full-API test for it: the whole app on a random port with Testcontainers, one request for the case you built and one it must refuse.
 - On a feature branch, when a change is finished and not committed, ask the user whether to commit it. Commit each logical step on its own, in the order a reviewer should read them, with a message that says what the step does and why. Each commit must compile and pass the gates the Stop hook runs. Run the full `./mvnw verify` before you open the pull request. Never commit on `main` or `master`, and don't push unless asked.
 - Before you open a pull request, review the diff with the `code-reviewer` skill and write the description with the `pr` skill, if they are installed. Fix what the review finds.
 <!-- modules:begin -->
