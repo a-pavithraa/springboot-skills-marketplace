@@ -381,6 +381,23 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("kept     .claude/settings.json", self.run_script(root).stdout)
         self.assertEqual((root / ".claude/settings.json").read_text(encoding="utf-8"), merged)
 
+    def test_the_marketplace_updates_itself_and_an_older_entry_gains_auto_update(self):
+        older = {"extraKnownMarketplaces": {"springboot-skills-marketplace": {
+            "source": {"source": "github", "repo": "a-pavithraa/springboot-skills-marketplace"}}}}
+        for extra in ({}, {".claude/settings.json": json.dumps(older)}):
+            root = self.project(STANDARD, extra)
+            self.run_script(root)
+            settings = json.loads((root / ".claude/settings.json").read_text(encoding="utf-8"))
+            self.assertIs(settings["extraKnownMarketplaces"]["springboot-skills-marketplace"]["autoUpdate"], True)
+
+    def test_a_team_that_turned_auto_update_off_keeps_it_off(self):
+        off = {"extraKnownMarketplaces": {"springboot-skills-marketplace": {
+            "source": {"source": "github", "repo": "a-pavithraa/springboot-skills-marketplace"}, "autoUpdate": False}}}
+        root = self.project(STANDARD, {".claude/settings.json": json.dumps(off)})
+        self.run_script(root)
+        settings = json.loads((root / ".claude/settings.json").read_text(encoding="utf-8"))
+        self.assertIs(settings["extraKnownMarketplaces"]["springboot-skills-marketplace"]["autoUpdate"], False)
+
     def test_managed_dependencies_are_not_mistaken_for_declared_ones(self):
         managed_only = pom("""
   <dependencyManagement>

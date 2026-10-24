@@ -24,6 +24,8 @@ In Claude Code, a hook runs the gates that need no Docker whenever a turn ends w
 
 - If you can describe the change in one sentence, make it. Otherwise read the code it touches and agree a plan with the user first, with the `grilling` or `html-plan` skill if installed.
 - For a bug, first write a test that fails because of it, then fix the code.
+- Write tests with the `writing-springboot-tests` skill if installed, also when working test-first with `tdd`: it has the Boot 4 wiring and the WireMock and Testcontainers templates.
+- On a feature branch, when a change is finished and not committed, ask the user whether to commit it. Commit each logical step on its own, in the order a reviewer should read them, with a message that says what the step does and why. Each commit must compile and pass the gates the Stop hook runs. Run the full `./mvnw verify` before you open the pull request. Never commit on `main` or `master`, and don't push unless asked.
 - Before you open a pull request, review the diff with the `code-reviewer` skill and write the description with the `pr` skill, if they are installed. Fix what the review finds.
 <!-- modules:begin -->
 

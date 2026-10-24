@@ -151,9 +151,12 @@ def merge_settings(current: dict, wanted: dict) -> dict:
         commands = {hook.get("command") for group in present for hook in group.get("hooks", [])}
         present.extend(group for group in groups
                        if not all(hook["command"] in commands for hook in group["hooks"]))
-    for key in ("extraKnownMarketplaces", "enabledPlugins"):
-        for name, value in wanted.get(key, {}).items():
-            merged.setdefault(key, {}).setdefault(name, value)
+    for name, entry in wanted.get("extraKnownMarketplaces", {}).items():
+        present = merged.setdefault("extraKnownMarketplaces", {}).setdefault(name, {})
+        for field, value in entry.items():
+            present.setdefault(field, value)
+    for name, value in wanted.get("enabledPlugins", {}).items():
+        merged.setdefault("enabledPlugins", {}).setdefault(name, value)
     return merged
 
 

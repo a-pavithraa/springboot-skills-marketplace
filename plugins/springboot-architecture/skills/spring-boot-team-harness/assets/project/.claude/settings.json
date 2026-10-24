@@ -52,7 +52,8 @@
       "source": {
         "source": "github",
         "repo": "a-pavithraa/springboot-skills-marketplace"
-      }
+      },
+      "autoUpdate": true
     }
   },
   "enabledPlugins": {
