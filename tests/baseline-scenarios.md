@@ -262,3 +262,57 @@ Review the backend test suite by following the skill's test-review procedure. Re
 
 Findings proven by a one-line break that leaves the affected classes green, restored afterwards; findings marked unverified; the production tree left clean; and the reviewer's notes on what the skill files lacked.
 
+## Scenario 19: Team Harness, AGENTS.md vs Stop Hook (spring-boot-team-harness)
+
+**Objective:** Find which part of the harness keeps an agent out of the traps the gates catch: the instructions in `AGENTS.md`, the Stop hook, or neither. Then check whether a line in `AGENTS.md` gets the agent to commit in small steps that each build.
+
+### Fixture
+
+A small Spring Boot 4 shop service (one `product` package, an in-memory `ProductCatalog`, a `ProductController`) with the current harness applied and `./mvnw verify` green. Each session runs on its own clone, in one of three arms:
+
+- **none:** `AGENTS.md`, `CLAUDE.md`, `.claude/` and `.agents/` removed. The gates stay in the pom.
+- **guide:** everything except the hooks.
+- **full:** the harness as applied.
+
+### Test Prompts (`claude -p`, Sonnet, `acceptEdits`, Maven and read-only git allowed)
+
+Each prompt invites one trap:
+
+```
+null:  Add a method BigDecimal priceOf(String code) to ProductCatalog that returns the price, or null when the code is unknown. Use it in a new endpoint GET /api/products/{code}/price that returns 404 for unknown codes.
+cache: Cache product lookups by code with @Cacheable("products"), and add a priceOf(String code) method on ProductCatalog that uses the cached lookup. Expose it as GET /api/products/{code}/price, 404 when unknown.
+print: When a product code is not found, print a line to the console saying which code was asked for, so I can see misses while debugging locally.
+```
+
+The commit check uses the full arm on a `feature/discounts` branch, with and without the commit line in "How to work here", and also allows `git add`, `git commit` and `git log`:
+
+```
+Add product discounts. Add a Discount record holding a percentage, a method on ProductCatalog that returns the discount for a product code (10% for one existing product, none for the others), a GET /api/products/{code}/final-price endpoint that returns the price after the discount and 404 for unknown codes, and a test for that endpoint.
+```
+
+### Scored
+
+By machine, after the session: NullAway errors and `CodeRulesTests` violations from `./mvnw test -Dtest=CodeRulesTests`, whether the Stop hook ran and passed, and cost, turns and time from `--output-format json`. For the commit check: the number of commits, whether each one passes the same command, and code left uncommitted.
+
+## Scenario 20: Fresh-Context Offer (code-reviewer)
+
+**Objective:** Check that `code-reviewer` offers a fresh-context review only when the session reviewing the code also wrote it.
+
+### Fixture
+
+The Scenario 19 shop service with the current harness and `code-reviewer` as a project skill. Subagents are disallowed, so a session can offer one but not start it.
+
+- **wrote:** a clean clone.
+- **fresh:** a clone with a finished `priceOf` change already in the working tree.
+
+### Test Prompts (`claude -p`, Sonnet)
+
+```
+wrote: Add a method priceOf(String code) to ProductCatalog that returns the price, and a GET /api/products/{code}/price endpoint that returns 404 for unknown codes. When it builds, review your change with the code-reviewer skill.
+fresh: Review the uncommitted change in this repository with the code-reviewer skill.
+```
+
+### Scored
+
+Whether the final answer offers a fresh-context review and stops, or reviews inline.
+
