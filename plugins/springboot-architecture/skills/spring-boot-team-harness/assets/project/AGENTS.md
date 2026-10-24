@@ -16,6 +16,8 @@ Run `./mvnw verify` (`mvnw.cmd verify` on Windows) before you say a change is fi
 | `CodeRulesTests` | A class calls its own `@Transactional`, `@Async`, `@Cacheable` or `@Retryable` method; a controller starts a transaction or uses a repository; a field is `@Autowired`; code prints to `System.out`; code uses Jackson 2, Spring's nullness annotations or JUnit 4 | Each failure message says what to do instead. Violations recorded in `src/test/resources/archunit_store` are older than the harness and tolerated; never edit that record to get a new one through, and don't change `archunit.properties`. If the rules fail on many classes nobody changed and there is no record, the existing code was never baselined: ask the user to run the harness's `baseline.py` |
 | Spotless | Code isn't formatted | Run `./mvnw spotless:apply` |
 
+When you change what an endpoint returns or accepts, also check it on the running app with the `run-app` skill, and report the calls you made and what they returned.
+
 `verify` also runs the tests that start containers, so Docker must be running. If it isn't, say that those tests didn't run. Don't skip or disable them.
 
 In Claude Code, a hook runs the gates that need no Docker whenever a turn ends with changed code, and sends any failure back to you. In other tools, run `./mvnw verify` yourself.

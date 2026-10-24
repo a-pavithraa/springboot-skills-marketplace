@@ -316,3 +316,21 @@ fresh: Review the uncommitted change in this repository with the code-reviewer s
 
 Whether the final answer offers a fresh-context review and stops, or reviews inline.
 
+## Scenario 21: Checking an Endpoint on the Running App (spring-boot-team-harness, run-app)
+
+**Objective:** Check that after an endpoint change, the agent checks it on the running app with `run-app` without being asked.
+
+### Fixture
+
+The Scenario 19 shop service with the current harness applied fresh, including the `run-app` skill and the `AGENTS.md` line that asks for it. Each session runs on its own port through `RUN_APP_PORT`.
+
+### Test Prompt (`claude -p`, Sonnet, `acceptEdits`, Maven, read-only git and the `run-app` script allowed)
+
+```
+Add a GET /api/products/{code}/price endpoint that returns the product price, and 404 for unknown codes.
+```
+
+### Scored
+
+From the session transcript: whether the agent ran `run-app.sh start`, called the new endpoint, and ran `stop`; whether anything still listens on the port afterwards; and whether the answer reports the calls.
+

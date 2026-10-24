@@ -35,6 +35,7 @@ ARCHUNIT = re.compile(r"<artifactId>\s*(taikai|archunit[\w-]*)\s*</artifactId>")
 WORKFLOW = ".github/workflows/verify.yml"
 HOOKS = (".claude/hooks/guard.sh", ".claude/hooks/verify-on-stop.sh")
 LOCK = ".claude/harness.lock"
+RUN_APP = ".claude/skills/run-app/run-app.sh"
 # Hooks released before the lock file existed, by SHA-256 of their LF content: safe to replace on a rerun.
 RELEASED = {
     ".claude/hooks/guard.sh": {"0eca37c90909f462612b1394097b51ee6fc9d3996b142bebd7e8ef6766f180e3"},
@@ -275,6 +276,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         "{{APP_CLASS}}": f"{app_package}.{app_class}",
         "{{BASE_PATH}}": base_package.replace(".", "/"),
         "{{MAVEN_DIR}}": folder or ".",
+        "{{RUN_APP}}": f"{folder}/{RUN_APP}" if folder else RUN_APP,
     }
 
     def render(text: str, with_modules: bool = modules) -> str:
@@ -314,6 +316,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
 
     template = ASSETS / "project" / ".claude" / "settings.json"
     wanted_settings = json.loads(render(template.read_text(encoding="utf-8")))
+    wanted_settings["permissions"]["allow"].append(f"Bash(bash {values['{{RUN_APP}}']} *)")
     if folder:
         for event in ("SessionStart", "Stop"):
             for group in wanted_settings["hooks"][event]:
@@ -410,11 +413,12 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         text = render((ASSETS / "project-skills" / "add-module" / "SKILL.md").read_text(encoding="utf-8"), True)
         for skills_dir in SKILL_DIRS:
             changes.disown(f"{skills_dir}/add-module/SKILL.md", text, "--no-modules doesn't use it")
-    skills = (["add-module"] if modules else []) + (["db-migration"] if "flyway" in pom.lower() else [])
+    skills = (["add-module"] if modules else []) + (["db-migration"] if "flyway" in pom.lower() else []) + ["run-app"]
     for skill in skills:
-        text = render((ASSETS / "project-skills" / skill / "SKILL.md").read_text(encoding="utf-8"))
-        for skills_dir in SKILL_DIRS:
-            changes.own(f"{skills_dir}/{skill}/SKILL.md", text, ASSETS / "project-skills" / skill / "SKILL.md")
+        for source in sorted((ASSETS / "project-skills" / skill).iterdir()):
+            text = render(source.read_text(encoding="utf-8"))
+            for skills_dir in SKILL_DIRS:
+                changes.own(f"{skills_dir}/{skill}/{source.name}", text, source)
     changes.save_lock()
     return changes.lines
 
