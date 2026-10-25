@@ -1,6 +1,6 @@
 ---
 name: creating-springboot-projects
-description: Use when starting a new Spring Boot 4 project. That covers scaffolding a service, REST API, or modular backend; picking an architecture (layered, package-by-module, modular-monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; generating the base project with progen or Spring Initializr; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
+description: Use when starting a new Spring Boot project or service: scaffolding or bootstrapping a backend, REST API, microservice or modular monolith; choosing how to structure it (layered, package-by-module, modular monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; generating the base project with progen or Spring Initializr; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
 ---
 
 # Creating Spring Boot Projects

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "review-2",
+    "model": "sonnet",
+    "expect": "code-reviewer",
+    "loaded": [
+      "code-reviewer"
+    ],
+    "passed": true,
+    "cost_usd": 0.12137239999999999
+  },
+  {
+    "id": "harness-1",
+    "model": "sonnet",
+    "expect": "spring-boot-team-harness",
+    "loaded": [
+      "spring-boot-team-harness"
+    ],
+    "passed": true,
+    "cost_usd": 0.10013550000000002
+  },
+  {
+    "id": "none-1",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0521434
+  },
+  {
+    "id": "none-2",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0623962
+  },
+  {
+    "id": "none-3",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0968155
+  },
+  {
+    "id": "none-4",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0743572
+  },
+  {
+    "id": "none-5",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.060138399999999995
+  }
+]
