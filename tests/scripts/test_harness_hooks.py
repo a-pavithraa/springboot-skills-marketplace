@@ -88,6 +88,23 @@ class GuardHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("store creation allowed", result.stderr)
 
+    def test_a_refusal_is_recorded_without_the_command(self):
+        root = Path(tempfile.mkdtemp())
+        git(root, "init", "-q")
+        payload = {"session_id": "s9", "tool_name": "Bash", "tool_input": {"command": "git push --force origin secret-branch"}}
+        self.assertEqual(self.guard(payload, root).returncode, 2)
+        lines = (root / ".git/harness/events.jsonl").read_text().splitlines()
+        event = json.loads(lines[-1])
+        self.assertEqual((event["hook"], event["session"], event["result"], event["rule"]),
+                         ("guard", "s9", "refused", "force-push"))
+        self.assertNotIn("secret-branch", lines[-1])
+
+    def test_allowed_actions_record_nothing(self):
+        root = Path(tempfile.mkdtemp())
+        git(root, "init", "-q")
+        self.assertEqual(self.guard({"tool_name": "Bash", "tool_input": {"command": "./mvnw verify"}}, root).returncode, 0)
+        self.assertFalse((root / ".git/harness/events.jsonl").exists())
+
     def test_ignores_other_files(self):
         result = self.guard({"tool_name": "Write", "tool_input": {"file_path": str(Path("src/main/java/A.java").resolve())}})
         self.assertEqual(result.returncode, 0)
@@ -160,6 +177,13 @@ class StopHookFixture:
 
     def fail_with(self, text: str):
         (self.project / "fail-tests").write_text(text)
+
+    def events(self) -> list[dict]:
+        path = self.root / ".git/harness/events.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def results(self) -> list[str]:
+        return [event["result"] for event in self.events()]
 
 
 @unittest.skipUnless(BASH, "bash not found")
@@ -259,6 +283,55 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         runs = self.checks_run()
         self.assertEqual(self.stop().returncode, 0)
         self.assertEqual(self.checks_run(), runs + 1, "the failed run was cached as a pass")
+
+    def test_each_stop_is_recorded_with_its_result(self):
+        self.start_session()
+        self.stop()
+        self.edit("A")
+        self.stop()
+        self.stop()
+        self.assertEqual(self.results(), ["started", "no-change", "passed", "already-passed"])
+        passed = self.events()[2]
+        self.assertEqual((passed["hook"], passed["session"], passed["files"]), ("stop", "s1", 1))
+        self.assertIsInstance(passed["seconds"], int)
+
+    def test_a_block_records_the_gate_and_no_paths(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with(self.error_in("A"))
+        self.stop()
+        self.stop(active=True)
+        blocked, gave_up = self.events()[-2:]
+        self.assertEqual((blocked["result"], blocked["gates"]), ("blocked", "nullaway"))
+        self.assertEqual(gave_up["result"], "gave-up")
+        log = (self.root / ".git/harness/events.jsonl").read_text()
+        self.assertNotIn("A.java", log)
+        self.assertNotIn("one/", log)
+
+    def test_rule_and_format_blocks_and_unverified_turns_name_their_gate(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with("Method <one.A.print()> gets field <java.lang.System.out> in (A.java:3)\n")
+        self.stop()
+        self.assertEqual(self.events()[-1]["gates"], "rules")
+
+        self.fail_with(self.error_in("B", "[NullAway] already broken"))
+        self.stop()
+        self.assertEqual((self.events()[-1]["result"], self.events()[-1]["gates"]), ("unverified", "nullaway"))
+
+        (self.project / "fail-format").write_text("")
+        self.edit("B")
+        self.stop()
+        self.assertEqual((self.events()[-1]["result"], self.events()[-1]["gates"]), ("blocked", "format"))
+
+    def test_the_event_log_is_capped(self):
+        path = self.root / ".git/harness/events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = '{"ts":"2026-01-01T00:00:00Z","hook":"stop","session":"old","result":"no-change","gates":"","seconds":0,"files":0}\n'
+        path.write_text(line * 2500)
+        self.start_session()
+        self.assertEqual(len(path.read_text().splitlines()), 2000)
+        self.assertEqual(self.results()[-1], "started")
 
 
 @unittest.skipUnless(BASH, "bash not found")
