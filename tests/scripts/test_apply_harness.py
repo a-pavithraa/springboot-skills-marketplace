@@ -5,6 +5,7 @@ Run from the repository root:
 """
 
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
@@ -387,6 +388,71 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual(hook.read_text(encoding="utf-8"), current_hook)
         self.assertIn("kept     src/test/java/com/acme/orders/CodeRulesTests.java (edited", result.stdout)
         self.assertTrue(rules.read_text(encoding="utf-8").endswith("// team rule\n"))
+
+    @staticmethod
+    def formatted(text: str) -> str:
+        """What a formatter does to a file: other indentation, and the imports in another order."""
+        lines = text.splitlines()
+        imports = [line for line in lines if line.startswith("import ")]
+        rest = [line.replace("    ", "  ") for line in lines if not line.startswith("import ")]
+        return "\n".join(rest[:2] + list(reversed(imports)) + rest[2:]) + "\n"
+
+    def test_running_the_formatter_on_a_harness_test_is_not_an_edit(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        rules = root / "src/test/java/com/acme/orders/CodeRulesTests.java"
+        rules.write_text(self.formatted(rules.read_text(encoding="utf-8")), encoding="utf-8")
+
+        result = self.run_script(root)
+        self.assertIn("kept     src/test/java/com/acme/orders/CodeRulesTests.java (up to date)", result.stdout)
+
+    def test_a_formatted_harness_test_from_an_older_release_is_updated(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        rules = root / "src/test/java/com/acme/orders/CodeRulesTests.java"
+        current = rules.read_text(encoding="utf-8")
+        older = current.replace("class CodeRulesTests {", "class CodeRulesTests {\n    // an earlier rule set\n", 1)
+        rules.write_text(self.formatted(older), encoding="utf-8")
+        spec = importlib.util.spec_from_file_location("apply_harness", SCRIPT)
+        harness = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(harness)
+        lock_file = root / ".claude/harness.lock"
+        lock = json.loads(lock_file.read_text(encoding="utf-8"))
+        key = "src/test/java/com/acme/orders/CodeRulesTests.java"
+        lock[key] = harness.fingerprint(key, older)
+        lock_file.write_text(json.dumps(lock), encoding="utf-8")
+
+        result = self.run_script(root)
+        self.assertIn("updated  src/test/java/com/acme/orders/CodeRulesTests.java", result.stdout)
+        self.assertEqual(rules.read_text(encoding="utf-8"), current)
+
+    def test_agents_md_names_the_projects_own_boundary_test(self):
+        root = self.project(STANDARD, {"src/test/java/com/acme/orders/ModularityTests.java":
+                                       "class ModularityTests { Object m = ApplicationModules.of(Object.class); }\n"})
+        result = self.run_script(root)
+        self.assertIn("already verifies module boundaries", result.stdout)
+        agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("| `ModularityTests` |", agents)
+        self.assertNotIn("ModuleBoundariesTests", agents)
+
+    def test_a_rerun_corrects_an_older_row_that_named_the_wrong_boundary_test(self):
+        root = self.project(STANDARD, {"src/test/java/com/acme/orders/ModularityTests.java":
+                                       "class ModularityTests { Object m = ApplicationModules.of(Object.class); }\n"})
+        self.run_script(root)
+        agents = root / "AGENTS.md"
+        agents.write_text(agents.read_text(encoding="utf-8").replace("| `ModularityTests` |", "| `ModuleBoundariesTests` |"),
+                          encoding="utf-8")
+
+        result = self.run_script(root)
+        self.assertIn("patched  AGENTS.md", result.stdout)
+        self.assertIn("| `ModularityTests` |", agents.read_text(encoding="utf-8"))
+
+    def test_a_rerun_keeps_updating_the_harness_boundary_test(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        result = self.run_script(root)
+        self.assertNotIn("already verifies module boundaries", result.stdout)
+        self.assertIn("kept     src/test/java/com/acme/orders/ModuleBoundariesTests.java (up to date)", result.stdout)
 
     def test_switching_to_no_modules_removes_the_module_files_nobody_edited(self):
         root = self.project(STANDARD)

@@ -51,6 +51,16 @@ def digest(text: str) -> str:
     return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
 
 
+def fingerprint(relative: str, text: str) -> str:
+    """For a Java file, ignores layout and import order, so running the project's formatter doesn't count as an edit."""
+    if not relative.endswith(".java"):
+        return digest(text)
+    lines = text.replace("\r\n", "\n").split("\n")
+    imports = sorted(line.strip() for line in lines if line.strip().startswith("import "))
+    body = "".join(line for line in lines if not line.strip().startswith("import "))
+    return digest("\n".join(imports) + re.sub(r"\s+", "", body))
+
+
 def element_spans(pom: str) -> dict[tuple[str, ...], list[tuple[int, int]]]:
     """Map each element path, such as ('project', 'dependencies'), to the (start, end) offsets of its closing tags."""
     stack: list[str] = []
@@ -227,10 +237,11 @@ class Changes:
         if not target.exists():
             self.write(relative, text, "added")
         else:
-            present = digest(target.read_text(encoding="utf-8"))
-            if present == digest(text):
+            content = target.read_text(encoding="utf-8")
+            present, printed = digest(content), fingerprint(relative, content)
+            if printed == fingerprint(relative, text):
                 self.keep(relative, "up to date")
-            elif present == self.lock.get(key) or present in RELEASED.get(key, ()):
+            elif self.lock.get(key) in (present, printed) or present in RELEASED.get(key, ()):
                 self.write(relative, text, "updated")
             elif key in self.lock:
                 self.keep(relative, f"edited since the harness wrote it; merge {source} by hand")
@@ -238,15 +249,16 @@ class Changes:
             else:
                 self.keep(relative, f"not written by this harness; to take {source}, delete it and rerun")
                 return
-        self.locked[key] = digest(text)
+        self.locked[key] = fingerprint(relative, text)
 
     def disown(self, relative: str, text: str, reason: str):
         """Remove a file the harness wrote and no longer wants, unless someone has edited it."""
         target = self.project / relative
         key = Path(os.path.relpath(target, self.root)).as_posix()
         if target.exists():
-            present = digest(target.read_text(encoding="utf-8"))
-            if present not in (self.lock.get(key), digest(text)):
+            content = target.read_text(encoding="utf-8")
+            present, printed = digest(content), fingerprint(relative, content)
+            if self.lock.get(key) not in (present, printed) and printed != fingerprint(relative, text):
                 self.keep(relative, f"edited since the harness wrote it; {reason}, so delete it by hand")
                 return
             if not self.dry_run:
@@ -309,7 +321,13 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         changes.lines.append(f"{'note':8} NullAway checks only @NullMarked packages: {marked} of {total} under "
                              f"{base_package} are marked" + ("; nothing is checked until one is" if not marked else ""))
 
+    existing_boundary_test = next((path for path in (project / "src" / "test").rglob("*.java")
+                                   if path.name != "ModuleBoundariesTests.java"
+                                   and "ApplicationModules.of(" in path.read_text(encoding="utf-8", errors="replace")),
+                                  None)
     values = {
+        "{{BOUNDARY_TEST}}": (existing_boundary_test.stem if modules and existing_boundary_test
+                              else "ModuleBoundariesTests"),
         "{{PROJECT_NAME}}": pom_value(pom, r"</parent>.*?<artifactId>([^<]+)</artifactId>", project.name),
         "{{BOOT_VERSION}}": pom_value(pom, r"<parent>.*?<version>([^<]+)</version>", "4"),
         "{{JAVA_VERSION}}": pom_value(pom, r"<java.version>([^<]+)</java.version>", "25"),
@@ -336,6 +354,8 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         # The NullAway row of a rerun with another --nullaway still names the old scope.
         updated = render(current).replace(f"| NullAway, at compile | {other_mode} ",
                                           f"| NullAway, at compile | {nullaway_checked(nullaway, base_package)} ")
+        # A harness from before October 2026 named its own boundary test even when it kept the project's.
+        updated = updated.replace("| `ModuleBoundariesTests` |", f"| `{values['{{BOUNDARY_TEST}}']}` |")
         if updated != current:
             changes.write("AGENTS.md", updated, "patched")
         elif not modules and "ModuleBoundariesTests" in current:
@@ -412,8 +432,6 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         changes.keep(".mvn/jvm.config", "has the Error Prone flags")
 
     test_dir = Path("src/test/java", *base_package.split("."))
-    existing_boundary_test = next((path for path in (project / "src" / "test").rglob("*.java")
-                                   if "ApplicationModules.of(" in path.read_text(encoding="utf-8", errors="replace")), None)
     tests = ["ConfigurationKeysTests.java", "CodeRulesTests.java", "BuildSetupTests.java"]
     if modules and existing_boundary_test:
         changes.keep(existing_boundary_test.relative_to(project).as_posix(), "already verifies module boundaries")
