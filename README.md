@@ -213,7 +213,7 @@ On Windows, the progen tests run their fake `progen` and `java` through `sh` fro
 ## Prerequisites
 
 - Claude Code CLI
-- Java 17+ (Java 25 recommended for new projects)
+- Java 17+ (Java 25 recommended for new projects). A project with `spring-boot-team-harness` needs JDK 21.0.8 or later to build, because Error Prone does
 - Optional: [progen](https://github.com/sivaprasadreddy/progen) for base project generation (`go install github.com/sivaprasadreddy/progen@latest`)
 - Maven or Gradle
 - Spring Boot 4.1+ familiarity

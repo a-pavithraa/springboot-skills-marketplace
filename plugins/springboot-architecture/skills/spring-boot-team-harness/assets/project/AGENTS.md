@@ -8,7 +8,7 @@ Run `./mvnw verify` (`mvnw.cmd verify` on Windows) before you say a change is fi
 
 | Gate | Fails when | Fix |
 | --- | --- | --- |
-| NullAway, at compile | Code under `{{BASE_PACKAGE}}` can pass or return `null` where the type doesn't allow it | Annotate with `org.jspecify.annotations.Nullable` and handle the null. Don't add `@SuppressWarnings("NullAway")`, and don't add `@NullUnmarked`: classes that have it are legacy code waiting to be fixed |
+| NullAway, at compile | {{NULLAWAY_CHECKED}} can pass or return `null` where the type doesn't allow it | Annotate with `org.jspecify.annotations.Nullable` and handle the null. Don't add `@SuppressWarnings("NullAway")`, and don't add `@NullUnmarked`: classes that have it are legacy code waiting to be fixed |
 <!-- modules:begin -->
 | `ModuleBoundariesTests` | A module uses another module's nested (internal) package, or modules depend on each other in a cycle | Call the other module through a type in its top-level package, or publish an event |
 <!-- modules:end -->

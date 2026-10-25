@@ -221,6 +221,62 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertNotIn("## Modules", agents)
         self.assertNotIn("modules:", agents)
 
+    def test_nullaway_checks_the_whole_base_package_by_default(self):
+        root = self.project(STANDARD)
+        self.assertEqual(self.run_script(root).returncode, 0)
+        text = (root / "pom.xml").read_text(encoding="utf-8")
+        self.assertIn("-XepOpt:NullAway:AnnotatedPackages=${harness.base-package}", text)
+        self.assertNotIn("OnlyNullMarked", text)
+        self.assertIn("| NullAway, at compile | Code under `com.acme.orders` can pass",
+                      (root / "AGENTS.md").read_text(encoding="utf-8"))
+
+    def test_nullaway_marked_checks_only_null_marked_packages_and_reports_coverage(self):
+        root = self.project(STANDARD, {
+            "src/main/java/com/acme/orders/billing/package-info.java":
+                "@NullMarked\npackage com.acme.orders.billing;\n\nimport org.jspecify.annotations.NullMarked;\n",
+            "src/main/java/com/acme/orders/billing/Invoice.java": "package com.acme.orders.billing;\nclass Invoice {}\n",
+        })
+        result = self.run_script(root, "--nullaway", "marked")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = (root / "pom.xml").read_text(encoding="utf-8")
+        # NullAway takes exactly one of AnnotatedPackages and OnlyNullMarked.
+        self.assertIn("-XepOpt:NullAway:OnlyNullMarked=true", text)
+        self.assertNotIn("AnnotatedPackages", text)
+        self.assertIn("1 of 2 under com.acme.orders are marked", result.stdout)
+        agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("| NullAway, at compile | Code in a `@NullMarked` package", agents)
+        self.assertNotIn("{{", agents)
+
+    def test_nullaway_marked_with_no_marked_package_says_nothing_is_checked(self):
+        root = self.project(STANDARD)
+        result = self.run_script(root, "--nullaway", "marked")
+        self.assertIn("0 of 1 under com.acme.orders are marked; nothing is checked until one is", result.stdout)
+
+    def test_rerun_keeps_the_nullaway_mode_unless_the_flag_changes_it(self):
+        root = self.project(STANDARD)
+        self.run_script(root, "--nullaway", "marked")
+        self.run_script(root)
+        self.assertIn("OnlyNullMarked=true", (root / "pom.xml").read_text(encoding="utf-8"))
+        self.assertEqual(self.run_script(root, "--nullaway", "all").returncode, 0)
+        text = (root / "pom.xml").read_text(encoding="utf-8")
+        self.assertIn("AnnotatedPackages=${harness.base-package}", text)
+        self.assertNotIn("OnlyNullMarked", text)
+        self.assertEqual(text.count("-Xplugin:ErrorProne"), 1)
+        self.assertIn("| NullAway, at compile | Code under `com.acme.orders` can pass",
+                      (root / "AGENTS.md").read_text(encoding="utf-8"))
+
+    def test_nullaway_switch_leaves_a_team_nullaway_option_outside_the_harness_alone(self):
+        team = ("<pluginManagement><plugins><plugin><artifactId>maven-compiler-plugin</artifactId><configuration>"
+                "<compilerArgs><arg>-XepOpt:NullAway:AnnotatedPackages=com.acme.shared</arg></compilerArgs>"
+                "</configuration></plugin></plugins></pluginManagement>\n")
+        root = self.project(add_after(STANDARD, "<build>\n", team))
+        self.assertEqual(self.run_script(root, "--nullaway", "marked").returncode, 0)
+        text = (root / "pom.xml").read_text(encoding="utf-8")
+        self.assertIn("AnnotatedPackages=com.acme.shared", text)
+        self.assertEqual(text.count("OnlyNullMarked=true"), 1)
+        self.run_script(root)
+        self.assertEqual((root / "pom.xml").read_text(encoding="utf-8").count("OnlyNullMarked=true"), 1)
+
     def test_module_markers_are_removed_when_modules_are_kept(self):
         root = self.project(STANDARD)
         self.run_script(root)

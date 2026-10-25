@@ -39,7 +39,7 @@ For a full review, run them in this order.
 
 ### Pass A: Build and configuration
 
-- Run `../springboot-migration/scripts/scan_migration_issues.py <project>` and cite its CRITICAL lines: old starter names, moved imports, old test annotations, Testcontainers 1.x classes.
+- Run `../springboot-migration/scripts/scan_migration_issues.py <project>` and cite its CRITICAL lines: old starter names, moved imports, old test annotations, Testcontainers 1.x classes. If the script is not there (this skill was copied without `springboot-migration`), say so in the review and check those four by reading the pom and imports.
 - Check for version drift: dependencies pinned by hand that the Boot BOM already manages.
 
 ### Pass B: Architecture
