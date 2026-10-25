@@ -17,7 +17,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * Signs a MockMvc request in as a named user of an app that logs in with oauth2Login and keeps the login in a
  * server-side session. The claims are what the identity provider puts in the ID token, and the roles come from the
  * app's own GrantedAuthoritiesMapper (the one passed to userInfoEndpoint().userAuthoritiesMapper(), exposed as a
- * bean), so every test that uses a persona also checks the mapping. oidcLogin() alone skips the mapper: a "roles"
+ * bean, or constructed here when the app creates it inline, such as new RoleClaimsMapper()), so every
+ * test that uses a persona also checks the mapping. oidcLogin() alone skips the mapper: a "roles"
  * claim set on it never becomes ROLE_ADMIN, and a role set with .authorities(...) passes even when the mapper is
  * broken. Use with @Import(Personas.class):
  *

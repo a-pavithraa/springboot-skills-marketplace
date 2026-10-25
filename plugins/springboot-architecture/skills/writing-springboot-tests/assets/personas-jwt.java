@@ -13,7 +13,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 /**
  * Signs a MockMvc request in as a named caller of a resource server that accepts JWT bearer tokens. The claims are
  * what the identity provider puts in the token, and the roles come from the app's own JwtAuthenticationConverter
- * (exposed as a bean), so every test that uses a persona also checks the conversion. jwt() alone uses its own
+ * (exposed as a bean, or built here the way the app builds it), so every test that uses a persona also checks the
+ * conversion. jwt() alone uses its own
  * converter, which reads only "scope": a "roles" claim set on it never becomes ROLE_ADMIN, and a role set with
  * .authorities(...) passes even when the app's converter is broken. Use with @Import(Personas.class):
  *

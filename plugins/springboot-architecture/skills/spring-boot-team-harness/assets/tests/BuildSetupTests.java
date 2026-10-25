@@ -59,7 +59,8 @@ class BuildSetupTests {
 
     @Test
     void flywayMigrationsRun() throws Exception {
-        if (!hasFiles(Path.of("src/main/resources/db/migration"))) {
+        // An app with more than one database often builds Flyway itself for one of them, and then it migrates.
+        if (!hasFiles(Path.of("src/main/resources/db/migration")) || buildsFlywayItself()) {
             return;
         }
         boolean runs = dependencies().stream()
@@ -142,6 +143,14 @@ class BuildSetupTests {
                 .map(element -> element.getTextContent().trim())
                 .findFirst()
                 .orElse("");
+    }
+
+    private static boolean buildsFlywayItself() throws IOException {
+        try (Stream<Path> sources = Files.walk(Path.of("src/main/java"))) {
+            return sources.filter(path -> path.toString().endsWith(".java"))
+                    .map(BuildSetupTests::read)
+                    .anyMatch(source -> source.contains("Flyway.configure(") || source.contains("new Flyway("));
+        }
     }
 
     private static boolean hasFiles(Path directory) throws IOException {
