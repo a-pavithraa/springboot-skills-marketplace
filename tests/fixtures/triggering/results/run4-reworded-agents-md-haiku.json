@@ -1,0 +1,142 @@
+[
+  {
+    "id": "create-2",
+    "model": "haiku",
+    "expect": "creating-springboot-projects",
+    "loaded": [
+      "creating-springboot-projects"
+    ],
+    "passed": true,
+    "cost_usd": 0.02602327
+  },
+  {
+    "id": "create-3",
+    "model": "haiku",
+    "expect": "creating-springboot-projects",
+    "loaded": [
+      "creating-springboot-projects"
+    ],
+    "passed": true,
+    "cost_usd": 0.020018770000000005
+  },
+  {
+    "id": "migrate-2",
+    "model": "haiku",
+    "expect": "springboot-migration",
+    "loaded": [
+      "springboot-migration"
+    ],
+    "passed": true,
+    "cost_usd": 0.01110555
+  },
+  {
+    "id": "review-1",
+    "model": "haiku",
+    "expect": "code-reviewer",
+    "loaded": [
+      "code-reviewer"
+    ],
+    "passed": true,
+    "cost_usd": 0.00760215
+  },
+  {
+    "id": "review-2",
+    "model": "haiku",
+    "expect": "code-reviewer",
+    "loaded": [
+      "code-reviewer"
+    ],
+    "passed": true,
+    "cost_usd": 0.00986011
+  },
+  {
+    "id": "review-3",
+    "model": "haiku",
+    "expect": "code-reviewer",
+    "loaded": [
+      "code-reviewer"
+    ],
+    "passed": true,
+    "cost_usd": 0.00991637
+  },
+  {
+    "id": "tests-1",
+    "model": "haiku",
+    "expect": "writing-springboot-tests",
+    "loaded": [
+      "writing-springboot-tests"
+    ],
+    "passed": true,
+    "cost_usd": 0.008976050000000001
+  },
+  {
+    "id": "tests-2",
+    "model": "haiku",
+    "expect": "writing-springboot-tests",
+    "loaded": [
+      "writing-springboot-tests"
+    ],
+    "passed": true,
+    "cost_usd": 0.00801754
+  },
+  {
+    "id": "tests-3",
+    "model": "haiku",
+    "expect": "writing-springboot-tests",
+    "loaded": [
+      "writing-springboot-tests"
+    ],
+    "passed": true,
+    "cost_usd": 0.01401939
+  },
+  {
+    "id": "harness-1",
+    "model": "haiku",
+    "expect": "spring-boot-team-harness",
+    "loaded": [
+      "spring-boot-team-harness"
+    ],
+    "passed": true,
+    "cost_usd": 0.007163750000000001
+  },
+  {
+    "id": "none-1",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0031398200000000006
+  },
+  {
+    "id": "none-2",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0049393200000000005
+  },
+  {
+    "id": "none-3",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.00946518
+  },
+  {
+    "id": "none-4",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0068173899999999996
+  },
+  {
+    "id": "none-5",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.004139490000000001
+  }
+]

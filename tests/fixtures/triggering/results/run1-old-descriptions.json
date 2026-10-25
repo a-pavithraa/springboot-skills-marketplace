@@ -1,0 +1,358 @@
+[
+  {
+    "id": "create-1",
+    "model": "sonnet",
+    "expect": "creating-springboot-projects",
+    "loaded": [
+      "creating-springboot-projects"
+    ],
+    "passed": true,
+    "cost_usd": 0.22808319999999999
+  },
+  {
+    "id": "create-2",
+    "model": "sonnet",
+    "expect": "creating-springboot-projects",
+    "loaded": [
+      "creating-springboot-projects"
+    ],
+    "passed": true,
+    "cost_usd": 0.4176438
+  },
+  {
+    "id": "create-3",
+    "model": "sonnet",
+    "expect": "creating-springboot-projects",
+    "loaded": [
+      "creating-springboot-projects"
+    ],
+    "passed": true,
+    "cost_usd": 0.4275821
+  },
+  {
+    "id": "migrate-1",
+    "model": "sonnet",
+    "expect": "springboot-migration",
+    "loaded": [
+      "springboot-migration"
+    ],
+    "passed": true,
+    "cost_usd": 0.2402855
+  },
+  {
+    "id": "migrate-2",
+    "model": "sonnet",
+    "expect": "springboot-migration",
+    "loaded": [
+      "springboot-migration"
+    ],
+    "passed": true,
+    "cost_usd": 0.24723799999999999
+  },
+  {
+    "id": "migrate-3",
+    "model": "sonnet",
+    "expect": "springboot-migration",
+    "loaded": [
+      "springboot-migration"
+    ],
+    "passed": true,
+    "cost_usd": 0.1438728
+  },
+  {
+    "id": "review-1",
+    "model": "sonnet",
+    "expect": "code-reviewer",
+    "loaded": [
+      "code-reviewer"
+    ],
+    "passed": true,
+    "cost_usd": 0.11725200000000001
+  },
+  {
+    "id": "review-2",
+    "model": "sonnet",
+    "expect": "code-reviewer",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.084501
+  },
+  {
+    "id": "review-3",
+    "model": "sonnet",
+    "expect": "code-reviewer",
+    "loaded": [
+      "code-reviewer"
+    ],
+    "passed": true,
+    "cost_usd": 0.12374840000000001
+  },
+  {
+    "id": "tests-1",
+    "model": "sonnet",
+    "expect": "writing-springboot-tests",
+    "loaded": [
+      "writing-springboot-tests"
+    ],
+    "passed": true,
+    "cost_usd": 0.1362867
+  },
+  {
+    "id": "tests-2",
+    "model": "sonnet",
+    "expect": "writing-springboot-tests",
+    "loaded": [
+      "writing-springboot-tests"
+    ],
+    "passed": true,
+    "cost_usd": 0.10532949999999999
+  },
+  {
+    "id": "tests-3",
+    "model": "sonnet",
+    "expect": "writing-springboot-tests",
+    "loaded": [
+      "writing-springboot-tests"
+    ],
+    "passed": true,
+    "cost_usd": 0.2084094
+  },
+  {
+    "id": "harness-1",
+    "model": "sonnet",
+    "expect": "spring-boot-team-harness",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.09769240000000001
+  },
+  {
+    "id": "harness-2",
+    "model": "sonnet",
+    "expect": "spring-boot-team-harness",
+    "loaded": [
+      "spring-boot-team-harness"
+    ],
+    "passed": true,
+    "cost_usd": 0.09980789999999998
+  },
+  {
+    "id": "harness-3",
+    "model": "sonnet",
+    "expect": "spring-boot-team-harness",
+    "loaded": [
+      "spring-boot-team-harness"
+    ],
+    "passed": true,
+    "cost_usd": 0.1034326
+  },
+  {
+    "id": "none-1",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0542584
+  },
+  {
+    "id": "none-2",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0638373
+  },
+  {
+    "id": "none-3",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0992722
+  },
+  {
+    "id": "none-4",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0776478
+  },
+  {
+    "id": "none-5",
+    "model": "sonnet",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.065722
+  },
+  {
+    "id": "create-1",
+    "model": "haiku",
+    "expect": "creating-springboot-projects",
+    "loaded": [
+      "creating-springboot-projects"
+    ],
+    "passed": true,
+    "cost_usd": 0.02695142
+  },
+  {
+    "id": "create-2",
+    "model": "haiku",
+    "expect": "creating-springboot-projects",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.024019270000000002
+  },
+  {
+    "id": "create-3",
+    "model": "haiku",
+    "expect": "creating-springboot-projects",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.013940855000000002
+  },
+  {
+    "id": "migrate-1",
+    "model": "haiku",
+    "expect": "springboot-migration",
+    "loaded": [
+      "springboot-migration"
+    ],
+    "passed": true,
+    "cost_usd": 0.009969730000000001
+  },
+  {
+    "id": "migrate-2",
+    "model": "haiku",
+    "expect": "springboot-migration",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.01094701
+  },
+  {
+    "id": "migrate-3",
+    "model": "haiku",
+    "expect": "springboot-migration",
+    "loaded": [
+      "springboot-migration"
+    ],
+    "passed": true,
+    "cost_usd": 0.009851000000000002
+  },
+  {
+    "id": "review-1",
+    "model": "haiku",
+    "expect": "code-reviewer",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.00420221
+  },
+  {
+    "id": "review-2",
+    "model": "haiku",
+    "expect": "code-reviewer",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.00800591
+  },
+  {
+    "id": "review-3",
+    "model": "haiku",
+    "expect": "code-reviewer",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.007103870000000001
+  },
+  {
+    "id": "tests-1",
+    "model": "haiku",
+    "expect": "writing-springboot-tests",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.006993720000000001
+  },
+  {
+    "id": "tests-2",
+    "model": "haiku",
+    "expect": "writing-springboot-tests",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.0069237199999999995
+  },
+  {
+    "id": "tests-3",
+    "model": "haiku",
+    "expect": "writing-springboot-tests",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.0357577
+  },
+  {
+    "id": "harness-1",
+    "model": "haiku",
+    "expect": "spring-boot-team-harness",
+    "loaded": [],
+    "passed": false,
+    "cost_usd": 0.006051839999999999
+  },
+  {
+    "id": "harness-2",
+    "model": "haiku",
+    "expect": "spring-boot-team-harness",
+    "loaded": [
+      "spring-boot-team-harness"
+    ],
+    "passed": true,
+    "cost_usd": 0.00746254
+  },
+  {
+    "id": "harness-3",
+    "model": "haiku",
+    "expect": "spring-boot-team-harness",
+    "loaded": [
+      "spring-boot-team-harness"
+    ],
+    "passed": true,
+    "cost_usd": 0.00854426
+  },
+  {
+    "id": "none-1",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.00290641
+  },
+  {
+    "id": "none-2",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0040804000000000005
+  },
+  {
+    "id": "none-3",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.007530860000000001
+  },
+  {
+    "id": "none-4",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.0060726700000000005
+  },
+  {
+    "id": "none-5",
+    "model": "haiku",
+    "expect": null,
+    "loaded": [],
+    "passed": true,
+    "cost_usd": 0.00411522
+  }
+]

@@ -32,6 +32,16 @@ In Claude Code, a hook runs the gates that need no Docker whenever a turn ends w
 - When you change what an endpoint returns or accepts, add or update a full-API test for it: the whole app on a random port with Testcontainers, one request for the case you built and one it must refuse.
 - On a feature branch, when a change is finished and not committed, ask the user whether to commit it. Commit each logical step on its own, in the order a reviewer should read them, with a message that says what the step does and why. Each commit must compile and pass the gates the Stop hook runs. Run the full `./mvnw verify` before you open the pull request. Never commit on `main` or `master`, and don't push unless asked.
 - Before you open a pull request, review the diff with the `code-reviewer` skill and write the description with the `pr` skill, if they are installed. Fix what the review finds.
+
+## Skills
+
+When a request matches one of these, read the code it touches, then load its skill and follow it (the Skill tool in Claude Code, `$name` in Codex):
+
+- A new project or service: `creating-springboot-projects`
+- Upgrading Spring Boot or Java: `springboot-migration`
+- Reviewing code, a slow endpoint or query, or whether the tests catch bugs: `code-reviewer`
+- Writing tests for HTTP clients, messaging, events, or full-API tests with containers: `writing-springboot-tests`
+- Changing these rules or the build checks: `spring-boot-team-harness`
 <!-- modules:begin -->
 
 ## Modules

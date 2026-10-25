@@ -1,6 +1,6 @@
 ---
 name: springboot-migration
-description: Use when upgrading an existing Spring Boot application to Boot 4. That covers dependency transitions, starter renames, test-annotation migration (such as @MockBean to @MockitoBean), Jackson 3 issues, related Spring Modulith 2 or Testcontainers 2 upgrade work, or planning a phased migration. Not for greenfield project creation or isolated repository design.
+description: Use when upgrading an existing Spring Boot application, for example from Boot 3.x to Boot 4 or to the latest Spring Boot and Java: dependency transitions and starter renames, test annotations such as @MockBean to @MockitoBean, Jackson 3 issues, Spring Modulith 2 or Testcontainers 2 upgrades, code that stops compiling after a version bump, or planning a phased migration. Not for greenfield project creation or isolated repository design.
 ---
 
 # Spring Boot Migration

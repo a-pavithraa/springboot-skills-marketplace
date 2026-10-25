@@ -1,0 +1,22 @@
+[
+  {"id": "create-1", "expect": "creating-springboot-projects", "project": "empty", "prompt": "I need a new Spring Boot service for managing customer subscriptions, with a REST API and Postgres. Set it up for me."},
+  {"id": "create-2", "expect": "creating-springboot-projects", "project": "empty", "prompt": "Start a backend for a small inventory app. It'll have products, warehouses and stock movements. Which structure should I use, and can you scaffold it?"},
+  {"id": "create-3", "expect": "creating-springboot-projects", "project": "empty", "prompt": "Bootstrap a modular monolith in Java for an e-commerce platform: orders, payments and catalog as separate modules."},
+  {"id": "migrate-1", "expect": "springboot-migration", "project": "boot3", "prompt": "We're on Spring Boot 3.5. What do we need to change to move this project to Boot 4?"},
+  {"id": "migrate-2", "expect": "springboot-migration", "project": "boot3", "prompt": "Upgrade this app to the latest Spring Boot and Java 25."},
+  {"id": "migrate-3", "expect": "springboot-migration", "project": "boot3", "prompt": "After bumping the parent version our tests no longer compile because @MockBean is gone. Plan the rest of the upgrade too."},
+  {"id": "review-1", "expect": "code-reviewer", "project": "shop", "prompt": "Can you review OrderService.java before I merge it?"},
+  {"id": "review-2", "expect": "code-reviewer", "project": "shop", "prompt": "The orders list endpoint is slow in production. Look at the persistence code and tell me what's wrong."},
+  {"id": "review-3", "expect": "code-reviewer", "project": "shop", "prompt": "Review the tests in this project. Would they catch real bugs?"},
+  {"id": "tests-1", "expect": "writing-springboot-tests", "project": "shop", "prompt": "Write tests for a client that calls our payments provider over HTTP: it should handle 5xx responses, timeouts and retries."},
+  {"id": "tests-2", "expect": "writing-springboot-tests", "project": "shop", "prompt": "We're adding a Kafka listener that restocks products. How should I test redelivery and poison messages?"},
+  {"id": "tests-3", "expect": "writing-springboot-tests", "project": "shop", "prompt": "Add an end-to-end API test for the orders endpoints that runs against a real Postgres in a container."},
+  {"id": "harness-1", "expect": "spring-boot-team-harness", "project": "shop", "prompt": "My team all uses Claude Code on this repo. How do I make sure everyone's agent follows the same rules and runs the build checks?"},
+  {"id": "harness-2", "expect": "spring-boot-team-harness", "project": "shop", "prompt": "Add guardrails to this project so coding agents can't merge code with null-safety bugs or broken module boundaries."},
+  {"id": "harness-3", "expect": "spring-boot-team-harness", "project": "shop", "prompt": "Set up an AGENTS.md and CI checks for this Spring Boot repo."},
+  {"id": "none-1", "expect": null, "project": "shop", "prompt": "What's the difference between @Component and @Service in Spring?"},
+  {"id": "none-2", "expect": null, "project": "kotlin", "prompt": "Review Greeter.kt for problems."},
+  {"id": "none-3", "expect": null, "project": "shop", "prompt": "Write a short README for this project explaining how to run it."},
+  {"id": "none-4", "expect": null, "project": "shop", "prompt": "Rename the method get in OrderService to findOrder and update its callers."},
+  {"id": "none-5", "expect": null, "project": "empty", "prompt": "Write a Python script that counts the lines in every .java file under a folder."}
+]

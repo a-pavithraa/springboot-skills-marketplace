@@ -1,6 +1,6 @@
 ---
 name: spring-boot-team-harness
-description: Adds a shared agent harness to a Maven Spring Boot 4 project so every teammate's Claude Code or Codex session works under the same rules. It writes AGENTS.md (read by both tools), a committed .claude/settings.json, ./mvnw verify gates that fail on null-safety bugs (NullAway with JSpecify), module-boundary breaches (Spring Modulith), unknown or deprecated Boot property keys, Spring mistakes that compile (ArchUnit) and unformatted code, Claude Code hooks that run those gates before a turn ends, and a CI workflow. Use when setting up or standardizing a Spring Boot repository for a team that uses coding agents, or when asked for guardrails, AGENTS.md, or consistent agent behaviour across developers.
+description: Use when a team wants every developer's coding agent (Claude Code or Codex) to follow the same rules on a Maven Spring Boot 4 repository: setting up AGENTS.md, guardrails, shared agent settings, or build and CI checks that agents must pass before code merges. It adds ./mvnw verify gates that fail on null-safety bugs (NullAway with JSpecify), module-boundary breaches (Spring Modulith), unknown or deprecated Boot property keys, Spring mistakes that compile (ArchUnit) and unformatted code, Claude Code hooks that run those gates before a turn ends, and a CI workflow.
 ---
 
 # Spring Boot team harness
