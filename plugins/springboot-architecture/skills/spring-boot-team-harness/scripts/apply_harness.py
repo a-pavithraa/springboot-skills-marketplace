@@ -2,9 +2,10 @@
 """Add the team harness to a Maven Spring Boot project: AGENTS.md, Claude Code settings, and ./mvnw verify gates.
 
 Usage:
-    python3 apply_harness.py <project-dir> [--base-package com.example.app] [--dry-run]
+    python3 apply_harness.py <project-dir> [--base-package com.example.app] [--nullaway all|marked] [--dry-run]
 
-The pom gets NullAway (JSpecify mode, main code only) through Error Prone, Spotless with palantir-java-format,
+The pom gets NullAway (JSpecify mode, main code only; every class under the base package, or with --nullaway marked
+only @NullMarked packages) through Error Prone, Spotless with palantir-java-format,
 Spring Modulith's test starter, and ArchUnit. Three tests are added: ConfigurationKeysTests, CodeRulesTests and
 ModuleBoundariesTests. A GitHub Actions workflow that runs ./mvnw verify is added when no workflow runs mvnw.
 Claude Code hooks run the fast gates when a turn ends and block destructive git commands and edits to
@@ -35,6 +36,9 @@ ARCHUNIT = re.compile(r"<artifactId>\s*(taikai|archunit[\w-]*)\s*</artifactId>")
 WORKFLOW = ".github/workflows/verify.yml"
 HOOKS = (".claude/hooks/guard.sh", ".claude/hooks/verify-on-stop.sh")
 LOCK = ".claude/harness.lock"
+HARNESS_PLUGINS = re.compile(r"<!-- harness:begin plugins -->.*?<!-- harness:end plugins -->", re.S)
+NULLAWAY_OPTION = re.compile(r"-XepOpt:NullAway:(?:AnnotatedPackages=\S+?|OnlyNullMarked=true)(?=\s|<)")
+NULL_MARKED = re.compile(r"^\s*@(?:org\.jspecify\.annotations\.)?NullMarked\b", re.M)
 # Hooks released before the lock file existed, by SHA-256 of their LF content: safe to replace on a rerun.
 RELEASED = {
     ".claude/hooks/guard.sh": {"0eca37c90909f462612b1394097b51ee6fc9d3996b142bebd7e8ef6766f180e3"},
@@ -97,15 +101,39 @@ def missing_items(fragment: str, pom: str) -> str:
     return begin + "".join(kept) + end
 
 
-def patch_pom(pom: str, base_package: str, modules: bool) -> str:
+def nullaway_scope(nullaway: str) -> str:
+    """The Error Prone option that says which code NullAway checks. NullAway takes exactly one of the two."""
+    return "-XepOpt:NullAway:OnlyNullMarked=true" if nullaway == "marked" \
+        else "-XepOpt:NullAway:AnnotatedPackages=${harness.base-package}"
+
+
+def nullaway_mode(pom: str) -> str:
+    """The mode a pom the harness already patched uses; 'all' for a pom without the harness."""
+    block = HARNESS_PLUGINS.search(pom)
+    option = NULLAWAY_OPTION.search(block.group(0)) if block else None
+    return "marked" if option and option.group(0).endswith("OnlyNullMarked=true") else "all"
+
+
+def nullaway_checked(nullaway: str, base_package: str) -> str:
+    """What AGENTS.md says NullAway checks."""
+    return ("Code in a `@NullMarked` package (give each new package a `package-info.java` annotated "
+            "`@org.jspecify.annotations.NullMarked`)") if nullaway == "marked" else f"Code under `{base_package}`"
+
+
+def patch_pom(pom: str, base_package: str, modules: bool, nullaway: str = "all") -> str:
     # What the build actually uses: managed versions and inactive profiles add nothing to the classpath.
     declared = re.sub(r"<!--.*?-->|<dependencyManagement>.*?</dependencyManagement>|"
                       r"<pluginManagement>.*?</pluginManagement>|<profiles>.*?</profiles>", "", pom, flags=re.S)
     if MARKER not in pom and re.search(r"<artifactId>\s*maven-compiler-plugin\s*</artifactId>", declared):
         sys.exit(f"ERROR: pom.xml already configures maven-compiler-plugin. Merge its part of "
                  f"{ASSETS / 'pom' / 'plugins.xml'} by hand.")
+    # A rerun with another --nullaway switches the scope in place, in the harness's own plugins block only;
+    # missing_items would skip the compiler plugin.
+    pom = HARNESS_PLUGINS.sub(lambda block: NULLAWAY_OPTION.sub(lambda _: nullaway_scope(nullaway), block.group(0),
+                                                                count=1), pom, count=1)
 
-    fragments = {name: (ASSETS / "pom" / f"{name}.xml").read_text(encoding="utf-8").replace("{{BASE_PACKAGE}}", base_package)
+    fragments = {name: (ASSETS / "pom" / f"{name}.xml").read_text(encoding="utf-8")
+                 .replace("{{NULLAWAY_SCOPE}}", nullaway_scope(nullaway)).replace("{{BASE_PACKAGE}}", base_package)
                  for name in ("properties", "dependencies", "modules-dependencies", "managed-dependencies", "plugins",
                               "rules-dependencies")}
     if not modules:
@@ -245,13 +273,24 @@ class Changes:
         self.lines.append(f"{'kept':8} {relative} ({reason})")
 
 
-def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool = True) -> list[str]:
+def null_marked_packages(project: Path, base_package: str) -> tuple[int, int]:
+    """(packages with @NullMarked in package-info.java, packages with Java sources) under the base package."""
+    base = project / "src" / "main" / "java" / Path(*base_package.split("."))
+    packages = {source.parent for source in base.rglob("*.java")} if base.is_dir() else set()
+    marked = {package for package in packages if (package / "package-info.java").exists()
+              and NULL_MARKED.search((package / "package-info.java").read_text(encoding="utf-8", errors="replace"))}
+    return len(marked), len(packages)
+
+
+def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool = True,
+          nullaway: str | None = None) -> list[str]:
     pom_path = project / "pom.xml"
     if not pom_path.exists():
         sys.exit("ERROR: no pom.xml. The harness supports Maven projects only.")
     app_package, app_class = find_application(project)
     base_package = base_package or app_package
     pom = pom_path.read_text(encoding="utf-8")
+    nullaway = nullaway or nullaway_mode(pom)
     # CI, Claude Code settings and hooks only work at the repository root, which can be above the Maven project.
     root = repository_root(project)
     changes = Changes(project, root, dry_run)
@@ -260,11 +299,15 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     def at_root(relative: str | Path) -> str:
         return Path(os.path.relpath(root / relative, project)).as_posix()
 
-    patched = patch_pom(pom, base_package, modules)
+    patched = patch_pom(pom, base_package, modules, nullaway)
     if patched == pom:
         changes.keep("pom.xml", "harness already present")
     else:
         changes.write("pom.xml", patched, "patched")
+    if nullaway == "marked":
+        marked, total = null_marked_packages(project, base_package)
+        changes.lines.append(f"{'note':8} NullAway checks only @NullMarked packages: {marked} of {total} under "
+                             f"{base_package} are marked" + ("; nothing is checked until one is" if not marked else ""))
 
     values = {
         "{{PROJECT_NAME}}": pom_value(pom, r"</parent>.*?<artifactId>([^<]+)</artifactId>", project.name),
@@ -275,7 +318,9 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         "{{APP_CLASS}}": f"{app_package}.{app_class}",
         "{{BASE_PATH}}": base_package.replace(".", "/"),
         "{{MAVEN_DIR}}": folder or ".",
+        "{{NULLAWAY_CHECKED}}": nullaway_checked(nullaway, base_package),
     }
+    other_mode = nullaway_checked("all" if nullaway == "marked" else "marked", base_package)
 
     def render(text: str, with_modules: bool = modules) -> str:
         text = MODULE_BLOCK.sub(lambda match: match.group(1) if with_modules else "", text)
@@ -288,8 +333,11 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     if not agents.exists():
         changes.write("AGENTS.md", agents_template, "added")
     elif "## Done means verify passes" in (current := agents.read_text(encoding="utf-8")):
-        if render(current) != current:
-            changes.write("AGENTS.md", render(current), "patched")
+        # The NullAway row of a rerun with another --nullaway still names the old scope.
+        updated = render(current).replace(f"| NullAway, at compile | {other_mode} ",
+                                          f"| NullAway, at compile | {nullaway_checked(nullaway, base_package)} ")
+        if updated != current:
+            changes.write("AGENTS.md", updated, "patched")
         elif not modules and "ModuleBoundariesTests" in current:
             changes.keep("AGENTS.md", "has the harness section; remove its ModuleBoundariesTests row and Modules "
                                       "section by hand")
@@ -426,9 +474,14 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Report what would change without writing")
     parser.add_argument("--no-modules", action="store_true",
                         help="Skip Spring Modulith boundaries, for layered or hexagonal projects whose subpackages are layers")
+    parser.add_argument("--nullaway", choices=("all", "marked"),
+                        help="'all' (default for a new install) checks every class under the base package; 'marked' "
+                             "checks only packages with @NullMarked, so an existing codebase adopts it package by "
+                             "package. A rerun without the flag keeps the pom's current mode")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
-    for line in apply(Path(args.project).resolve(), args.base_package, args.dry_run, not args.no_modules):
+    for line in apply(Path(args.project).resolve(), args.base_package, args.dry_run, not args.no_modules,
+                      args.nullaway):
         print(line)
     if not args.dry_run:
         print("\nNext: ./mvnw spotless:apply, then ./mvnw verify, and fix what NullAway reports.")

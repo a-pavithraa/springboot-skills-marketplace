@@ -6,7 +6,9 @@
           <compilerArgs combine.children="append">
             <arg>-XDcompilePolicy=simple</arg>
             <arg>--should-stop=ifError=FLOW</arg>
-            <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/target/generated-sources/.* -Xep:NullAway:ERROR -XepOpt:NullAway:AnnotatedPackages=${harness.base-package} -XepOpt:NullAway:JSpecifyMode=true</arg>
+            <!-- Error Prone needs it on JDK 21 (21.0.8 or later); JDK 25 does this by default. -->
+            <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+            <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/target/generated-sources/.* -Xep:NullAway:ERROR {{NULLAWAY_SCOPE}} -XepOpt:NullAway:JSpecifyMode=true</arg>
           </compilerArgs>
           <annotationProcessorPaths combine.children="append">
             <path>
