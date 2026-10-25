@@ -1,0 +1,41 @@
+name: Harness build
+
+# Applies spring-boot-team-harness to tests/harness-sample and checks that verify passes on clean code
+# and that each gate fails on a planted mistake, on every JDK the harness supports.
+on:
+  pull_request:
+    paths:
+      - "plugins/springboot-architecture/skills/spring-boot-team-harness/**"
+      - "tests/harness-sample/**"
+      - ".github/workflows/harness-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "plugins/springboot-architecture/skills/spring-boot-team-harness/**"
+      - "tests/harness-sample/**"
+      - ".github/workflows/harness-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["21", "25"]
+        nullaway: [all, marked]
+    name: JDK ${{ matrix.java }}, NullAway ${{ matrix.nullaway }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+          cache-dependency-path: tests/harness-sample/project/pom.xml
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: tests/harness-sample/check.sh ${{ matrix.nullaway }}
