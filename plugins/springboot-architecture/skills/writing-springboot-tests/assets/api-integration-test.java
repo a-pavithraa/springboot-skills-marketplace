@@ -27,6 +27,10 @@ import static org.springframework.boot.test.context.SpringBootTest.WebEnvironmen
  * data before each test, so tests don't depend on order. WireMock stubs are reset after each test.
  *
  * Test dependency: org.wiremock.integrations:wiremock-spring-boot (not managed by Boot; 4.4.3 runs on Boot 4.1).
+ *
+ * A random-port request can't sign in through a browser login (oauth2Login with a server-side session). For routes
+ * behind one, drop RANDOM_PORT and RestTestClient, add @AutoConfigureMockMvc, and send requests through MockMvcTester
+ * as a persona (personas-oidc.java). The rest of this setup stays.
  */
 @SpringBootTest(webEnvironment = RANDOM_PORT)
 @AutoConfigureRestTestClient

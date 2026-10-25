@@ -98,3 +98,4 @@ class OrderControllerTest {
 //   mvc.post().uri(...).with(user("ann").roles("CUSTOMER")).with(csrf())   → allowed
 //   the same request without .with(user(...))                             → 401
 // (static imports from org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors)
+// user(...).roles(...) skips the app's own role mapping; personas-*.java sign in through it.

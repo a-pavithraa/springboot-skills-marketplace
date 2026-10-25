@@ -30,9 +30,9 @@ def pom(boot: str = "4.1.1", dependencies: str = "") -> str:
               <artifactId>spring-boot-starter-webmvc</artifactId>
             </dependency>
             <dependency>
-              <groupId>com.enofex</groupId>
-              <artifactId>taikai</artifactId>
-              <version>2.1.0</version>
+              <groupId>com.tngtech.archunit</groupId>
+              <artifactId>archunit</artifactId>
+              <version>1.5.1</version>
               <scope>test</scope>
             </dependency>
             {dependencies}
@@ -43,8 +43,8 @@ def pom(boot: str = "4.1.1", dependencies: str = "") -> str:
 
 ARCH_TEST = """
     package com.acme.shop;
-    import com.enofex.taikai.Taikai;
-    class ArchitectureRulesTest {}
+    import com.tngtech.archunit.core.importer.ClassFileImporter;
+    class CodeRulesTests {}
     """
 
 
@@ -54,7 +54,7 @@ class CheckNewProjectTestCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         self.write("pom.xml", pom())
-        self.write("src/test/java/com/acme/shop/ArchitectureRulesTest.java", ARCH_TEST)
+        self.write("src/test/java/com/acme/shop/CodeRulesTests.java", ARCH_TEST)
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -91,12 +91,23 @@ class Checks(CheckNewProjectTestCase):
         self.assertIn("not on the current 4.1.x line", result.stdout)
 
     def test_missing_architecture_test_fails(self):
-        (self.root / "src/test/java/com/acme/shop/ArchitectureRulesTest.java").unlink()
-        self.assertFails("No Taikai architecture test")
+        (self.root / "src/test/java/com/acme/shop/CodeRulesTests.java").unlink()
+        self.assertFails("No ArchUnit architecture test")
 
     def test_architecture_test_without_dependency_fails(self):
-        self.write("pom.xml", pom().replace("com.enofex", "org.example"))
-        self.assertFails("no com.enofex:taikai test dependency")
+        self.write("pom.xml", pom().replace("com.tngtech.archunit", "org.example"))
+        self.assertFails("no com.tngtech.archunit test dependency")
+
+    def test_a_progen_taikai_test_counts(self):
+        self.write("pom.xml", pom().replace("com.tngtech.archunit", "com.enofex").replace(
+            "<artifactId>archunit</artifactId>", "<artifactId>taikai</artifactId>"))
+        (self.root / "src/test/java/com/acme/shop/CodeRulesTests.java").unlink()
+        self.write("src/test/java/com/acme/shop/ArchUnitTests.java", """
+            package com.acme.shop;
+            import com.enofex.taikai.Taikai;
+            class ArchUnitTests {}
+            """)
+        self.assertEqual(self.check().returncode, 0)
 
     def test_unresolved_placeholder_fails(self):
         self.write("src/main/java/com/acme/shop/Order.java", "package {{PACKAGE}};\nclass Order {}\n")
@@ -125,7 +136,7 @@ class Checks(CheckNewProjectTestCase):
         (self.root / "pom.xml").unlink()
         self.write("build.gradle", """
             plugins { id 'org.springframework.boot' version '3.5.7' }
-            dependencies { testImplementation 'com.enofex:taikai:2.1.0' }
+            dependencies { testImplementation 'com.tngtech.archunit:archunit:1.5.1' }
             """)
         self.assertFails("Spring Boot 3.5.7")
 

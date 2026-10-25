@@ -4,7 +4,7 @@
 
 Progen has no architecture option. Its layout is always package-by-module with Spring Modulith (`config/`, `shared/`, `users/`).
 
-Tested with progen v1.0.3 on 2026-10-21 (REST, Maven, PostgreSQL). Progen pins Spring Boot 4.1.1, Java 25 and Taikai 1.66.0.
+Tested with progen v1.0.3 on 2026-10-21 (REST, Maven, PostgreSQL). Progen pins Spring Boot 4.1.1 and Java 25. v1.0.4 (2026-10-24) changed `ArchUnitTests` and has not been tested here.
 
 ## When to use progen
 
@@ -50,6 +50,8 @@ Rules:
 
 ## Step 2: Generate
 
+`${CLAUDE_SKILL_DIR}` is the `creating-springboot-projects` folder. Codex doesn't set it, so there use that folder's path.
+
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
   --app-name shop --base-package com.acme.shop \
@@ -68,7 +70,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
 | `package-by-module` | Matches progen. Add feature packages next to `users/`. |
 | `modular-monolith` | Matches progen. Add `*API.java` and `internal/` per module. `ModularityTests.java` exists; do not add `assets/modularity-test.java` again. Copy only extra checks from it. |
 | `tomato` | Add `domain/vo/`, rich entities, and `rest/converters/` per module. Apply `assets/value-object.java`, `assets/rich-entity.java`, `assets/spring-converter.java`, `assets/service-cqrs.java`. |
-| `ddd-hexagonal` | Add `application/`, `domain/`, `infra/`, `interfaces/` per module. Change `ArchUnitTests.java` as shown below, because `*Handler` services fail the name rule. |
+| `ddd-hexagonal` | Add `application/`, `domain/`, `infra/`, `interfaces/` per module. On progen v1.0.3, change `ArchUnitTests.java` as shown below, because `*Handler` services fail the name rule. |
 | `layered` | Add `controller/`, `service/`, `repository/`, `domain/`. The tests pass, but Modulith treats each layer as a module, which adds no value. Keep `users/` as the one feature package, and tell the user. |
 
 ### Templates to skip (progen already has them)
@@ -82,36 +84,20 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/progen_config.py" \
 | `assets/modularity-test.java` | `ModularityTests.java` |
 | `assets/pom-additions.xml` | Add only entries the pom does not have: `jspecify`, `hypersistence-utils-*` (TSID IDs), `spring-modulith-starter-jpa` (event registry). |
 
-### Rules that progen's ArchUnit test enforces
+### progen's ArchUnit test
 
-`src/test/java/<base>/ArchUnitTests.java` uses Taikai. Code that breaks these rules fails the build:
+Keep `src/test/java/<base>/ArchUnitTests.java` as progen generates it. The harness (Step 6 of `SKILL.md`) adds `CodeRulesTests` next to it, with the runtime-trap rules progen doesn't have. Don't copy rules from one file into the other.
 
-- Controllers: names end with `Controller`, classes are package-private, no controller-to-controller calls.
-- `@Service` classes: names end with `Service`, no dependency on controllers.
-- `@Repository` classes: names end with `Repository`, no dependency on services.
-- `@Configuration` classes: names end with `Config`.
-- Loggers: `private static final Logger LOG`.
-- No `@Autowired` fields, no generic `throws Exception`, no deprecated APIs, no import cycles.
-- No `@Disabled` tests; test classes are package-private.
-- Naming: no `I` prefix on interfaces, no `List`/`Set`/`Map` suffix on fields, constants in upper case.
+What `ArchUnitTests` checks depends on the progen version:
 
-Add the rules marked `[beyond progen]` in `assets/architecture-rules-test.java` to this file: no self-invocation of proxied methods (with Framework 7's native `@Retryable` added), no `@Transactional` in controllers, no controller use of Spring Data repositories, no `System.out`, and the entity rules. Three changes are needed first (verified: `ArchUnitTests`, `ModularityTests` and `./mvnw verify` pass afterwards):
+- v1.0.3 uses Taikai: name suffixes (`Controller`, `Service`, `Repository`, `Config`), package-private controllers and test classes, the `LOG` logger convention, no generic `throws Exception`, no import cycles, and layer-direction and `@Disabled` rules.
+- v1.0.4 uses ArchUnit directly: no access from `domain` to `web` packages, package-private repositories and JPA entities, and `@Service` classes used only from their own module. Check that its `BASE_PACKAGE` constant is the project's base package. In the template it is a fixed `dev.sivalabs.feedbackhub`, which matches no other project.
 
-1. Set `<taikai.version>2.1.0</taikai.version>` in the pom. Taikai 1.66.0 has no `jpa()` rules, so the entity rules don't compile.
-2. Taikai 2 takes a predicate in `classesShouldBePackagePrivate`. Replace `classesShouldBePackagePrivate(".*Test(s)")` with `classesShouldBePackagePrivate(JavaClass.Predicates.simpleNameEndingWith("Tests"))` (import `com.tngtech.archunit.core.domain.JavaClass`).
-3. Make `users/UserEntity.java` package-private (`class UserEntity`). Nothing outside `users` uses it; the entity rule fails on it otherwise.
+Change a rule only when it conflicts with the chosen architecture:
 
-Changes needed for this skill's patterns:
-
-```java
-// DDD+Hexagonal: allow command handlers
-.services(services -> services
-        .shouldNotDependOnControllers()
-        .namesShouldMatch(".+(Service|Handler)"))
-// Spring Data custom repository fragments: allow *RepositoryImpl
-.repositories(repositories ->
-        repositories.shouldNotDependOnServices().namesShouldMatch(".+Repository(Impl)?"))
-```
+- `ddd-hexagonal` on v1.0.3: services may be command handlers, so replace `namesShouldEndWithService()` with `namesShouldMatch(".+(Service|Handler)")`.
+- Spring Data custom repository fragments on v1.0.3: replace `namesShouldEndWithRepository()` with `namesShouldMatch(".+Repository(Impl)?")`.
+- `layered` on v1.0.4: the module rule reads the first package under the base as the module, so each layer counts as one. Remove `services_must_not_be_used_from_other_modules`.
 
 ### Other differences
 

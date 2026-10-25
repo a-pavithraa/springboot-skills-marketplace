@@ -2,8 +2,9 @@
 """Install this marketplace's skills for Claude Code, Codex, or both. Safe to rerun.
 
 Usage:
-    python3 install.py                     Claude Code: the team set
-    python3 install.py --with pstack       ... plus optional plugins
+    python3 install.py                     Claude Code: the Spring Boot skills
+    python3 install.py --with extras       ... plus the pinned third-party skills
+    python3 install.py --with pstack       ... plus pstack (Claude Code only)
     python3 install.py --codex             Codex: copy the same skills into ~/.codex/skills
     python3 install.py --list              Show the plugins and what each one adds
 
@@ -21,10 +22,15 @@ import sys
 import tempfile
 from pathlib import Path
 
+if sys.version_info < (3, 10):
+    sys.exit(f"ERROR: install.py needs Python 3.10 or later, and this is {sys.version.split()[0]}.")
+
 HERE = Path(__file__).resolve().parent
 MARKETPLACE = "springboot-skills-marketplace"
 REPOSITORY = "a-pavithraa/springboot-skills-marketplace"
-TEAM_SET = ("springboot-architecture", "mattpocock-picks", "html-plan", "grill-page")
+DEFAULT_SET = ("springboot-architecture",)
+# "--with extras" adds these. pstack is left out because it is much larger and works only in Claude Code.
+EXTRAS = ("mattpocock-picks", "html-plan", "grill-page")
 # pstack's skills link to files outside their own folders, so they only work as a Claude Code plugin.
 CLAUDE_ONLY = ("pstack",)
 MARKER = ".installed-by-springboot-skills-marketplace"
@@ -141,8 +147,8 @@ def install_for_codex(names: list[str]) -> list[str]:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--with", dest="extra", default="", help="Comma-separated optional plugins to add, e.g. pstack")
-    parser.add_argument("--only", default="", help="Comma-separated plugins to install instead of the team set")
+    parser.add_argument("--with", dest="extra", default="", help="Comma-separated optional plugins to add: extras, pstack, or plugin names")
+    parser.add_argument("--only", default="", help="Comma-separated plugins to install instead of the default set")
     parser.add_argument("--codex", action="store_true", help="Copy the skills into Codex instead of Claude Code")
     parser.add_argument("--list", action="store_true", help="List the plugins and exit")
     parser.add_argument("--source", default=REPOSITORY,
@@ -152,10 +158,13 @@ def main():
     catalog = plugins()
     if args.list:
         for name, plugin in catalog.items():
-            print(f"{name}{' (team set)' if name in TEAM_SET else ''}\n    {plugin['description']}")
+            label = " (default)" if name in DEFAULT_SET else " (extras)" if name in EXTRAS else ""
+            print(f"{name}{label}\n    {plugin['description']}")
         return
-    names = [name for name in (args.only or ",".join(TEAM_SET)).split(",") if name]
-    names += [name for name in args.extra.split(",") if name and name not in names]
+    names = [name for name in (args.only or ",".join(DEFAULT_SET)).split(",") if name]
+    extra = [name for name in args.extra.split(",") if name]
+    extra = [expanded for name in extra for expanded in (EXTRAS if name == "extras" else (name,))]
+    names += [name for name in extra if name not in names]
     unknown = [name for name in names if name not in catalog]
     if unknown:
         sys.exit(f"ERROR: no plugin called {', '.join(unknown)}. See python3 install.py --list")

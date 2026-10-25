@@ -31,3 +31,18 @@ Both sessions also wrote tests for the endpoint and ran `./mvnw verify` before c
 - **A full-API test is the standard practice and does the same job.** It starts the whole app on a real port, signs in with a test user or token, runs in CI and stays in the repository.
 
 The script and skill are in commit `4b509bb` if a service turns up where checking on the running app catches what tests don't. For applications checked through their UI, browser tests (Playwright) fill this role.
+
+## Follow-up (2026-10-25): tests that sign in, instead of a running app
+
+For an app that logs users in with `oauth2Login` and a server-side session, a running-app check would need a stand-in identity provider, and still couldn't check the provider's own setup. Probes on Boot 4.1.1 found two reasons the tests had missed access bugs instead: a `RANDOM_PORT` test can't sign in at all (401), and `oidcLogin()` skips the app's authorities mapper (a `roles` claim gives `OIDC_USER` and `SCOPE_read`; admin routes answer 403). `writing-springboot-tests` now has `personas-oidc.java`, `personas-jwt.java` and `personas-db.java`, which sign a request in through the app's own role mapping (the same trap exists for `jwt()` and for `user(...).roles(...)`), and `route-access-test.java`, which calls every route as every persona and fails on a route nobody listed. On Boot 4.1.1, a broken role mapping failed it with each of the three, and so did a route nobody listed, an admin rule narrowed so a sibling route lost it, and a dropped `@PreAuthorize`. It checks roles only, not whose records a user may read.
+
+**Do agents write these tests unprompted?** Four sessions with no templates, given "Add tests for who may call the order endpoints" on the same app ($0.34 in total). All four signed in with `oidcLogin().authorities(ROLE_...)`, so none ran the mapper. Their tests, run against each planted gap:
+
+| Planted gap | Sonnet (2) | Haiku (2) |
+|---|---|---|
+| Admin rule narrowed, sibling route open | 2/2 caught | 2/2 caught |
+| `@PreAuthorize` dropped from `/api/audit` | 2/2 | 0/2 (didn't test that route) |
+| Mapper reads the wrong claim | 0/2 | 0/2 |
+| New route, nobody decided its access | 0/2 | 0/2 |
+
+Agents test the role rules on the routes they're asked about. The mapper and an unlisted route were missed every time: those are what the `personas-*.java` helpers and the route check in `route-access-test.java` add.

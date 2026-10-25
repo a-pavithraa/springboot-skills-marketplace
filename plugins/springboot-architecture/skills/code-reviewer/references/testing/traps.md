@@ -10,6 +10,12 @@ Each entry is a way a Spring Boot 4.1 test stays green while the behavior it nam
 - **WireMock changes the HTTP client.** `wiremock-spring-boot` puts Apache HttpClient 5 on the test classpath, and Boot then picks it over the JDK client. Apache's client retries a 503 POST once by itself, so a 503 → 200 retry test passes while `@Retryable` does nothing. Count the requests, and test with 500 too.
 - **Matching JSON numbers as strings.** The request carried `37.5`, so `matchingJsonPath("$.amount", equalTo("37.50"))` failed on correct code. `equalToJson` compares numbers as numbers.
 
+## Security
+
+- **Test logins skip the app's own role mapping.** `oidcLogin()` ignores the app's `GrantedAuthoritiesMapper` (a `roles` claim gives `OIDC_USER` and `SCOPE_read`), `jwt()` ignores its `JwtAuthenticationConverter` (it reads only `scope`), and `user(...).roles(...)` never calls its `UserDetailsService`. A test that sets `ROLE_ADMIN` directly then passes while the mapping is broken. In a trial, four agents asked to test access all did this, and none caught a mapper reading the wrong claim. Sign in through the app's own code (`../../../writing-springboot-tests/assets/personas-*.java`).
+- **A random-port test can't sign in through a browser login.** The request post-processors work only with MockMvc. With `oauth2Login` and a server-side session, a `RANDOM_PORT` test reaches only public routes; test the rest through `@AutoConfigureMockMvc`.
+- **A role rule checked on one route says nothing about its siblings or new routes.** Narrowing `/api/admin/**` to `/api/admin/orders` leaves `/api/admin/orders/{id}` open while the one admin test stays green, and a new route ships with whatever the default is. Calling every route as every persona, and failing on a route nobody listed, catches both (`../../../writing-springboot-tests/assets/route-access-test.java`). It checks roles only: one user reading another user's records needs a test with two users.
+
 ## Events and messaging
 
 - **Publish after commit can only be tested if something can fail after the event is raised.** If `publishEvent()` is the method's last line, publishing inside the transaction is harmless and the rollback test can't tell the difference. A `KafkaTemplate` mock in a context without transaction management can't tell either, and such tests often fail on correct code.

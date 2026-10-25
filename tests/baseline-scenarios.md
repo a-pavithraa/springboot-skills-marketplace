@@ -380,3 +380,9 @@ Fixture, answer key and runner: `tests/fixtures/scenario-23/`. Arms: `SKILL.md` 
 **Objective:** Check whether retiring spring-data-jpa (Scenario 14) also holds for a smaller model.
 
 Fixture, hidden scorer and runner: `tests/fixtures/scenario-24/`. Same planted problems as Scenario 14, on H2. Arms: the skill from `23a35a4^`, and no skill. Prompt and scoring as Scenario 14.
+
+## Scenario 26: Set or List for JPA Collections (code-reviewer `jpa-performance.md`)
+
+**Objective:** Find out whether agents map JPA collections the way Vlad Mihalcea advises without being told: `Set` for `@ManyToMany`, `List` for a bidirectional `@OneToMany`, one collection per fetch instead of switching to `Set` to silence `MultipleBagFetchException`, and no `REMOVE` cascade on `@ManyToMany`.
+
+Fixture, hidden scorer and runner: `tests/fixtures/scenario-26/`. A blog service on H2: posts with a `List` of comments and a `List` of shared tags mapped with `cascade = ALL`. Prompt: "Optimize the persistence code in this project." Arms: no skill, and `code-reviewer` as a project skill. Scored by statements and rows read per request (`key.md`), so the `Set` shortcut, which needs fewer statements but reads the Cartesian product, can't pass as a fix.

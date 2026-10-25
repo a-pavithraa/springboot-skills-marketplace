@@ -88,6 +88,20 @@ class GuardHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("store creation allowed", result.stderr)
 
+    def test_blocks_edits_to_existing_rule_tests_but_not_new_ones(self):
+        root = Path(tempfile.mkdtemp())
+        rules = root / "src/test/java/com/acme/CodeRulesTests.java"
+        result = self.guard({"tool_name": "Write", "tool_input": {"file_path": str(rules)}}, root)
+        self.assertEqual(result.returncode, 0)
+        rules.parent.mkdir(parents=True)
+        rules.write_text("class CodeRulesTests {}\n")
+        for name in ("CodeRulesTests", "BuildSetupTests", "ArchUnitTests"):
+            path = rules.with_name(f"{name}.java")
+            path.write_text("")
+            result = self.guard({"tool_name": "Edit", "tool_input": {"file_path": str(path)}}, root)
+            self.assertEqual(result.returncode, 2, name)
+            self.assertIn(f"{name}.java holds the team's build rules", result.stderr)
+
     def test_a_refusal_is_recorded_without_the_command(self):
         root = Path(tempfile.mkdtemp())
         git(root, "init", "-q")
@@ -255,6 +269,17 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         result = self.stop()
         self.assertEqual(result.returncode, 0)
         self.assertIn("pom.xml", json.loads(result.stdout)["systemMessage"])
+
+    def test_a_build_setup_failure_after_a_pom_change_is_the_sessions(self):
+        self.start_session()
+        (self.project / "pom.xml").write_text("<project><!-- flyway in test scope --></project>\n")
+        self.fail_with("[ERROR]   BuildSetupTests.bootDependenciesAreNotTestOnly:44\n"
+                       "Expecting empty but was: [\"pom.xml: spring-boot-starter-flyway is on the test classpath "
+                       "only, so the tests pass with it and the application runs without it\"]\n")
+        result = self.stop()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("spring-boot-starter-flyway is on the test classpath only", result.stderr)
+        self.assertEqual(self.events()[-1]["gates"], "build-setup")
 
     def test_formats_only_the_files_the_session_changed(self):
         self.start_session()

@@ -62,19 +62,18 @@ public class TSIDUtil {
 
 
 <!-- ============================================================ -->
-<!-- Taikai (ArchUnit rules) - architecture tests for every style -->
+<!-- ArchUnit - architecture tests for every style                -->
 <!-- ============================================================ -->
-<!-- Rules: assets/architecture-rules-test.java. Taikai 2.1.0 is built against Boot 4.1.1 and Spring 7.0.9, and
-     brings ArchUnit 1.5.1. progen projects already have it. Check Maven Central for a newer version:
-     https://central.sonatype.com/artifact/com.enofex/taikai -->
+<!-- The rules are the team harness's CodeRulesTests (Step 6 of SKILL.md). apply_harness.py adds this
+     dependency to Maven projects; add it by hand only for Gradle or the onion rule below. -->
 <dependency>
-    <groupId>com.enofex</groupId>
-    <artifactId>taikai</artifactId>
-    <version>2.1.0</version>
+    <groupId>com.tngtech.archunit</groupId>
+    <artifactId>archunit</artifactId>
+    <version>1.5.1</version>
     <scope>test</scope>
 </dependency>
 
-<!-- DDD+Hexagonal: add an onion rule with ArchUnit's core API (comes with Taikai). Usage:
+<!-- DDD+Hexagonal: add an onion rule with ArchUnit's core API. Usage:
 @ParameterizedTest
 @ValueSource(strings = {"products", "orders"})
 void shouldVerifyHexagonalArchitecture(String moduleName) {

@@ -15,6 +15,7 @@
 | 18 | code-reviewer | Test review of a real, well-kept suite |
 | 23 | code-reviewer | Scenario 17 on Haiku, with a no-skill arm |
 | 24 | spring-data-jpa (retired) | Scenario 14 on Haiku |
+| 26 | code-reviewer (`jpa-performance.md`) | `Set` or `List` for JPA collections, scored by statements and rows read |
 
 To add a scenario, write the task and how it's scored in `baseline-scenarios.md`, run it with and without the skill, and record both runs in `baseline-results/scenario-N.md`. Put the fixture, its answer key or scorer, and a `run.sh` in `fixtures/scenario-N/` so others can rerun it (see `fixtures/README.md`).
 

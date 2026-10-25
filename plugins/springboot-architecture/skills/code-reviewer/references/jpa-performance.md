@@ -48,7 +48,7 @@ List<Order> findWithCustomer(@Param("status") OrderStatus status);
 Gotchas:
 
 - **`JOIN FETCH` of a collection + `Pageable`:** Hibernate loads all rows and pages in memory. It logs "firstResult/maxResults specified with collection fetch; applying in memory". Set `hibernate.query.fail_on_pagination_over_collection_fetch=true` to fail instead. Fix: page the IDs first, then fetch the entities for those IDs, or use a DTO projection.
-- **Two `List` collections in one fetch** throws `MultipleBagFetchException`. Fetch one collection per query, use `Set`, or rely on batch fetching.
+- **Two `List` collections in one fetch** throws `MultipleBagFetchException`. Fetch one collection per query in the same transaction (the persistence context fills the second collection on the entities the first query loaded), or rely on batch fetching. Don't switch to `Set` to silence it: the join still returns every child row multiplied by every other, for example 50 parents × 20 × 10 = 10,000 rows.
 - **Lazy access outside a transaction** throws `LazyInitializationException`. Fetch in the query. Do not enable `open-in-view` to hide it.
 
 ## Projections and pagination

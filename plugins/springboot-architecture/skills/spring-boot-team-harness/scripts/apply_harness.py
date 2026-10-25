@@ -6,10 +6,10 @@ Usage:
 
 The pom gets NullAway (JSpecify mode, main code only; every class under the base package, or with --nullaway marked
 only @NullMarked packages) through Error Prone, Spotless with palantir-java-format,
-Spring Modulith's test starter, and ArchUnit. Three tests are added: ConfigurationKeysTests, CodeRulesTests and
-ModuleBoundariesTests. A GitHub Actions workflow that runs ./mvnw verify is added when no workflow runs mvnw.
-Claude Code hooks run the fast gates when a turn ends and block destructive git commands and edits to
-migrations already on main.
+Spring Modulith's test starter, and ArchUnit. Four tests are added: ConfigurationKeysTests, CodeRulesTests,
+BuildSetupTests and ModuleBoundariesTests. A GitHub Actions workflow that runs ./mvnw verify is added when no
+workflow runs mvnw. Claude Code hooks run the fast gates when a turn ends, and block destructive git commands, edits
+to migrations already on main, and edits to the rule tests.
 Files that already exist are left alone and reported, except CLAUDE.md, which gets an `@AGENTS.md` import as its
 first line, and the files the harness owns (hooks, tests, project skills, its workflow): .claude/harness.lock records
 what was written, and a rerun updates each one nobody has edited since. Running it twice changes nothing.
@@ -414,7 +414,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     test_dir = Path("src/test/java", *base_package.split("."))
     existing_boundary_test = next((path for path in (project / "src" / "test").rglob("*.java")
                                    if "ApplicationModules.of(" in path.read_text(encoding="utf-8", errors="replace")), None)
-    tests = ["ConfigurationKeysTests.java", "CodeRulesTests.java"]
+    tests = ["ConfigurationKeysTests.java", "CodeRulesTests.java", "BuildSetupTests.java"]
     if modules and existing_boundary_test:
         changes.keep(existing_boundary_test.relative_to(project).as_posix(), "already verifies module boundaries")
     elif modules:
@@ -483,6 +483,9 @@ def main():
     for line in apply(Path(args.project).resolve(), args.base_package, args.dry_run, not args.no_modules,
                       args.nullaway):
         print(line)
+    if not (Path(args.project) / "mvnw").exists():
+        print("\nWARNING: no Maven wrapper here, and AGENTS.md, the Stop hook and CI all call ./mvnw. Add it with: "
+              "mvn wrapper:wrapper")
     if not args.dry_run:
         print("\nNext: ./mvnw spotless:apply, then ./mvnw verify, and fix what NullAway reports.")
 

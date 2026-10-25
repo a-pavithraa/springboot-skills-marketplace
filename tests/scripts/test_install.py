@@ -122,8 +122,8 @@ class MarketplaceTests(unittest.TestCase):
             if isinstance(plugin["source"], dict):
                 self.assertRegex(plugin["source"].get("sha", ""), r"^[0-9a-f]{40}$", name)
 
-    def test_the_team_set_exists_in_the_marketplace(self):
-        self.assertLessEqual(set(install.TEAM_SET), set(install.plugins()))
+    def test_the_default_set_and_extras_exist_in_the_marketplace(self):
+        self.assertLessEqual(set(install.DEFAULT_SET + install.EXTRAS), set(install.plugins()))
 
 
 if __name__ == "__main__":

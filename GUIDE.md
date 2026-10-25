@@ -7,11 +7,11 @@ One page for developers: how to install the skills, what each one does, and what
 ```bash
 git clone https://github.com/a-pavithraa/springboot-skills-marketplace.git
 cd springboot-skills-marketplace
-python3 install.py            # Claude Code
-python3 install.py --codex    # Codex, if you use it
+python3 install.py --with extras            # Claude Code
+python3 install.py --with extras --codex    # Codex, if you use it
 ```
 
-Then restart Claude Code. The script installs the plugins at user scope, so they work in every project, and turns on auto-update for this marketplace. When the marketplace moves to a newer version of a skill, you get it without doing anything. Run `python3 install.py --list` to see every plugin, and `--with pstack` to add the optional one.
+Then restart Claude Code. The script installs the plugins at user scope, so they work in every project, and turns on auto-update for this marketplace. When the marketplace moves to a newer version of a skill, you get it without doing anything. Without `--with extras` you get only the Spring Boot skills, and the grilling, planning, TDD and debugging rows below won't work. Run `python3 install.py --list` to see every plugin, and add `--with extras,pstack` for pstack.
 
 A repository that has the team harness enables `springboot-architecture` in its `.claude/settings.json`, so a teammate who skipped this step still gets the Spring Boot skills there once they trust the folder. The other plugins need this script.
 
@@ -27,6 +27,7 @@ A repository that has the team harness enables `springboot-architecture` in its 
 | Upgrade to Spring Boot 4 and Java 25 | "migrate this project to Boot 4" | `springboot-migration` |
 | Build test-first | "do this with TDD" | `tdd` |
 | Write or fix Spring Boot tests | "add tests for the payment client" | `writing-springboot-tests` |
+| Check who may call each route | "add tests for who may call the order endpoints" | `writing-springboot-tests` |
 | Find the cause of a bug | "debug this", "this test fails" | `diagnosing-bugs` |
 | Review a change before the PR | "review this branch" | `code-reviewer` |
 | Write the PR description | "write the PR" | `pr` |
@@ -37,7 +38,9 @@ A repository that has the team harness enables `springboot-architecture` in its 
 
 For tests in a Spring Boot service, name `writing-springboot-tests`, even when you work test-first with `tdd`. `tdd` also starts on "integration tests", but it doesn't have the Boot 4 wiring or the WireMock and Testcontainers templates.
 
-In Codex, call a skill by name: `using $tdd add the discount rule`.
+Access tests sign in as a named user through your app's own role mapping, so they fail when that mapping breaks. They also fail when a route has no access decision. To use them, expose the role mapper, the `JwtAuthenticationConverter` or the `UserDetailsService` as a bean.
+
+Codex also picks skills by their description, but that hasn't been trialled here. To make sure a skill loads, name it: `$tdd add the discount rule`.
 
 ## A feature, end to end
 
