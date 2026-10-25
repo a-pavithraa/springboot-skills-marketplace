@@ -364,3 +364,19 @@ record, a service and the repository query. Don't write tests or run the build.
 ### Scored
 
 Pruning: comment lines before and after, code lines changed (must be 0), and whether field contracts and stated reasons survive. Feature: comment and code lines the session added, new files included.
+
+---
+
+## Scenario 23: Seeded PR Review on Haiku (code-reviewer)
+
+**Objective:** Repeat Scenario 17 on Haiku, and add a run without the skill so the kept Boot 4 content is tested too.
+
+Fixture, answer key and runner: `tests/fixtures/scenario-23/`. Arms: `SKILL.md` from `0be0bbb`, the current `SKILL.md`, and no skill. Prompt and scoring as Scenario 17.
+
+---
+
+## Scenario 24: Persistence Fixes on Haiku (spring-data-jpa, retired)
+
+**Objective:** Check whether retiring spring-data-jpa (Scenario 14) also holds for a smaller model.
+
+Fixture, hidden scorer and runner: `tests/fixtures/scenario-24/`. Same planted problems as Scenario 14, on H2. Arms: the skill from `23a35a4^`, and no skill. Prompt and scoring as Scenario 14.

@@ -54,6 +54,8 @@ Gotchas:
 ## Projections and pagination
 
 - Never return `findAll()` for tables that grow. Use `Pageable` (`PageRequest.of(0, 20, Sort.by("createdAt").descending())`).
+- A list behind a paged screen takes `Pageable` even if that changes the response shape. Say so in the change summary rather than leaving the list unbounded (Haiku left it unbounded without this, `tests/baseline-results/scenario-24.md`).
+- For a change to every row (repricing, status updates), use one bulk `UPDATE` rather than loading the rows in batches, unless each row needs entity logic or lifecycle callbacks.
 - `Page` runs an extra count query. Use `Slice` when the UI does not need a total.
 - For lists and API responses, select only the needed columns with a DTO projection (`SELECT new com.example.OrderSummary(o.id, c.name, o.total) ...`) or an interface projection. See `dto-projections.md`.
 
