@@ -97,7 +97,7 @@ public class {{NAME}}Service {
 // @EnableResilientMethods  // Required for @Retryable and @ConcurrencyLimit.
 //                           // If an annotated class implements an interface, use proxyTargetClass = true:
 //                           // the default JDK proxy never retries there (Framework 7.0.9). Calls from inside
-//                           // the same class skip the proxy too; architecture-rules-test.java checks for them.
+//                           // the same class skip the proxy too; the harness's CodeRulesTests checks for them.
 // public class {{NAME}}Application {
 // }
 

@@ -6,6 +6,7 @@ Each folder holds what a scenario needs to be rerun by anyone: the fixture, its 
 |---|---|---|---|
 | `scenario-23/` | Seeded PR review (code-reviewer) | git, Claude Code | Reading `review.md` against `key.md` |
 | `scenario-24/` | Persistence fixes (retired spring-data-jpa) | git, Claude Code, JDK 21+, Maven, Maven Central | `score.sh` (statement counts on H2) |
+| `scenario-26/` | Set or List for JPA collections (code-reviewer) | git, Claude Code, JDK 21+, Maven, Maven Central | `score.sh` (statements and rows read on H2) |
 
 ```bash
 # code-reviewer: old SKILL.md, trimmed SKILL.md, no skill
@@ -16,6 +17,10 @@ tests/fixtures/scenario-23/run.sh haiku none    /tmp/s23/none
 # spring-data-jpa: retired skill vs none
 tests/fixtures/scenario-24/run.sh haiku 23a35a4^ /tmp/s24/skill
 tests/fixtures/scenario-24/run.sh haiku none     /tmp/s24/none
+
+# JPA collections: code-reviewer from this working tree vs none
+tests/fixtures/scenario-26/run.sh sonnet current /tmp/s26/skill
+tests/fixtures/scenario-26/run.sh sonnet none    /tmp/s26/none
 ```
 
 Keep `key.md` and `scorer/` away from the session: `run.sh` copies only the fixture into the work folder.

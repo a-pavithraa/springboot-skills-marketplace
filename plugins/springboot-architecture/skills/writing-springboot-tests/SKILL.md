@@ -1,6 +1,6 @@
 ---
 name: writing-springboot-tests
-description: Use when writing or adding tests for Spring Boot code at a service's edges: HTTP clients that call other services (WireMock: 4xx and 5xx responses, timeouts, retries), Kafka or RabbitMQ listeners (redelivery, poison messages, dead-letter topics), events published to other services, or full-API tests against real databases with Testcontainers; also when a Boot 4 test needs the right imports, slices or container wiring. Supplies verified Boot 4.1 templates and the framework traps that make such tests pass without proving anything. Not for reviewing existing tests (see code-reviewer) or Boot 3 to 4 test migration (see springboot-migration).
+description: "Use when writing or adding tests for Spring Boot code at a service's edges: HTTP clients that call other services (WireMock: 4xx and 5xx responses, timeouts, retries), Kafka or RabbitMQ listeners (redelivery, poison messages, dead-letter topics), events published to other services, or full-API tests against real databases with Testcontainers; also when a Boot 4 test needs the right imports, slices or container wiring. Supplies verified Boot 4.1 templates and the framework traps that make such tests pass without proving anything. Not for reviewing existing tests (see code-reviewer) or Boot 3 to 4 test migration (see springboot-migration)."
 ---
 
 # Writing Spring Boot Tests
@@ -29,8 +29,22 @@ Verified on Spring Boot 4.1.1 with Postgres 18, Kafka 4.1 and WireMock 3.13. Tak
 | Message listener: state change, redelivery, poison and non-JSON messages | `assets/message-listener-test.java` |
 | Event other services consume: after commit, never on rollback | `assets/event-publication-test.java` |
 | The whole service over HTTP, other services stubbed | `assets/api-integration-test.java` |
+| Secured routes: signing in as a named user through the app's own role mapping (session OIDC login, JWT bearer, or database users); who may call each route | `assets/personas-oidc.java`, `assets/personas-jwt.java` or `assets/personas-db.java`; `assets/route-access-test.java` |
 | Web slice, persistence slice, service unit test | `assets/webmvc-slice-test.java`, `assets/repository-slice-test.java`, `assets/service-unit-test.java` |
 | Shared containers; PIT | `assets/testcontainers-configuration.java`, `assets/pitest-plugin.xml` |
+
+## Secured routes
+
+Spring's test logins skip the app's own role mapping. `oidcLogin().authorities(...)`, `jwt().authorities(...)` and `user(...).roles(...)` hand the test a finished role. A test that signs in this way passes even when the code that turns the provider's claims, or the stored user, into roles is broken. Sign in through a persona instead, so that code runs:
+
+```java
+.with(oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))  // the role mapping never runs
+.with(personas.as("admin"))                                                // the app's mapping produces the role
+```
+
+Copy the helper that matches how the app signs users in: `personas-oidc.java` for an OIDC login kept in a server-side session, `personas-jwt.java` for JWT bearer tokens, or `personas-db.java` for users loaded by a `UserDetailsService`. A persona is the claims the provider sends, or the username of a seeded user. The helper needs the app's mapper, `JwtAuthenticationConverter` or `UserDetailsService` as a bean.
+
+`route-access-test.java` lists who may call each route. It calls every route as every persona and with no login, and it fails when a route is missing from the list. It checks roles, not records. Whether one user can read another user's data needs a test with two users. A request on a random port can't sign in through a persona, so test secured routes through `@AutoConfigureMockMvc`.
 
 ## Report
 

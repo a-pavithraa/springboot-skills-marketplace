@@ -1,6 +1,6 @@
 ---
 name: creating-springboot-projects
-description: Use when starting a new Spring Boot project or service: scaffolding or bootstrapping a backend, REST API, microservice or modular monolith; choosing how to structure it (layered, package-by-module, modular monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; generating the base project with progen or Spring Initializr; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context.
+description: "Use when starting a new Spring Boot project or service: scaffolding or bootstrapping a backend, REST API, microservice or modular monolith; choosing how to structure it (layered, package-by-module, modular monolith, tomato, DDD-hexagonal); selecting Spring Boot 4 features; generating the base project with progen or Spring Initializr; or applying the bundled templates and references in this skill. Not for migrating existing projects or for isolated JPA/repository work without broader project-creation context."
 ---
 
 # Creating Spring Boot Projects
@@ -71,7 +71,7 @@ Baseline dependencies for most projects:
 Optional dependencies based on architecture or features:
 
 - Spring Modulith for modular monolith or tomato designs
-- Taikai architecture rules (`assets/architecture-rules-test.java`) for every project; progen projects already have most of them
+- ArchUnit rules (`CodeRulesTests`, Step 6) for every project
 - Additional Spring Boot 4 features only when the use case needs them
 
 Read `references/spring-boot-4-features.md` before selecting:
@@ -124,7 +124,6 @@ Boot 4 and modularity templates:
 - `assets/resttestclient-test.java`
 - `assets/package-info-jspecify.java`
 - `assets/modularity-test.java`
-- `assets/architecture-rules-test.java`: Taikai rules that fail the build (naming, injection, self-invoked proxied methods, controllers using repositories, `@Disabled` tests). Adjust per style as its header says
 - `assets/resilience-service.java`
 - `assets/pom-additions.xml`
 - `assets/testcontainers-test.java`
@@ -139,27 +138,31 @@ Read `references/architecture-guide.md` for package structure and apply the matc
 - `tomato`: add value objects and rich domain entities where they protect important invariants
 - `ddd-hexagonal`: separate application, domain, and infrastructure explicitly
 
-### Step 6: Add the architecture test
+### Step 6: Add the build rules
 
-Every project gets `assets/architecture-rules-test.java` as `src/test/java/<package>/ArchitectureRulesTest.java`, with the Taikai test dependency from `assets/pom-additions.xml`. Adjust it for the chosen style as its header says. For a progen project, add only the `[beyond progen]` rules to the generated `ArchUnitTests.java`, after the three changes in `references/progen-integration.md`. Run it and confirm it passes before you hand the project over: these rules keep holding after the session ends.
-
-Then check the project, and fix every `FAIL` before you hand it over:
-
-```bash
-python3 "${CLAUDE_SKILL_DIR}/scripts/check_new_project.py" /path/to/project
-```
-
-It fails on unresolved `{{PLACEHOLDER}}` tokens, a Spring Boot version before 4.x, a missing Taikai test or dependency, and Boot 3 starter or Testcontainers 1 names. It warns on an older 4.x line and on H2. Then run the build (`./mvnw verify` or `./gradlew build`).
-
-### Step 7: Apply the team harness (Maven)
-
-Give the project the shared agent setup from the `spring-boot-team-harness` skill: `AGENTS.md`, `.claude/settings.json` with its hooks, project skills, the `./mvnw verify` gates, and a CI workflow. Pass `--no-modules` for `layered` and `ddd-hexagonal`, whose subpackages are layers that the Taikai rules already govern:
+Maven projects get the shared agent setup from the `spring-boot-team-harness` skill: `AGENTS.md`, `.claude/settings.json` with its hooks, project skills, the `./mvnw verify` gates, and a CI workflow. Its `CodeRulesTests` is the project's architecture test: ArchUnit rules for proxied methods called from their own class, controllers that start transactions, use repositories or expose entities, `@Retryable` that nothing switches on, `@Autowired` fields, `System.out`, Jackson 2 and disabled tests. `BuildSetupTests` checks the pom and properties. Pass `--no-modules` for `layered` and `ddd-hexagonal`, whose subpackages are layers, not modules:
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/../spring-boot-team-harness/scripts/apply_harness.py" /path/to/project [--no-modules]
 ```
 
-On a progen project, it keeps what progen already set up (Spotless, Spring Modulith, `ModularityTests`, `AGENTS.md`) and adds only what's missing. Then run `./mvnw spotless:apply` and `./mvnw verify`. Expect NullAway to flag progen methods that return `null` without `@Nullable`: annotate them and handle the null at the callers. Then draft the `Modules`, `Run and test` and `Team conventions` sections of `AGENTS.md` from the code, as the harness skill's step 4 describes, and go through them with the user.
+`${CLAUDE_SKILL_DIR}` is this skill's folder. Codex doesn't set it, so there use the folder this `SKILL.md` is in.
+
+On a progen project, it keeps what progen already set up (Spotless, Spring Modulith, `ModularityTests`, `ArchUnitTests`, `AGENTS.md`) and adds only what's missing. See `references/progen-integration.md` for the `ArchUnitTests` rules that conflict with some architectures. Then run `./mvnw spotless:apply` and `./mvnw verify`. Expect NullAway to flag progen methods that return `null` without `@Nullable`: annotate them and handle the null at the callers. Then draft the `Modules`, `Run and test` and `Team conventions` sections of `AGENTS.md` from the code, as the harness skill's step 4 describes, and go through them with the user.
+
+The harness supports Maven only. For a Gradle project, copy `../spring-boot-team-harness/assets/tests/CodeRulesTests.java` to `src/test/java/<package>/CodeRulesTests.java`, replace `{{TEST_PACKAGE}}` and `{{BASE_PACKAGE}}` with the base package, and add `testImplementation 'com.tngtech.archunit:archunit:1.5.1'`.
+
+For `ddd-hexagonal`, also add the `onionArchitecture()` test from `assets/pom-additions.xml`.
+
+### Step 7: Check the project
+
+Fix every `FAIL` before you hand the project over:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/check_new_project.py" /path/to/project
+```
+
+It fails on unresolved `{{PLACEHOLDER}}` tokens, a Spring Boot version before 4.x, a missing ArchUnit test or dependency, and Boot 3 starter or Testcontainers 1 names. It warns on an older 4.x line and on H2. Then run the build (`./mvnw verify` or `./gradlew build`).
 
 ### Step 8: Hand off specialized concerns when needed
 
@@ -176,7 +179,7 @@ On a progen project, it keeps what progen already set up (Spotless, Spring Modul
 ## Available script
 
 - `scripts/progen_config.py`: builds and validates `.progen.json`, and runs progen with `--run`.
-- `scripts/check_new_project.py`: checks the finished project against this skill (Step 6). Exit 1 means at least one failure.
+- `scripts/check_new_project.py`: checks the finished project against this skill (Step 7). Exit 1 means at least one failure.
 
 ## Output format
 

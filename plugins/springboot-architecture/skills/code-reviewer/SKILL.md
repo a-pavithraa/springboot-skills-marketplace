@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: Use when asked to review, check or diagnose Spring Boot code: a pull request, diff, module or file before it merges; a slow endpoint or query (N+1, unbounded reads, JPA and Hibernate performance); security, JSpecify null-safety, architecture boundaries or Boot 4 migration risks in existing code; or whether the tests would catch real bugs, proving each finding by running it. Not for Kotlin-only code, non-Spring frameworks, or generic review advice without code context.
+description: "Use when asked to review, check or diagnose Spring Boot code: a pull request, diff, module or file before it merges; a slow endpoint or query (N+1, unbounded reads, JPA and Hibernate performance); security, JSpecify null-safety, architecture boundaries or Boot 4 migration risks in existing code; or whether the tests would catch real bugs, proving each finding by running it. Not for Kotlin-only code, non-Spring frameworks, or generic review advice without code context."
 ---
 
 # Spring Boot 4 Reviewer (Java 17+)

@@ -7,7 +7,7 @@ so the result doesn't depend on what the agent remembered to do:
 
 - no unresolved {{PLACEHOLDER}} from the templates in assets/
 - Spring Boot on the current 4.x line
-- the Taikai architecture test (Step 6) and its test dependency
+- an ArchUnit architecture test (Step 6) and its test dependency
 - no in-memory H2 in place of Testcontainers
 - Boot 4 starter and Testcontainers 2 names, via the springboot-migration
   scanner when it is installed next to this skill
@@ -111,14 +111,16 @@ def check_boot_version(build_text: str, report: Report):
 
 
 def check_architecture_test(root: Path, build_text: str, report: Report):
-    has_dependency = "com.enofex" in build_text and "taikai" in build_text
+    # Taikai brings ArchUnit, so a progen project that still uses it counts.
+    has_dependency = re.search(r"com\.tngtech\.archunit|com\.enofex", build_text) is not None
     tests = [p for p in project_files(root / "src" / "test", "*.java")
-             if "com.enofex.taikai" in read(p)] if (root / "src" / "test").is_dir() else []
+             if re.search(r"com\.tngtech\.archunit|com\.enofex\.taikai", read(p))] \
+        if (root / "src" / "test").is_dir() else []
     if not tests:
-        report.fail("No Taikai architecture test in src/test. Add assets/architecture-rules-test.java "
-                    "(Step 6 of SKILL.md).")
+        report.fail("No ArchUnit architecture test in src/test. Apply the team harness, or copy its "
+                    "CodeRulesTests.java for Gradle (Step 6 of SKILL.md).")
     elif not has_dependency:
-        report.fail("A Taikai test exists, but the build file has no com.enofex:taikai test dependency.")
+        report.fail("An ArchUnit test exists, but the build file has no com.tngtech.archunit test dependency.")
     else:
         print(f"OK   architecture test: {', '.join(p.relative_to(root).as_posix() for p in tests)}")
 

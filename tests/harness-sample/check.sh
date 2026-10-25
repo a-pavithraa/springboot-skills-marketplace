@@ -57,7 +57,7 @@ else
   expect_failure "NullAway all: null return in a package without @NullMarked" '\[NullAway\]' compile
 fi
 
-sed -i 's|return catalog|System.out.println(sku);\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
+perl -pi -e 's|return catalog|System.out.println(sku);\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "CodeRulesTests: System.out" 'CodeRulesTests' test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false
 
 echo "spring.aplication.name=typo" >> src/main/resources/application.properties
@@ -66,12 +66,12 @@ expect_failure "ConfigurationKeysTests: unknown key" 'spring\.aplication\.name' 
 mkdir -p src/main/java/com/acme/shop/catalog/internal
 printf 'package com.acme.shop.catalog.internal;\n\npublic class Discounts {\n    public static int percent() {\n        return 5;\n    }\n}\n' \
   > src/main/java/com/acme/shop/catalog/internal/Discounts.java
-sed -i 's|return catalog|int unused = com.acme.shop.catalog.internal.Discounts.percent();\n        return catalog|' \
+perl -pi -e 's|return catalog|int unused = com.acme.shop.catalog.internal.Discounts.percent();\n        return catalog|' \
   src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "ModuleBoundariesTests: use of another module's internal package" 'ModuleBoundariesTests|Violations' \
   test -Dtest=ModuleBoundariesTests -Dsurefire.failIfNoSpecifiedTests=false
 
-sed -i 's|    private final Catalog catalog;|  private final Catalog catalog;|' src/main/java/com/acme/shop/orders/Orders.java
+perl -pi -e 's|    private final Catalog catalog;|  private final Catalog catalog;|' src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "Spotless: unformatted code" 'spotless' verify -DskipTests
 
 echo

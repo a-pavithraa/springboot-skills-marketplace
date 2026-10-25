@@ -22,7 +22,7 @@ cd "${CLAUDE_PROJECT_DIR:-.}/${1:-.}" || exit 0
 input=$(cat)
 git rev-parse --git-dir > /dev/null 2>&1 || exit 0
 
-FAST_TESTS="CodeRulesTests,ConfigurationKeysTests,ModuleBoundariesTests,ModularityTests,ArchUnitTests,ArchitectureRulesTest"
+FAST_TESTS="CodeRulesTests,ConfigurationKeysTests,BuildSetupTests,ModuleBoundariesTests,ModularityTests,ArchUnitTests,ArchitectureRulesTest"
 STAMPS="$(git rev-parse --git-dir)/harness"
 mkdir -p "$STAMPS"
 session=$(printf '%s' "$input" | grep -o '"session_id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
@@ -49,6 +49,7 @@ gates() {
     printf '%s\n' "$text" | grep -q '\[NullAway\]' && echo nullaway
     printf '%s\n' "$text" | grep -qE 'was violated|^(Method|Field|Class|Constructor) <|CodeRulesTests' && echo rules
     printf '%s\n' "$text" | grep -qE 'is defined by no dependency|is deprecated|ConfigurationKeysTests' && echo config-keys
+    printf '%s\n' "$text" | grep -qE 'pom\.xml: |lets Hibernate change the schema|writes Flyway|BuildSetupTests' && echo build-setup
     printf '%s\n' "$text" | grep -qE 'ModuleBoundariesTests|ModularityTests|Modulith' && echo modules
     printf '%s\n' "$text" | grep -v '\[NullAway\]' | grep -qE '\[ERROR\] .*\.java:\[[0-9]+' && echo compile
   } | paste -sd, -
@@ -90,7 +91,7 @@ if printf '%s' "$input" | grep -q '"stop_hook_active" *: *true' && [ -f "$FAILED
 fi
 
 errors() {
-  grep -E '\[ERROR\]|was violated|^(Method|Field|Class|Constructor) <|is defined by no dependency|is deprecated' \
+  grep -E '\[ERROR\]|was violated|^(Method|Field|Class|Constructor) <|is defined by no dependency|is deprecated|pom\.xml: |lets Hibernate change the schema|writes Flyway' \
     | grep -vE 'Re-run Maven|-> \[Help|To see the full stack trace|^\[ERROR\] *$|^\[ERROR\] +[A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*:[0-9]+ ' \
     | awk '!seen[$0]++'
 }
@@ -108,11 +109,15 @@ changed=$(diff <(cat "$SESSION") <(printf '%s\n' "$current") | sed -n 's/^[<>] [
 count=$(printf '%s\n' "$changed" | grep -c . || true)
 
 # Spotless matches these regexes against absolute paths: only the session's Java files get formatted.
-to_format=$(printf '%s\n' "$changed" | while IFS= read -r file; do
-  case "$file" in
-    *.java) [ -f "$file" ] && printf '.*%s\n' "$(printf '%s' "$file" | sed 's/[.^$*+?()[{|\\]/\\&/g; s#/#[\\\\/]#g')" ;;
-  esac
-done | paste -sd, -)
+# The case loops live in functions because Bash 3.2, the macOS default, can't parse case inside $( ).
+format_patterns() {
+  while IFS= read -r file; do
+    case "$file" in
+      *.java) [ -f "$file" ] && printf '.*%s\n' "$(printf '%s' "$file" | sed 's/[.^$*+?()[{|\\]/\\&/g; s#/#[\\\\/]#g')" ;;
+    esac
+  done
+}
+to_format=$(printf '%s\n' "$changed" | format_patterns | paste -sd, -)
 if [ -n "$to_format" ]; then
   output=$(./mvnw -q -B spotless:apply -DspotlessFiles="$to_format" 2>&1) \
     || block "Formatting with ./mvnw spotless:apply failed. Fix the cause, then finish:" "$(printf '%s\n' "$output" | errors)" \
@@ -127,16 +132,19 @@ if output=$(./mvnw -q -B test -Dtest="$FAST_TESTS" -Dsurefire.failIfNoSpecifiedT
 fi
 
 # How a diagnostic names a file: compiler errors by path, ArchUnit by class name, other checks by file name.
-owned=$(printf '%s\n' "$changed" | while IFS= read -r file; do
-  case "$file" in
-    src/main/java/*.java | src/test/java/*.java)
-      class=$(printf '%s' "$file" | sed -E 's#^src/(main|test)/java/##; s#\.java$##; s#/#.#g')
-      printf '%s\n<%s.\n<%s>\n<%s$\n' "$file" "$class" "$class" "$class" ;;
-    *.java) printf '%s\n' "$file" ;;
-    pom.xml) ;;
-    *) printf '%s:\n' "${file##*/}" ;;
-  esac
-done)
+names() {
+  while IFS= read -r file; do
+    case "$file" in
+      src/main/java/*.java | src/test/java/*.java)
+        class=$(printf '%s' "$file" | sed -E 's#^src/(main|test)/java/##; s#\.java$##; s#/#.#g')
+        printf '%s\n<%s.\n<%s>\n<%s$\n' "$file" "$class" "$class" "$class" ;;
+      *.java) printf '%s\n' "$file" ;;
+      pom.xml) printf 'pom.xml: \n' ;;
+      *) printf '%s:\n' "${file##*/}" ;;
+    esac
+  done
+}
+owned=$(printf '%s\n' "$changed" | names)
 found=$(printf '%s\n' "$output" | errors)
 mine=$( [ -n "$owned" ] && printf '%s\n' "$found" | grep -F -f <(printf '%s\n' "$owned") || true)
 if [ -n "$mine" ]; then
