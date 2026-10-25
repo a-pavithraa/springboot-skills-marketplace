@@ -2,7 +2,7 @@
 
 ## Skills
 
-Load the matching skill before you start (the Skill tool in Claude Code, `$name` in Codex):
+When a request matches one of these, read the code it touches, then load its skill and follow it (the Skill tool in Claude Code, `$name` in Codex):
 
 - A new project or service: `creating-springboot-projects`
 - Upgrading Spring Boot or Java: `springboot-migration`

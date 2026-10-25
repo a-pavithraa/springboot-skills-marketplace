@@ -40,6 +40,8 @@ Haiku still missed after run 2: the slow-endpoint and test-review prompts (`code
 
 **No false triggers.** No near miss loaded a skill in any run, including with the `AGENTS.md` section.
 
+**Run 4 reworded the section.** Vercel found that telling agents to invoke a skill first made them anchor on it and miss project context, and that "explore the project first, then invoke the skill" worked better ([AGENTS.md outperforms skills in our agent evals](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals)). The section's lead changed from "Load the matching skill before you start" to "When a request matches one of these, read the code it touches, then load its skill and follow it". On Haiku it still loaded the right skill on 10/10 earlier misses, with 0/5 false triggers ($0.15).
+
 **Changes made:** all five descriptions rewritten as above (each under 650 characters, with their "Not for … (see …)" hand-offs kept), and a "Skills" section added to the harness's `AGENTS.md` template.
 
 **Caveats:** one run per prompt and model. Runs 2 and 3 reran only the earlier misses and the near misses, so prompts that passed in run 1 were not rerun with the new descriptions. Run 3 ran on Haiku only, and its `AGENTS.md` line for the harness was worded for setting it up ("Shared agent rules, AGENTS.md or build checks") rather than the template's line for a project that already has it.
@@ -48,4 +50,4 @@ Haiku still missed after run 2: the slow-endpoint and test-review prompts (`code
 
 ## Environment
 
-Linux cloud workspace, Claude Code 2.1.310. Total cost about $4.20 for 77 sessions. Raw results: `tests/fixtures/triggering/results/`.
+Linux cloud workspace, Claude Code 2.1.310. Total cost about $4.35 for 92 sessions. Raw results: `tests/fixtures/triggering/results/`.
