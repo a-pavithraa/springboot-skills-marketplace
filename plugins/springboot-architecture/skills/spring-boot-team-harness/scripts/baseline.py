@@ -9,7 +9,7 @@ already fails:
 
 - NullAway: each class that fails today gets @NullUnmarked, so NullAway skips it while new and clean code is checked.
   The opt-out is visible in the code; remove it from a class once that class is fixed.
-- ArchUnit: CodeRulesTests runs once and records today's violations in src/test/resources/archunit_store. New
+- ArchUnit: CodeRulesTests and UnusedCodeTests run once and record today's violations in src/test/resources/archunit_store. New
   violations fail; fixed ones drop out of the record. Only this script creates the record: without it, every violation
   fails, so a fresh checkout or CI never records violations by itself.
 """
@@ -94,10 +94,10 @@ def main():
     if code != 0:
         sys.exit("ERROR: the project still doesn't compile, for reasons other than NullAway:\n" + output[-3000:])
 
-    code, output = maven(project, "test", "-Dtest=CodeRulesTests",
+    code, output = maven(project, "test", "-Dtest=CodeRulesTests,UnusedCodeTests",
                          "-Darchunit.freeze.store.default.allowStoreCreation=true", "-Dsurefire.failIfNoSpecifiedTests=false")
     if code != 0:
-        sys.exit("ERROR: CodeRulesTests failed while recording today's violations:\n" + output[-3000:])
+        sys.exit("ERROR: the ArchUnit rule tests failed while recording today's violations:\n" + output[-3000:])
     print("ArchUnit: recorded today's violations in src/test/resources/archunit_store")
     maven(project, "spotless:apply")
     print("\nNext: ./mvnw verify, then commit the marked classes and archunit_store.")
