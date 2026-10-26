@@ -60,6 +60,73 @@ fi
 perl -pi -e 's|return catalog|System.out.println(sku);\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "CodeRulesTests: System.out" 'CodeRulesTests' test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false
 
+# One build with a mistake for each of the remaining code rules; every rule's test must fail.
+perl -0pi -e 's|(<dependencies>)|$1\n    <dependency><groupId>org.springframework</groupId><artifactId>spring-web</artifactId></dependency>\n    <dependency><groupId>org.springframework</groupId><artifactId>spring-tx</artifactId></dependency>\n    <dependency><groupId>jakarta.persistence</groupId><artifactId>jakarta.persistence-api</artifactId></dependency>|' pom.xml
+cat > src/main/java/com/acme/shop/orders/Shipping.java <<'JAVA'
+package com.acme.shop.orders;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class Shipping {
+    private final RestClient carrier = RestClient.create();
+
+    @Transactional
+    public void book() {
+        carrier.post().uri("/bookings").retrieve().toBodilessEntity();
+    }
+
+    @Transactional
+    private void cancel() {}
+
+    @Scheduled(fixedDelay = 60000)
+    public void poll() {}
+
+    @Deprecated
+    public void bookOld() {}
+
+    public void refuse() {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    }
+}
+JAVA
+cat > src/main/java/com/acme/shop/orders/Parcel.java <<'JAVA'
+package com.acme.shop.orders;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
+import org.jspecify.annotations.Nullable;
+
+@Entity
+public class Parcel {
+    @Id
+    @Nullable Long id;
+
+    @ManyToOne
+    @Nullable Parcel container;
+
+    Size size = Size.SMALL;
+
+    public enum Size {
+        SMALL
+    }
+}
+JAVA
+"$MVN" -B test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1 || true
+for rule in httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls proxiedMethodsCanBeIntercepted \
+    asyncAndSchedulingAreSwitchedOn oldCodeIsDeletedNotDeprecated servicesDontUseHttpTypes toOneAssociationsAreLazy \
+    enumColumnsAreStoredByName; do
+  if grep -q "CodeRulesTests.$rule" out.log; then pass "CodeRulesTests: $rule"; else fail "CodeRulesTests: $rule did not fail"; fi
+done
+if ! grep -q "Tests run:" out.log; then tail -40 out.log; fi
+reset
+
 echo "spring.aplication.name=typo" >> src/main/resources/application.properties
 expect_failure "ConfigurationKeysTests: unknown key" 'spring\.aplication\.name' test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false
 

@@ -11,7 +11,8 @@ already fails:
   The opt-out is visible in the code; remove it from a class once that class is fixed.
 - ArchUnit: CodeRulesTests and UnusedCodeTests run once and record today's violations in src/test/resources/archunit_store. New
   violations fail; fixed ones drop out of the record. Only this script creates the record: without it, every violation
-  fails, so a fresh checkout or CI never records violations by itself.
+  fails, so a fresh checkout or CI never records violations by itself. A rule the record doesn't list fails in full
+  too; after a harness update adds rules, run this again to record theirs.
 """
 
 import argparse
