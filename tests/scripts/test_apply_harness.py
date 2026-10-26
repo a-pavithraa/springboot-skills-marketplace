@@ -397,6 +397,14 @@ class ApplyHarnessTests(unittest.TestCase):
         rest = [line.replace("    ", "  ") for line in lines if not line.startswith("import ")]
         return "\n".join(rest[:2] + list(reversed(imports)) + rest[2:]) + "\n"
 
+    def test_unused_code_tests_run_in_verify_but_not_at_the_end_of_a_turn(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        self.assertTrue((root / "src/test/java/com/acme/orders/UnusedCodeTests.java").exists())
+        hook = (root / ".claude/hooks/verify-on-stop.sh").read_text(encoding="utf-8")
+        self.assertIn("FAST_TESTS=", hook)
+        self.assertNotIn("UnusedCodeTests", hook)
+
     def test_running_the_formatter_on_a_harness_test_is_not_an_edit(self):
         root = self.project(STANDARD)
         self.run_script(root)

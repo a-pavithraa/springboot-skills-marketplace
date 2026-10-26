@@ -71,6 +71,10 @@ perl -pi -e 's|return catalog|int unused = com.acme.shop.catalog.internal.Discou
 expect_failure "ModuleBoundariesTests: use of another module's internal package" 'ModuleBoundariesTests|Violations' \
   test -Dtest=ModuleBoundariesTests -Dsurefire.failIfNoSpecifiedTests=false
 
+perl -0pi -e 's|(\n\}\s*)$|\n    public int size() {\n        return prices.size();\n    }$1|' src/main/java/com/acme/shop/catalog/Catalog.java
+printf 'package com.acme.shop;\n\nclass CatalogSizeTests {\n    @org.junit.jupiter.api.Test\n    void counts() {\n        new com.acme.shop.catalog.Catalog().size();\n    }\n}\n' > src/test/java/com/acme/shop/CatalogSizeTests.java
+expect_failure "UnusedCodeTests: a method only a test calls" 'is called only from tests' test -Dtest=UnusedCodeTests -Dsurefire.failIfNoSpecifiedTests=false
+
 perl -pi -e 's|    private final Catalog catalog;|  private final Catalog catalog;|' src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "Spotless: unformatted code" 'spotless' verify -DskipTests
 

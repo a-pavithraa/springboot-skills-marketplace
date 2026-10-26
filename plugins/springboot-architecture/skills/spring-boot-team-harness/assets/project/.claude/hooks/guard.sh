@@ -38,7 +38,7 @@ case "$path" in
     block "src/test/resources/archunit_store records the rule violations that existed before the harness, so they're frozen. Fix the new violation instead. To accept one on purpose, ask the user." archunit-store ;;
   */archunit.properties)
     block "archunit.properties sets how the freeze record works; with store creation allowed, new violations would be recorded as accepted. Fix the violation instead, or ask the user." archunit-properties ;;
-  */CodeRulesTests.java | */ConfigurationKeysTests.java | */BuildSetupTests.java | */ModuleBoundariesTests.java \
+  */CodeRulesTests.java | */ConfigurationKeysTests.java | */BuildSetupTests.java | */UnusedCodeTests.java | */ModuleBoundariesTests.java \
     | */ModularityTests.java | */ArchUnitTests.java | */ArchitectureRulesTest.java)
     [ -e "$path" ] && block "${path##*/} holds the team's build rules, and a change to it changes what every developer's build accepts. Fix the code the rule reports. To change a rule, ask the user." rule-test
     exit 0 ;;

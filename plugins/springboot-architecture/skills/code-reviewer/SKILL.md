@@ -45,7 +45,7 @@ For a full review, run them in this order.
 ### Pass B: Architecture
 
 - Name the architecture style in use, then report packages and calls that break it.
-- Run the architecture tests if they exist (Taikai, ArchUnit, or Spring Modulith's `ApplicationModules.verify()`) and cite their failures. If none exist, recommend `../creating-springboot-projects/assets/architecture-rules-test.java`. A review catches a boundary leak once. A failing build catches it every time.
+- Run the architecture tests if they exist (Taikai, ArchUnit, or Spring Modulith's `ApplicationModules.verify()`) and cite their failures. If none exist, recommend the `spring-boot-team-harness` skill, whose `CodeRulesTests` holds these rules. A review catches a boundary leak once. A failing build catches it every time.
 
 ### Pass C: Security, data access, and performance
 
