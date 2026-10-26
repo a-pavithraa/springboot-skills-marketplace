@@ -19,7 +19,7 @@ It steers the agent at three points:
 - a null-safety bug (NullAway with JSpecify)
 - a module-boundary breach (Spring Modulith)
 - a Boot property key that no dependency defines, or a deprecated one, since Boot ignores both silently
-- code that compiles but breaks at runtime (ArchUnit): a class calling its own `@Transactional` or `@Cacheable` method, controllers using repositories or returning JPA entities, `@Retryable` that nothing switches on, `@ManyToMany` mapped as a `List`, `@Autowired` fields, Jackson 2 code that Boot 4 ignores, and JUnit 4 or `@Disabled` tests that never run
+- code that compiles but breaks at runtime (ArchUnit): a class calling its own `@Transactional` or `@Cacheable` method, controllers using repositories or returning JPA entities, `@Retryable` or `@Async` that nothing switches on, a transaction held open across an HTTP call, HTTP clients with no timeouts, `@ManyToOne` left eager, enums stored by position, `@ManyToMany` mapped as a `List`, `@Autowired` fields, Jackson 2 code that Boot 4 ignores, and JUnit 4 or `@Disabled` tests that never run
 - build shortcuts that pass the tests while production lacks the feature: a starter in `test` scope, `spring-boot-autoconfigure-classic`, Flyway migrations that Boot 4 never runs, and a schema from `ddl-auto` instead of the migrations
 - unformatted code (Spotless)
 
