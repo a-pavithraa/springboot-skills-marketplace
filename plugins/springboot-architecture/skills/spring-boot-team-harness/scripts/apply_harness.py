@@ -10,6 +10,7 @@ Spring Modulith's test starter, and ArchUnit. Four tests are added: Configuratio
 BuildSetupTests and ModuleBoundariesTests. A GitHub Actions workflow that runs ./mvnw verify is added when no
 workflow runs mvnw. Claude Code hooks run the fast gates when a turn ends, and block destructive git commands, edits
 to migrations already on main, and edits to the rule tests.
+A REVIEW.md template tells reviewers what the code doesn't show; the team fills it in.
 Files that already exist are left alone and reported, except CLAUDE.md, which gets an `@AGENTS.md` import as its
 first line, and the files the harness owns (hooks, tests, project skills, its workflow): .claude/harness.lock records
 what was written, and a rerun updates each one nobody has edited since. Running it twice changes nothing.
@@ -413,6 +414,11 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     else:
         lead = "" if not present or present.endswith("\n") else "\n"
         changes.write(at_root(".gitattributes"), present + lead + "*.sh text eol=lf\n", "patched" if present else "added")
+
+    if (root / "REVIEW.md").exists():
+        changes.keep(at_root("REVIEW.md"), "the team's review guide")
+    else:
+        changes.write(at_root("REVIEW.md"), (ASSETS / "project" / "REVIEW.md").read_text(encoding="utf-8"), "added")
 
     claude_md = project / "CLAUDE.md"
     if not claude_md.exists():

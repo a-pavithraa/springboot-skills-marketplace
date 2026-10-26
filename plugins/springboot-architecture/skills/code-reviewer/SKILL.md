@@ -7,8 +7,9 @@ description: "Use when asked to review, check or diagnose Spring Boot code: a pu
 
 ## Rules
 
+- If the repository has a `REVIEW.md` at its root, read it first. Check the change against each rule it lists, and follow what it says to report and skip.
 - Review only code you have. If no files, diff, or module were given, ask for them.
-- Cite a file path and line for every finding.
+- Cite a file path and line for every finding. Mark findings in code the change didn't touch as pre-existing.
 - Read the Java version from `pom.xml` or `build.gradle`. Boot 4 supports Java 17 and later, so Java 17 and 21 are not findings. Java 26 and 27 targets: `../creating-springboot-projects/references/java-version-policy.md`.
 - Recommend virtual threads, reactive code, or a new architecture only with evidence from the code: blocking I/O on request threads, a saturated pool, or a boundary that already leaks.
 - Use JSpecify as the null-safety baseline for new Boot 4 code. If the codebase is part way through moving to it, report the plan, not every legacy annotation.
@@ -106,4 +107,4 @@ Order findings by severity:
 - ...
 ```
 
-If there are no findings, say so. Then name what the review could not see, such as modules not read, missing tests, or runtime behavior.
+End with the number of findings, or say there are none. Then name what the review could not see, such as modules not read, missing tests, or runtime behavior.
