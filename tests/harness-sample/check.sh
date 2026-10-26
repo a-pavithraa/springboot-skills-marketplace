@@ -84,6 +84,11 @@ public class Shipping {
     @Transactional
     private void cancel() {}
 
+    @Transactional
+    public void rebook(Dispatch dispatch) {
+        dispatch.send();
+    }
+
     @Scheduled(fixedDelay = 60000)
     public void poll() {}
 
@@ -92,6 +97,21 @@ public class Shipping {
 
     public void refuse() {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+    }
+}
+JAVA
+cat > src/main/java/com/acme/shop/orders/Dispatch.java <<'JAVA'
+package com.acme.shop.orders;
+
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+@Component
+public class Dispatch {
+    private final RestClient carrier = RestClient.builder().baseUrl("https://carrier.example.com").build();
+
+    public void send() {
+        carrier.post().uri("/pickups").retrieve().toBodilessEntity();
     }
 }
 JAVA
@@ -123,6 +143,9 @@ for rule in httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls prox
     asyncAndSchedulingAreSwitchedOn oldCodeIsDeletedNotDeprecated servicesDontUseHttpTypes toOneAssociationsAreLazy \
     enumColumnsAreStoredByName; do
   if grep -q "CodeRulesTests.$rule" out.log; then pass "CodeRulesTests: $rule"; else fail "CodeRulesTests: $rule did not fail"; fi
+done
+for case in "RestClient.builder()" "which makes a remote call, inside a transaction"; do
+  if grep -qF "$case" out.log; then pass "CodeRulesTests: $case"; else fail "CodeRulesTests: no violation for $case"; fi
 done
 if ! grep -q "Tests run:" out.log; then tail -40 out.log; fi
 reset
