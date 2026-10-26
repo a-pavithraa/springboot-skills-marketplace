@@ -94,6 +94,16 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual(bom.text, "spring-modulith-bom")
         self.assertEqual(project.find("m:properties/m:harness.base-package", NS).text, "com.acme.orders")
 
+    def test_adds_a_review_guide_and_keeps_the_teams_own(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        self.assertIn("## Failures: report every break of these", (root / "REVIEW.md").read_text(encoding="utf-8"))
+
+        own = self.project(STANDARD, {"REVIEW.md": "# Our review rules\n"})
+        result = self.run_script(own)
+        self.assertEqual((own / "REVIEW.md").read_text(encoding="utf-8"), "# Our review rules\n")
+        self.assertIn("kept     REVIEW.md", result.stdout)
+
     def test_dependencies_inside_dependency_management_are_not_mistaken_for_the_project_list(self):
         root = self.project(pom("""
   <dependencyManagement>
@@ -607,6 +617,8 @@ class ApplyHarnessTests(unittest.TestCase):
             self.assertTrue((root / ".claude/hooks" / hook).exists())
         self.assertFalse((backend / ".claude/settings.json").exists())
         self.assertIn("*.sh text eol=lf", (root / ".gitattributes").read_text(encoding="utf-8"))
+        self.assertIn("# Review guide", (root / "REVIEW.md").read_text(encoding="utf-8"))
+        self.assertFalse((backend / "REVIEW.md").exists())
 
         self.assertIn("## Done means verify passes", (backend / "AGENTS.md").read_text(encoding="utf-8"))
         self.assertIn("backend/AGENTS.md", (root / "AGENTS.md").read_text(encoding="utf-8"))

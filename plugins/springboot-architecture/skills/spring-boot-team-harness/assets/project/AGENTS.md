@@ -36,7 +36,7 @@ In Claude Code, a hook runs the gates that need no Docker whenever a turn ends w
   - Never describe what the code does, what changed ("now", "instead of", "fixed"), or a ticket or plan. Write one or two sentences as one connected thought, and update or delete comments your change makes untrue.
 - When you change what an endpoint returns or accepts, add or update a full-API test for it (the whole app with Testcontainers; `writing-springboot-tests`), one request for the case you built and one it must refuse.
 - On a feature branch, when a change is finished and not committed, ask the user whether to commit it. Commit each logical step on its own, in the order a reviewer should read them, with a message that says what the step does and why. Each commit must compile and pass the gates the Stop hook runs. Run the full `./mvnw verify` before you open the pull request. Never commit on `main` or `master`, and don't push unless asked.
-- Before you open a pull request, review the branch's changes with the `code-reviewer` skill and write the description with the `pr` skill, if they are installed. In the review, search the repository's own code for code like what the branch adds, so a copy of existing logic shows up. Fix what the review finds.
+- Before you open a pull request, review the branch's changes with the `code-reviewer` skill and write the description with the `pr` skill, if they are installed. In the review, search the repository's own code for code like what the branch adds, so a copy of existing logic shows up. Fix what the review finds, then review only the new changes; after two rounds, ask the user instead of starting a third. The description says how the change was tested, what could break, and how to revert it.
 
 ## Skills
 

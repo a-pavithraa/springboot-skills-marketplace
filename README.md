@@ -12,7 +12,7 @@ It steers the agent at three points:
 
 1. **Before it starts.** `AGENTS.md`, which both Claude Code and Codex read, describes the repository: modules, how to run and test it, conventions, and how to work (plan larger changes first, write a failing test first for bugs, review before the pull request). The agent drafts the repository-specific sections from the code, and the team corrects them.
 2. **Before it says it's done.** `AGENTS.md` tells the agent to run `./mvnw verify`. A Claude Code Stop hook runs the gates that need no Docker when a turn ends with changed code, and sends any errors back to the agent. A PreToolUse hook refuses force-pushes, `git reset --hard`, `git clean -f`, edits to Flyway migrations already on `main`, and edits to the rule tests and the ArchUnit freeze record, so an agent can't weaken a rule to get its change through.
-3. **Before merge.** A CI workflow runs `./mvnw verify` on every pull request, unless one already runs `mvnw`.
+3. **Before merge.** A CI workflow runs `./mvnw verify` on every pull request, unless one already runs `mvnw`. A `REVIEW.md` at the repository root tells reviewers, the `code-reviewer` skill and Claude Code's GitHub review alike, what the code doesn't show: the team's own failure rules, which changes are high risk, and what not to report. In a trial, reviewers given the rules found a planted break of one in 6 of 6 reviews, against 0 of 6 without, at the same cost.
 
 `./mvnw verify` fails on:
 
