@@ -14,9 +14,13 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -26,7 +30,8 @@ import org.junit.jupiter.api.Test;
  * Production methods that only tests call: dead code its tests keep alive, or an internal opened up so a test can
  * look inside. Not part of the end-of-turn hook, because a service is often written and tested before anything
  * calls it; by verify, before the pull request, everything the change added has a caller or goes. On a codebase
- * that baseline.py recorded, today's cases in src/test/resources/archunit_store are tolerated.
+ * that baseline.py recorded, today's cases in src/test/resources/archunit_store are tolerated. If the record predates
+ * this rule, every case fails until baseline.py runs again.
  */
 class UnusedCodeTests {
 
@@ -42,8 +47,7 @@ class UnusedCodeTests {
     private static final Set<String> PRODUCTION =
             MAIN.stream().map(JavaClass::getName).collect(Collectors.toSet());
 
-    private static final boolean RECORDED = Files.isDirectory(Path.of("src/test/resources/archunit_store"))
-            || Boolean.getBoolean("archunit.freeze.store.default.allowStoreCreation");
+    private static final boolean RECORDING = Boolean.getBoolean("archunit.freeze.store.default.allowStoreCreation");
 
     /** Spring calls these itself, so they have no callers in the code. */
     private static final List<String> ENTRY_POINTS = List.of(
@@ -62,9 +66,26 @@ class UnusedCodeTests {
                 .that(DescribedPredicate.describe("are production classes", type -> PRODUCTION.contains(type.getName())))
                 .should(notHaveMethodsOnlyTestsCall())
                 .because("nothing in production calls it. If this change is meant to call it, wire that up; "
-                        + "otherwise test through the public behaviour and delete it")
+                        + "otherwise test through the public behaviour and delete it. If the user asked for it and "
+                        + "nothing is meant to call it yet, don't route existing code through it to pass this rule: "
+                        + "stop and ask the user")
                 .allowEmptyShould(true);
-        (RECORDED ? freeze(rule) : rule).check(ALL);
+        (RECORDING || recorded(rule) ? freeze(rule) : rule).check(ALL);
+    }
+
+    /** The store files each rule under its description, in this properties file. */
+    private static boolean recorded(ArchRule rule) {
+        Path index = Path.of("src/test/resources/archunit_store/stored.rules");
+        if (!Files.isRegularFile(index)) {
+            return false;
+        }
+        Properties rules = new Properties();
+        try (Reader reader = Files.newBufferedReader(index)) {
+            rules.load(reader);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return rules.containsKey(rule.getDescription());
     }
 
     /**

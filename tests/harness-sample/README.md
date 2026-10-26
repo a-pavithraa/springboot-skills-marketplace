@@ -4,7 +4,7 @@ A small Spring Boot 4.1.1 project with two modules (`catalog`, marked `@NullMark
 
 - `verify` passes on the clean project;
 - NullAway fails on a `return null` (in both modules, or with `marked` only in `catalog`);
-- `CodeRulesTests` fails on `System.out`, `ConfigurationKeysTests` on a misspelt key, `ModuleBoundariesTests` on use of another module's internal package, and Spotless on unformatted code.
+- `CodeRulesTests` fails on `System.out`, and each of its other recent rules fails on a mistake planted for it (one build for all of them); `ConfigurationKeysTests` on a misspelt key, `ModuleBoundariesTests` on use of another module's internal package, and Spotless on unformatted code.
 
 ```bash
 tests/harness-sample/check.sh all      # or: marked
