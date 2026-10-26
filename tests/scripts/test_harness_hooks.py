@@ -95,7 +95,7 @@ class GuardHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         rules.parent.mkdir(parents=True)
         rules.write_text("class CodeRulesTests {}\n")
-        for name in ("CodeRulesTests", "BuildSetupTests", "ArchUnitTests"):
+        for name in ("CodeRulesTests", "BuildSetupTests", "UnusedCodeTests", "ArchUnitTests"):
             path = rules.with_name(f"{name}.java")
             path.write_text("")
             result = self.guard({"tool_name": "Edit", "tool_input": {"file_path": str(path)}}, root)

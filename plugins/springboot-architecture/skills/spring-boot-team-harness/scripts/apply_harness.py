@@ -432,7 +432,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         changes.keep(".mvn/jvm.config", "has the Error Prone flags")
 
     test_dir = Path("src/test/java", *base_package.split("."))
-    tests = ["ConfigurationKeysTests.java", "CodeRulesTests.java", "BuildSetupTests.java"]
+    tests = ["ConfigurationKeysTests.java", "CodeRulesTests.java", "BuildSetupTests.java", "UnusedCodeTests.java"]
     if modules and existing_boundary_test:
         changes.keep(existing_boundary_test.relative_to(project).as_posix(), "already verifies module boundaries")
     elif modules:
