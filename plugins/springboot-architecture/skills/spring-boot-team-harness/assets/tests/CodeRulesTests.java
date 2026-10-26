@@ -114,6 +114,9 @@ class CodeRulesTests {
     private static final List<String> REMOTE_CLIENT_PACKAGES = List.of(
             "org.springframework.web.client", "org.springframework.web.reactive.function.client", "java.net.http");
 
+    /** Methods of this project that make a remote call, directly or through other methods of this project. */
+    private static final Set<JavaMethod> REMOTE_CALLERS = remoteCallers();
+
     private static final List<String> TO_ONE = List.of("jakarta.persistence.ManyToOne", "jakarta.persistence.OneToOne");
 
     /** Each of these maps an enum column its own way, so @Enumerated doesn't apply. */
@@ -240,20 +243,9 @@ class CodeRulesTests {
 
     @Test
     void httpClientsComeFromTheBuilder() {
-        frozenIfRecorded(noClasses()
-                .should()
-                .callMethod("org.springframework.web.client.RestClient", "create")
-                .orShould()
-                .callMethod("org.springframework.web.client.RestClient", "create", "java.lang.String")
-                .orShould()
-                .callMethod("org.springframework.web.client.RestClient", "create", "java.net.URI")
-                .orShould()
-                .callMethod("org.springframework.web.reactive.function.client.WebClient", "create")
-                .orShould()
-                .callMethod("org.springframework.web.reactive.function.client.WebClient", "create", "java.lang.String")
-                .orShould()
-                .callConstructor("org.springframework.web.client.RestTemplate")
-                .because("a client created this way has no connect or read timeout, so a slow server holds the "
+        frozenIfRecorded(classes()
+                .should(buildHttpClientsWithTimeouts())
+                .because("a client built this way has no connect or read timeout, so a slow server holds the "
                         + "caller's thread, and it skips Boot's metrics and tracing. Build it from the injected "
                         + "RestClient.Builder or WebClient.Builder, with timeouts in spring.http.clients.*")
                 .allowEmptyShould(true))
@@ -561,6 +553,9 @@ class CodeRulesTests {
                     if (remote(call)) {
                         events.add(SimpleConditionEvent.violated(call, call.getDescription()
                                 + " is a remote call inside a transaction"));
+                    } else if (call.getTarget().resolveMember().filter(REMOTE_CALLERS::contains).isPresent()) {
+                        events.add(SimpleConditionEvent.violated(call, call.getDescription()
+                                + ", which makes a remote call, inside a transaction"));
                     }
                 }
             }
@@ -584,6 +579,52 @@ class CodeRulesTests {
                         .filter(target -> target.isMetaAnnotatedWith(
                                 "org.springframework.web.service.annotation.HttpExchange"))
                         .isPresent();
+    }
+
+    private static Set<JavaMethod> remoteCallers() {
+        Set<JavaMethod> callers = new HashSet<>();
+        boolean grew = true;
+        while (grew) {
+            grew = false;
+            for (JavaClass type : MAIN) {
+                for (JavaMethod method : type.getMethods()) {
+                    if (!callers.contains(method) && method.getMethodCallsFromSelf().stream().anyMatch(call -> remote(call)
+                            || call.getTarget().resolveMember().filter(callers::contains).isPresent())) {
+                        callers.add(method);
+                        grew = true;
+                    }
+                }
+            }
+        }
+        return callers;
+    }
+
+    /**
+     * create() and new RestTemplate() can't take timeouts. The static builder() can, so it counts only when the
+     * class never sets a request factory or connector, which is where its timeouts would go.
+     */
+    private static ArchCondition<JavaClass> buildHttpClientsWithTimeouts() {
+        return new ArchCondition<>("build HTTP clients with timeouts") {
+            @Override
+            public void check(JavaClass javaClass, ConditionEvents events) {
+                boolean setsTimeouts = javaClass.getMethodCallsFromSelf().stream()
+                        .map(call -> call.getTarget().getName())
+                        .anyMatch(name -> name.equals("requestFactory") || name.equals("clientConnector"));
+                for (JavaMethodCall call : javaClass.getMethodCallsFromSelf()) {
+                    String owner = call.getTargetOwner().getName();
+                    String name = call.getTarget().getName();
+                    boolean client = owner.equals("org.springframework.web.client.RestClient")
+                            || owner.equals("org.springframework.web.reactive.function.client.WebClient");
+                    if (client && (name.equals("create") || (name.equals("builder") && !setsTimeouts))) {
+                        events.add(SimpleConditionEvent.violated(call, call.getDescription()));
+                    }
+                }
+                javaClass.getConstructorCallsFromSelf().stream()
+                        .filter(call -> call.getTargetOwner().getName().equals("org.springframework.web.client.RestTemplate")
+                                && call.getTarget().getRawParameterTypes().isEmpty())
+                        .forEach(call -> events.add(SimpleConditionEvent.violated(call, call.getDescription())));
+            }
+        };
     }
 
     private static ArchCondition<JavaMember> beLazyIfToOne() {
