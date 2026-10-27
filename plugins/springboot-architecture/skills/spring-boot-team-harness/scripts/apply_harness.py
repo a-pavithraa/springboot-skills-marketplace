@@ -36,13 +36,16 @@ SKILL_DIRS = (".claude/skills", ".agents/skills")
 ARCHUNIT = re.compile(r"<artifactId>\s*(taikai|archunit[\w-]*)\s*</artifactId>")
 WORKFLOW = ".github/workflows/verify.yml"
 HOOKS = (".claude/hooks/guard.sh", ".claude/hooks/verify-on-stop.sh")
+# The CI backstop for the guard hook: it runs for every tool, and its files don't depend on the project.
+INTEGRITY = (".github/workflows/harness-integrity.yml", ".github/harness/check-protected.sh")
 LOCK = ".claude/harness.lock"
 HARNESS_PLUGINS = re.compile(r"<!-- harness:begin plugins -->.*?<!-- harness:end plugins -->", re.S)
 NULLAWAY_OPTION = re.compile(r"-XepOpt:NullAway:(?:AnnotatedPackages=\S+?|OnlyNullMarked=true)(?=\s|<)")
 NULL_MARKED = re.compile(r"^\s*@(?:org\.jspecify\.annotations\.)?NullMarked\b", re.M)
 # Hooks released before the lock file existed, by SHA-256 of their LF content: safe to replace on a rerun.
 RELEASED = {
-    ".claude/hooks/guard.sh": {"0eca37c90909f462612b1394097b51ee6fc9d3996b142bebd7e8ef6766f180e3"},
+    ".claude/hooks/guard.sh": {"0eca37c90909f462612b1394097b51ee6fc9d3996b142bebd7e8ef6766f180e3",
+                               "f47c311d55ed31b41cf3b3775ab6a6388a885b72a66cff05b3ae2b5cc836f597"},
     ".claude/hooks/verify-on-stop.sh": {"88ded00535a3c13dd5e1df5e8545c31fa1989b0c6cc37d21478fa87e96aa9448",
                                         "286d721ca822c4ee6c36e4535d4d0014d248764e8d11f42daa24623920290b4f"},
 }
@@ -468,6 +471,9 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     ours = next((name for name in (WORKFLOW, ".github/workflows/harness-verify.yml") if name in changes.lock), None)
     runs_maven = next((path for path in sorted(workflows.glob("*.y*ml")) if workflows.is_dir()
                        and re.search(r"\bmvnw?\b", path.read_text(encoding="utf-8", errors="replace"))), None)
+    for integrity in INTEGRITY:
+        changes.own(at_root(integrity), (ASSETS / "project" / integrity).read_text(encoding="utf-8"),
+                    ASSETS / "project" / integrity)
     if ours:
         changes.own(at_root(ours), render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")),
                     ASSETS / "project" / WORKFLOW)
