@@ -8,13 +8,16 @@ MODE=${1:-all}
 MVN=${MVN:-mvn}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
+HARNESS="$REPO/plugins/springboot-architecture/skills/spring-boot-team-harness/scripts"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cp -r "$HERE/project/." "$WORK/"
 cd "$WORK"
+# The hooks and baseline.py call ./mvnw; this one runs the Maven in use.
+printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$(command -v "$MVN")" > mvnw && chmod +x mvnw
 git init -q && git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm sample
-python3 "$REPO/plugins/springboot-architecture/skills/spring-boot-team-harness/scripts/apply_harness.py" . --nullaway "$MODE"
+python3 "$HARNESS/apply_harness.py" . --nullaway "$MODE"
 "$MVN" -B -q spotless:apply
 git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm harness
 
@@ -167,6 +170,57 @@ expect_failure "UnusedCodeTests: a method only a test calls" 'is called only fro
 
 perl -pi -e 's|    private final Catalog catalog;|  private final Catalog catalog;|' src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "Spotless: unformatted code" 'spotless' verify -DskipTests
+
+# The rest of the cycle, as a team meets it: rerunning the harness changes nothing, the Stop hook catches a mistake
+# on a real build and lets the fixed code through, and an existing codebase adopts the harness with baseline.py.
+python3 "$HARNESS/apply_harness.py" . --nullaway "$MODE" > .git/apply.log
+if [ -z "$(git status --porcelain)" ]; then pass "rerunning apply_harness.py changes nothing"
+else fail "rerunning apply_harness.py changed files"; git status --porcelain; cat .git/apply.log; fi
+reset
+
+hook() {  # [--session-start] [stop_hook_active]
+  local args=() active=false
+  [ "${1:-}" = --session-start ] && { args=(--session-start); shift; }
+  [ -n "${1:-}" ] && active=$1
+  printf '{"session_id":"e2e","stop_hook_active":%s}' "$active" \
+    | CLAUDE_PROJECT_DIR="$WORK" bash .claude/hooks/verify-on-stop.sh "${args[@]}" > hook.out 2>&1
+}
+hook --session-start
+perl -0pi -e 's|(public BigDecimal total\(String sku, int quantity\) \{\n)|    \@org.springframework.scheduling.annotation.Async\n    public void warm() {}\n\n$1        warm();\n|' \
+  src/main/java/com/acme/shop/orders/Orders.java
+if hook; then fail "Stop hook: passed a class that calls its own @Async method"; cat hook.out
+elif grep -q "skips the proxy, so @Async does nothing" hook.out; then pass "Stop hook: blocks a self-invoked @Async method"
+else fail "Stop hook: blocked for another reason"; tail -30 hook.out; fi
+perl -0pi -e 's|        warm\(\);\n||' src/main/java/com/acme/shop/orders/Orders.java
+perl -0pi -e 's|    \@org.springframework.scheduling.annotation.Async\n    public void warm\(\) \{\}\n\n||' src/main/java/com/acme/shop/orders/Orders.java
+if hook true; then pass "Stop hook: lets the fixed code through"; else fail "Stop hook: blocked the fixed code"; tail -30 hook.out; fi
+rm -f hook.out
+reset
+
+# Existing code that breaks the rules before the harness arrives: baseline.py records it, verify passes, and new
+# violations still fail. The integrity check then refuses a pull request that adds to the record.
+null_return catalog Legacy
+perl -pi -e 's|return catalog|System.out.println(sku);\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
+git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm legacy
+if python3 "$HARNESS/baseline.py" . > baseline.log 2>&1 && grep -q "marked 1 classes" baseline.log; then
+  pass "baseline.py: marks the legacy class and records the legacy violation"
+else fail "baseline.py failed"; tail -30 baseline.log; fi
+rm -f baseline.log
+if "$MVN" -B verify > out.log 2>&1; then pass "baseline: verify passes on the legacy code"
+else fail "baseline: verify failed on the legacy code"; tail -60 out.log; fi
+rm -f out.log
+git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm baseline
+base=$(git rev-parse HEAD)
+perl -pi -e 's|return catalog|System.out.println(quantity);\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
+expect_failure "baseline: a new violation still fails" 'CodeRulesTests' test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false
+
+record=$(git ls-files src/test/resources/archunit_store | grep -v stored.rules | head -1)
+echo "Method <com.acme.shop.orders.Orders.total(java.lang.String, int)> calls System.out" >> "$record"
+git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm "sneak a violation into the record"
+if bash .github/harness/check-protected.sh "$base" > out.log; then fail "integrity check: accepted an addition to the record"; cat out.log
+elif grep -q "::error file=$record::" out.log; then pass "integrity check: refuses an addition to the freeze record"
+else fail "integrity check: failed for another reason"; cat out.log; fi
+rm -f out.log
 
 echo
 if [ "$failures" -eq 0 ]; then echo "All harness gates work (JDK $(java -version 2>&1 | grep -v "Picked up" | head -1), NullAway $MODE)"; else echo "$failures check(s) failed"; exit 1; fi
