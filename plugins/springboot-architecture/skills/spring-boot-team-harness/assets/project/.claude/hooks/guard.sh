@@ -6,6 +6,7 @@
 # harness's report.py summarises.
 set -u
 input=$(cat)
+rule_tests='CodeRulesTests|ConfigurationKeysTests|BuildSetupTests|UnusedCodeTests|ModuleBoundariesTests|ModularityTests|ArchUnitTests|ArchitectureRulesTest'
 
 # block <reason> <rule>
 block() {
@@ -29,6 +30,12 @@ if printf '%s' "$input" | grep -q '"tool_name" *: *"Bash"'; then
     && block "git reset --hard discards uncommitted work. Use git stash, or ask the user." reset-hard
   printf '%s' "$command" | grep -Eq 'git[[:space:]].*clean([[:space:]].*)?[[:space:]]-[a-zA-Z]*f' \
     && block "git clean -f deletes untracked files for good. Ask the user." clean-force
+  printf '%s' "$command" | grep -Eq 'allowStoreCreation=true|freeze\.refreeze=true' \
+    && block "that setting records today's ArchUnit violations as accepted. Fix the violation instead; to record a baseline on purpose, ask the user to run the harness's baseline.py." archunit-record
+  # Writing commands that name a protected file. Not exhaustive: the Harness integrity CI check is the backstop.
+  printf '%s' "$command" | grep -Eq "archunit_store|archunit\.properties|($rule_tests)\.java" \
+    && printf '%s' "$command" | grep -Eq '(^|[^0-9&])>|(^|[[:space:];&|])(sed|perl)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(-[a-zA-Z]*i|--in-place)|(^|[[:space:];&|])(tee|truncate|rm|mv|cp|python3?|node|ruby)([[:space:]]|$)' \
+    && block "that command writes to a file holding the team's build rules or the ArchUnit freeze record. Fix the code the rule reports. To change a rule, ask the user." bash-protected-file
   exit 0
 fi
 

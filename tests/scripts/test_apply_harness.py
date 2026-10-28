@@ -205,7 +205,7 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("Spring Boot 4.1.1 on Java 25", agents)
         for path in root.rglob("*"):
             if path.is_file():
-                self.assertNotIn("{{", path.read_text(encoding="utf-8"), path)
+                self.assertNotRegex(path.read_text(encoding="utf-8"), r"\{\{[A-Z_]+\}\}", path)
 
     def test_project_skills_go_to_both_claude_and_codex_folders(self):
         root = self.project(STANDARD)
@@ -517,6 +517,15 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual((root / ".github/workflows/verify.yml").read_text(encoding="utf-8"), other_ci)
         self.assertIn("./mvnw -B verify", (root / ".github/workflows/harness-verify.yml").read_text(encoding="utf-8"))
 
+    def test_the_integrity_check_is_added_even_when_ci_already_runs_maven(self):
+        root = self.project(STANDARD, {".github/workflows/verify.yml": "steps:\n  - run: mvn -B verify\n"})
+        self.run_script(root)
+        workflow = (root / ".github/workflows/harness-integrity.yml").read_text(encoding="utf-8")
+        self.assertIn("harness-rule-change", workflow)
+        self.assertIn("${{ github.event.pull_request.base.sha }}", workflow)
+        self.assertTrue((root / ".github/harness/check-protected.sh").exists())
+        self.assertIn("up to date", self.run_script(root).stdout)
+
     def test_existing_settings_keep_their_entries_and_get_the_hooks(self):
         own = {
             "permissions": {"allow": ["Bash(gh pr view *)"], "deny": ["Read(./secrets/**)"]},
@@ -633,7 +642,8 @@ class ApplyHarnessTests(unittest.TestCase):
         root, backend = self.monorepo({".github/workflows/ci.yml": ci, "AGENTS.md": "# Repo\n"})
         result = self.run_script(backend)
         self.assertIn("../.github/workflows/ci.yml", result.stdout)
-        self.assertEqual(sorted(p.name for p in (root / ".github/workflows").iterdir()), ["ci.yml"])
+        self.assertEqual(sorted(p.name for p in (root / ".github/workflows").iterdir()),
+                         ["ci.yml", "harness-integrity.yml"])
         self.assertEqual((root / "AGENTS.md").read_text(encoding="utf-8"),
                          "# Repo\n\nThe rules and build gates for `backend/` are in `backend/AGENTS.md`. Read it "
                          "before you change anything there.\n")

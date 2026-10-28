@@ -11,8 +11,8 @@ Every skill was trialled with and without it, and content that made no differenc
 It steers the agent at three points:
 
 1. **Before it starts.** `AGENTS.md`, which both Claude Code and Codex read, describes the repository: modules, how to run and test it, conventions, and how to work (plan larger changes first, write a failing test first for bugs, review before the pull request). The agent drafts the repository-specific sections from the code, and the team corrects them.
-2. **Before it says it's done.** `AGENTS.md` tells the agent to run `./mvnw verify`. A Claude Code Stop hook runs the gates that need no Docker when a turn ends with changed code, and sends any errors back to the agent. A PreToolUse hook refuses force-pushes, `git reset --hard`, `git clean -f`, edits to Flyway migrations already on `main`, and edits to the rule tests and the ArchUnit freeze record, so an agent can't weaken a rule to get its change through.
-3. **Before merge.** A CI workflow runs `./mvnw verify` on every pull request, unless one already runs `mvnw`. A `REVIEW.md` at the repository root tells reviewers, the `code-reviewer` skill and Claude Code's GitHub review alike, what the code doesn't show: the team's own failure rules, which changes are high risk, and what not to report. In a trial, reviewers given the rules found a planted break of one in 6 of 6 reviews, against 0 of 6 without, at the same cost.
+2. **Before it says it's done.** `AGENTS.md` tells the agent to run `./mvnw verify`. A Claude Code Stop hook runs the gates that need no Docker when a turn ends with changed code, and sends any errors back to the agent. A PreToolUse hook refuses force-pushes, `git reset --hard`, `git clean -f`, edits to Flyway migrations already on `main`, and edits to the rule tests and the ArchUnit freeze record, so an agent can't weaken a rule to get its change through. The hook is advisory, so a CI check backs it up.
+3. **Before merge.** A CI workflow runs `./mvnw verify` on every pull request, unless one already runs `mvnw`. A second one fails a pull request that weakens a rule, adds to the ArchUnit freeze record or edits an applied migration, whichever tool made the change; a maintainer accepts an intended change with the `harness-rule-change` label. A `REVIEW.md` at the repository root tells reviewers, the `code-reviewer` skill and Claude Code's GitHub review alike, what the code doesn't show: the team's own failure rules, which changes are high risk, and what not to report. In a trial, reviewers given the rules found a planted break of one in 6 of 6 reviews, against 0 of 6 without, at the same cost.
 
 `./mvnw verify` fails on:
 
@@ -26,6 +26,21 @@ It steers the agent at three points:
 Each failure message says how to fix it. On an existing codebase, `scripts/baseline.py` makes `verify` pass on day one: it marks the classes NullAway rejects today `@NullUnmarked` and records today's ArchUnit violations with `FreezingArchRule`. New code gets the full checks, and fixed violations drop out of the record. The Stop hook blocks only on errors in files the session changed.
 
 The harness also commits two project skills, `add-module` and `db-migration`, and enables this plugin for every teammate through `enabledPlugins`. It adds no MCP servers.
+
+### What each tool gets
+
+Skills are portable; enforcement is not. The hooks run only in Claude Code, so in Codex the build and CI are what hold the rules.
+
+| | Claude Code | Codex |
+| --- | --- | --- |
+| Skills | Yes | Yes |
+| `AGENTS.md` guidance | Yes (through `CLAUDE.md`) | Yes |
+| Gates checked when a turn ends (Stop hook) | Yes | No: `AGENTS.md` tells the agent to run `./mvnw verify` |
+| Refusing force-pushes and edits to rules, freeze record and applied migrations (PreToolUse hook) | Yes | No |
+| `./mvnw verify` gates | Yes | Yes |
+| CI: `verify` and the integrity check | Yes | Yes |
+
+Installing the skills in Codex doesn't turn on any of the Claude Code guardrails. Make both CI checks required on the main branch: they are the protection every tool shares.
 
 ### Why it's built this way
 
