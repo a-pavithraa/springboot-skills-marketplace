@@ -2,7 +2,8 @@
 """Add the team harness to a Maven Spring Boot project: AGENTS.md, Claude Code settings, and ./mvnw verify gates.
 
 Usage:
-    python3 apply_harness.py <project-dir> [--base-package com.example.app] [--nullaway all|marked] [--dry-run]
+    python3 apply_harness.py <project-dir> [--base-package com.example.app] [--nullaway all|marked] [--no-observability]
+        [--dry-run]
 
 The pom gets NullAway (JSpecify mode, main code only; every class under the base package, or with --nullaway marked
 only @NullMarked packages) through Error Prone, Spotless with palantir-java-format,
@@ -14,6 +15,8 @@ A REVIEW.md template tells reviewers what the code doesn't show; the team fills 
 Files that already exist are left alone and reported, except CLAUDE.md, which gets an `@AGENTS.md` import as its
 first line, and the files the harness owns (hooks, tests, project skills, its workflow): .claude/harness.lock records
 what was written, and a rerun updates each one nobody has edited since. Running it twice changes nothing.
+It also adds the observability pack: dependencies, safe defaults, a local Grafana stack and dashboards. Telemetry
+stays off in deployments until OTLP_EXPORT_ENABLED is set. --no-observability skips it.
 """
 
 import argparse
@@ -37,6 +40,30 @@ ARCHUNIT = re.compile(r"<artifactId>\s*(taikai|archunit[\w-]*)\s*</artifactId>")
 WORKFLOW = ".github/workflows/verify.yml"
 HOOKS = (".claude/hooks/guard.sh", ".claude/hooks/verify-on-stop.sh")
 LOCK = ".claude/harness.lock"
+USES_JDBC = re.compile(r"<artifactId>\s*spring-boot-starter-(jdbc|data-jpa|data-jdbc|jooq)\s*</artifactId>")
+USES_TOMCAT = re.compile(r"<artifactId>\s*spring-boot-starter-(web|webmvc)\s*</artifactId>")
+OTEL_APPENDER = re.compile(r"<appender\b[^>]*OpenTelemetryAppender[^>]*?(?:/>|[^/]>.*?</appender>)", re.S)
+OTEL_APPENDER_OPEN = re.compile(r"<appender\b[^>]*>\s*")
+OTEL_APPENDER_BODY = re.compile(r"<appender\b[^>]*>(.*)</appender>", re.S)
+CONDITIONAL_DEFAULTS = (
+    (re.compile(r"<artifactId>\s*spring-boot-starter-webflux\s*</artifactId>"),
+     "  reactor:\n    context-propagation: auto\n"),
+    (re.compile(r"<artifactId>\s*spring-boot-starter-kafka\s*</artifactId>"),
+     "  kafka:\n    listener:\n      observation-enabled: true\n    template:\n      observation-enabled: true\n"),
+    (re.compile(r"<artifactId>\s*spring-boot-starter-(amqp|rabbitmq)\s*</artifactId>"),
+     "  rabbitmq:\n    listener:\n      simple:\n        observation-enabled: true\n"
+     "    template:\n      observation-enabled: true\n"),
+)
+OBSERVABILITY_IMPORT = "application-observability-defaults.yml"
+YAML_KEY = re.compile(r"^( *)([\w.-]+):(?:[ \t]+(.*?))?[ \t]*$", re.M)
+YAML_IMPORT_SCALAR = re.compile(r"""(?:(?P<quote>["'])(?P<quoted>[^"'\\]*)(?P=quote)|(?P<plain>[^\s"'\[\]{}|>&*!#][^#]*?))"""
+                                r"""(?P<comment>[ \t]+#.*)?""")
+YAML_IMPORT_LIST = re.compile(r"\[(?P<items>[^\[\]#]*[^\[\]#\s])\s*\](?P<comment>[ \t]+#.*)?")
+PROPERTIES_IMPORT = re.compile(r"^(\s*spring\.config\.import\s*[=:][ \t]*)(\S.*)$", re.M)
+SAFE_EXPORT_LEVELS = {"INFO", "WARN", "ERROR", "OFF"}
+OTEL_THRESHOLD = re.compile(r"<filter\b[^>]*ThresholdFilter[^>]*>.*?<level>\s*(.*?)\s*</level>", re.S)
+AUTODETECTION = re.compile(r"^\s*junit\.jupiter\.extensions\.autodetection\.enabled\s*[=:]\s*(\S*)", re.M)
+EXPOSED_RISKS = {"*", "env", "configprops", "beans", "heapdump", "threaddump", "logfile", "loggers", "shutdown"}
 HARNESS_PLUGINS = re.compile(r"<!-- harness:begin plugins -->.*?<!-- harness:end plugins -->", re.S)
 NULLAWAY_OPTION = re.compile(r"-XepOpt:NullAway:(?:AnnotatedPackages=\S+?|OnlyNullMarked=true)(?=\s|<)")
 NULL_MARKED = re.compile(r"^\s*@(?:org\.jspecify\.annotations\.)?NullMarked\b", re.M)
@@ -131,7 +158,7 @@ def nullaway_checked(nullaway: str, base_package: str) -> str:
             "`@org.jspecify.annotations.NullMarked`)") if nullaway == "marked" else f"Code under `{base_package}`"
 
 
-def patch_pom(pom: str, base_package: str, modules: bool, nullaway: str = "all") -> str:
+def patch_pom(pom: str, base_package: str, modules: bool, nullaway: str = "all", observability: bool = True) -> str:
     # What the build actually uses: managed versions and inactive profiles add nothing to the classpath.
     declared = re.sub(r"<!--.*?-->|<dependencyManagement>.*?</dependencyManagement>|"
                       r"<pluginManagement>.*?</pluginManagement>|<profiles>.*?</profiles>", "", pom, flags=re.S)
@@ -146,13 +173,22 @@ def patch_pom(pom: str, base_package: str, modules: bool, nullaway: str = "all")
     fragments = {name: (ASSETS / "pom" / f"{name}.xml").read_text(encoding="utf-8")
                  .replace("{{NULLAWAY_SCOPE}}", nullaway_scope(nullaway)).replace("{{BASE_PACKAGE}}", base_package)
                  for name in ("properties", "dependencies", "modules-dependencies", "managed-dependencies", "plugins",
-                              "rules-dependencies")}
+                              "rules-dependencies", "observability-dependencies")}
     if not modules:
         fragments["properties"] = re.sub(r".*spring-modulith\.version.*\n", "", fragments["properties"])
-    properties = missing_items(fragments["properties"], pom)
     dependencies = missing_items(fragments["dependencies"], declared)
     if modules:
         dependencies += missing_items(fragments["modules-dependencies"], declared)
+    if observability:
+        wanted = fragments["observability-dependencies"]
+        if not USES_JDBC.search(declared):
+            wanted = re.sub(r" *<dependency>\n *<groupId>net\.ttddyy\.observation.*?</dependency>\n", "", wanted, flags=re.S)
+            fragments["properties"] = re.sub(r".*datasource-micrometer\.version.*\n", "", fragments["properties"])
+        dependencies += missing_items(wanted, declared)
+    else:
+        fragments["properties"] = re.sub(r".*(datasource-micrometer|opentelemetry-logback-appender)\.version.*\n", "",
+                                         fragments["properties"])
+    properties = missing_items(fragments["properties"], pom)
     if not ARCHUNIT.search(declared):
         dependencies += fragments["rules-dependencies"]
     managed = missing_items(fragments["managed-dependencies"], pom) if modules else ""
@@ -286,6 +322,197 @@ class Changes:
         self.lines.append(f"{'kept':8} {relative} ({reason})")
 
 
+def upgraded_otel_appender(text: str, shipped: str) -> str | None:
+    """Add what a project's OTEL appender lacks: the INFO cap, without which DEBUG lines are exported, and key-values."""
+    found = OTEL_APPENDER.search(text)
+    if not found or "ThresholdFilter" in found[0]:
+        return None
+    settings = OTEL_APPENDER_BODY.search(OTEL_APPENDER.search(shipped)[0])[1]
+    if found[0].endswith("/>"):
+        block = found[0][:-2].rstrip() + ">" + settings + "    </appender>"
+    else:
+        block = OTEL_APPENDER_OPEN.sub(lambda opening: opening[0].rstrip() + settings.rstrip(), found[0], count=1)
+        if "captureKeyValuePairAttributes" in found[0]:
+            block = block.replace("        <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>\n", "", 1)
+    return text[:found.start()] + block + text[found.end():]
+
+
+def otel_cap_note(text: str) -> str:
+    """What the export cap of an appender that needs no patch is; upgraded_otel_appender leaves such a file alone."""
+    threshold = OTEL_THRESHOLD.search(found[0]) if (found := OTEL_APPENDER.search(text)) else None
+    if threshold and threshold[1].upper() in SAFE_EXPORT_LEVELS:
+        return f"the OTEL appender already stops at {threshold[1].upper()}"
+    level = threshold[1] if threshold else "not readable here"
+    return f"the OTEL appender's ThresholdFilter level is {level}: set it to INFO by hand, or DEBUG lines can be exported"
+
+
+def line_added(text: str, line: str) -> str:
+    return text + ("" if not text or text.endswith("\n") else "\n") + line + "\n"
+
+
+def main_config(project: Path) -> Path | None:
+    resources = project / "src" / "main" / "resources"
+    return next((path for path in (resources / name for name in
+                                   ("application.properties", "application.yml", "application.yaml")) if path.exists()),
+                None)
+
+
+def yaml_import_values(text: str) -> list[re.Match]:
+    """The value of every spring.config.import key, in nested or dotted form; a multi-document file can hold several."""
+    path: list[tuple[int, str]] = []
+    values = []
+    for line in YAML_KEY.finditer(text):
+        indent = len(line[1])
+        while path and path[-1][0] >= indent:
+            path.pop()
+        path.append((indent, line[2]))
+        if ".".join(key for _, key in path) == "spring.config.import":
+            values.append(line)
+    return values
+
+
+def joined_yaml_import(text: str, value: re.Match, location: str) -> str | None:
+    """Add the location inside the YAML form the import uses, or None for a form this can't edit safely."""
+    scalar = YAML_IMPORT_SCALAR.fullmatch(value[3] or "")
+    items = YAML_IMPORT_LIST.fullmatch(value[3] or "")
+    if scalar and scalar["quote"]:
+        edited = f"{scalar['quote']}{scalar['quoted']},{location}{scalar['quote']}{scalar['comment'] or ''}"
+    elif scalar:
+        edited = f"{scalar['plain']},{location}{scalar['comment'] or ''}"
+    elif items:
+        edited = f"[{items['items']}, {location}]{items['comment'] or ''}"
+    else:
+        return None
+    return text[:value.start(3)] + edited + text[value.end(3):]
+
+
+def import_observability_defaults(text: str, yaml: bool) -> str | None:
+    """Add the import to the main config, joining any import already there, or None when it needs merging by hand."""
+    location = f"optional:classpath:{OBSERVABILITY_IMPORT}"
+    if not yaml:
+        if "spring.config.import[" in text:
+            return None
+        found = PROPERTIES_IMPORT.findall(text)
+        if len(found) > 1 or (found and found[0][1].endswith("\\")):
+            return None
+        if found:
+            return PROPERTIES_IMPORT.sub(lambda match: f"{match[1]}{match[2]},{location}", text, count=1)
+        return f"spring.config.import={location}\n" + text
+    values = yaml_import_values(text)
+    if len(values) > 1:
+        return None
+    if values:
+        return joined_yaml_import(text, values[0], location)
+    if re.search(r"^  config:", text, re.M):
+        return None
+    line = f"  config:\n    import: {location}\n"
+    spring = re.search(r"^spring:.*\n?", text, re.M)
+    if not spring:
+        return f"spring:\n{line}\n" + text
+    # The new lines use two spaces, so a block indented any other way, or with a comment on its key, needs a person.
+    if not re.match(r"spring:\n {2}\S", text[spring.start():]):
+        return None
+    return text[:spring.end()] + line + text[spring.end():]
+
+
+def narrowed_exposure(text: str) -> str:
+    """Generators often expose env and friends on the public port; keep only what is safe there."""
+    if "management.server.port" in text:
+        return text
+    def narrow(match: re.Match) -> str:
+        kept = [item for item in re.split(r"\s*,\s*", match.group(2).strip()) if item not in EXPOSED_RISKS]
+        return match.group(1) + (",".join(kept) or "health")
+    return re.sub(r"(management\.endpoints\.web\.exposure\.include\s*[=:]\s*)(.+)", narrow, text)
+
+
+def apply_observability(project: Path, changes: "Changes", render, pom: str):
+    source = ASSETS / "observability"
+    for relative, asset in (("src/main/resources/application-observability-defaults.yml",
+                             "application-observability-defaults.yml"),
+                            ("src/main/resources/application-observability.yml", "application-observability.yml"),
+                            ("compose.observability.yml", "compose.observability.yml"),
+                            ("observability/grafana-provider.yaml", "grafana-provider.yaml"),
+                            ("observability/check_dashboards.py", "check_dashboards.py"),
+                            ("observability/dashboards/service-health.json", "dashboards/service-health.json"),
+                            ("observability/dashboards/jvm-resources.json", "dashboards/jvm-resources.json"),
+                            ("docs/observability.md", "observability.md")):
+        text = render((source / asset).read_text(encoding="utf-8"))
+        if asset == "application-observability-defaults.yml" and not USES_TOMCAT.search(pom):
+            text = re.sub(r"^server:\n(?:  .*\n)+\n", "", text, flags=re.M)
+        if asset == "application-observability-defaults.yml":
+            extras = "".join(keys for starter, keys in CONDITIONAL_DEFAULTS if starter.search(pom))
+            text = text.replace("spring:\n  task:", f"spring:\n{extras}  task:")
+        changes.own(relative, text, source / asset)
+
+    appender = Path("src/main/java", *render("{{BASE_PACKAGE}}").split("."), "InstallOpenTelemetryAppender.java")
+    existing = next((path for path in (project / "src" / "main").rglob("InstallOpenTelemetryAppender.java")), None)
+    if existing and existing != project / appender:
+        changes.keep(existing.relative_to(project).as_posix(), "already installs the log appender; it needs "
+                     "@Lazy(false), or spring.main.lazy-initialization stops logs reaching OTLP")
+    else:
+        changes.own(appender.as_posix(), render((source / "InstallOpenTelemetryAppender.java").read_text(encoding="utf-8")),
+                    source / "InstallOpenTelemetryAppender.java")
+    if USES_TOMCAT.search(pom):
+        changes.own(appender.with_name("HandledFailureFilter.java").as_posix(),
+                    render((source / "HandledFailureFilter.java").read_text(encoding="utf-8")),
+                    source / "HandledFailureFilter.java")
+    check = Path("src/test/java", *render("{{BASE_PACKAGE}}").split("."), "LogLeakCheck.java")
+    changes.own(check.as_posix(), render((source / "LogLeakCheck.java").read_text(encoding="utf-8")),
+                source / "LogLeakCheck.java")
+    extension = "src/test/resources/META-INF/services/org.junit.jupiter.api.extension.Extension"
+    registered = (project / extension).read_text(encoding="utf-8") if (project / extension).exists() else ""
+    leak_check = render("{{BASE_PACKAGE}}.LogLeakCheck")
+    if leak_check not in (line.strip() for line in registered.splitlines()):
+        changes.write(extension, line_added(registered, leak_check), "patched" if registered else "added")
+    junit = project / "src" / "test" / "resources" / "junit-platform.properties"
+    current = junit.read_text(encoding="utf-8") if junit.exists() else ""
+    autodetection = AUTODETECTION.search(current)
+    if not autodetection:
+        changes.write("src/test/resources/junit-platform.properties",
+                      line_added(current, "junit.jupiter.extensions.autodetection.enabled=true"), "added")
+    elif autodetection[1].lower() != "true":
+        changes.keep("src/test/resources/junit-platform.properties",
+                     "extension autodetection is off, so LogLeakCheck doesn't run; set it to true")
+    logback = project / "src" / "main" / "resources" / "logback-spring.xml"
+    if logback.exists():
+        text = logback.read_text(encoding="utf-8")
+        upgraded = upgraded_otel_appender(text, (source / "logback-spring.xml").read_text(encoding="utf-8"))
+        if "OpenTelemetryAppender" not in text:
+            changes.keep("src/main/resources/logback-spring.xml",
+                         f"add the OTEL appender from {source / 'logback-spring.xml'}")
+        elif upgraded is None:
+            changes.keep("src/main/resources/logback-spring.xml", otel_cap_note(text))
+        else:
+            changes.write("src/main/resources/logback-spring.xml", upgraded, "patched")
+    else:
+        changes.write("src/main/resources/logback-spring.xml", (source / "logback-spring.xml").read_text(encoding="utf-8"),
+                      "added")
+
+    config = main_config(project)
+    if config is None:
+        changes.write("src/main/resources/application.properties",
+                      import_observability_defaults("", False) + f"spring.application.name={project.name}\n", "added")
+        return
+    relative = config.relative_to(project).as_posix()
+    text = config.read_text(encoding="utf-8")
+    if not re.search(r"spring\.application\.name|^\s+application:\s*\n\s+name:", text, re.M):
+        changes.lines.append(f"{'note':8} {relative} has no spring.application.name, which names the service on every "
+                             "dashboard; add it")
+    updated = text if OBSERVABILITY_IMPORT in text else import_observability_defaults(text, config.suffix != ".properties")
+    if updated is None:
+        changes.keep(relative, f"add optional:classpath:{OBSERVABILITY_IMPORT} to spring.config.import by hand")
+        updated = text
+    updated = narrowed_exposure(updated)
+    if updated != text:
+        changes.write(relative, updated, "patched")
+    else:
+        changes.keep(relative, "imports the observability defaults")
+    if re.search(r"grafana/otel-lgtm", (project / "compose.yml").read_text(encoding="utf-8")
+                 if (project / "compose.yml").exists() else ""):
+        changes.lines.append(f"{'note':8} compose.yml already runs otel-lgtm, on the ports compose.observability.yml uses; "
+                             "remove that service")
+
+
 def null_marked_packages(project: Path, base_package: str) -> tuple[int, int]:
     """(packages with @NullMarked in package-info.java, packages with Java sources) under the base package."""
     base = project / "src" / "main" / "java" / Path(*base_package.split("."))
@@ -296,7 +523,7 @@ def null_marked_packages(project: Path, base_package: str) -> tuple[int, int]:
 
 
 def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool = True,
-          nullaway: str | None = None) -> list[str]:
+          nullaway: str | None = None, observability: bool = True) -> list[str]:
     pom_path = project / "pom.xml"
     if not pom_path.exists():
         sys.exit("ERROR: no pom.xml. The harness supports Maven projects only.")
@@ -312,7 +539,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     def at_root(relative: str | Path) -> str:
         return Path(os.path.relpath(root / relative, project)).as_posix()
 
-    patched = patch_pom(pom, base_package, modules, nullaway)
+    patched = patch_pom(pom, base_package, modules, nullaway, observability)
     if patched == pom:
         changes.keep("pom.xml", "harness already present")
     else:
@@ -487,6 +714,8 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         text = render((ASSETS / "project-skills" / skill / "SKILL.md").read_text(encoding="utf-8"))
         for skills_dir in SKILL_DIRS:
             changes.own(f"{skills_dir}/{skill}/SKILL.md", text, ASSETS / "project-skills" / skill / "SKILL.md")
+    if observability:
+        apply_observability(project, changes, render, pom)
     changes.save_lock()
     return changes.lines
 
@@ -502,10 +731,12 @@ def main():
                         help="'all' (default for a new install) checks every class under the base package; 'marked' "
                              "checks only packages with @NullMarked, so an existing codebase adopts it package by "
                              "package. A rerun without the flag keeps the pom's current mode")
+    parser.add_argument("--no-observability", action="store_true",
+                        help="Skip the observability pack. A rerun with this flag leaves an installed pack in place")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     for line in apply(Path(args.project).resolve(), args.base_package, args.dry_run, not args.no_modules,
-                      args.nullaway):
+                      args.nullaway, not args.no_observability):
         print(line)
     if not (Path(args.project) / "mvnw").exists():
         print("\nWARNING: no Maven wrapper here, and AGENTS.md, the Stop hook and CI all call ./mvnw. Add it with: "

@@ -1,0 +1,15 @@
+# Local Grafana, Prometheus, Tempo and Loki. Start it with: docker compose -f compose.observability.yml up -d
+# It's separate from compose.yml so that Boot's Docker Compose support doesn't start it on every run.
+# The image version is pinned because the dashboards depend on its metric names.
+services:
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.39.0
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3100:3100"
+      - "127.0.0.1:3200:3200"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./observability/dashboards:/otel-lgtm/project-dashboards:ro
+      - ./observability/grafana-provider.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/project.yaml:ro

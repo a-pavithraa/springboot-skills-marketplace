@@ -386,3 +386,15 @@ Fixture, hidden scorer and runner: `tests/fixtures/scenario-24/`. Same planted p
 **Objective:** Find out whether agents map JPA collections the way Vlad Mihalcea advises without being told: `Set` for `@ManyToMany`, `List` for a bidirectional `@OneToMany`, one collection per fetch instead of switching to `Set` to silence `MultipleBagFetchException`, and no `REMOVE` cascade on `@ManyToMany`.
 
 Fixture, hidden scorer and runner: `tests/fixtures/scenario-26/`. A blog service on H2: posts with a `List` of comments and a `List` of shared tags mapped with `cascade = ALL`. Prompt: "Optimize the persistence code in this project." Arms: no skill, and `code-reviewer` as a project skill. Scored by statements and rows read per request (`key.md`), so the `Set` shortcut, which needs fewer statements but reads the Cartesian product, can't pass as a fix.
+
+## Scenario 27: telemetry.py against planted server failures
+
+**Skill:** `spring-boot-team-harness`, `assets/observability/telemetry.py`.
+
+**Task:** `fixtures/scenario-27/task.md`. The agent verifies four endpoints of a running app. Three return healthy responses while a dependency fails, and one is clean.
+
+**Arms:** Baseline has the source and the app's console log in `logs/`, without being told about it. Telemetry has the same, plus `telemetry.py` and a line telling the agent to use it.
+
+**Score:** `fixtures/scenario-27/score.py` compares the agent's final JSON with `answers.json`: bugs caught, false alarms, turns and cost.
+
+**Run:** `tests/fixtures/scenario-27/run.sh <work-dir> [runs-per-arm]`. Needs Docker, and each session is capped by `BUDGET` dollars.

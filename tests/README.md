@@ -16,6 +16,7 @@
 | 23 | code-reviewer | Scenario 17 on Haiku, with a no-skill arm |
 | 24 | spring-data-jpa (retired) | Scenario 14 on Haiku |
 | 26 | code-reviewer (`jpa-performance.md`) | `Set` or `List` for JPA collections, scored by statements and rows read |
+| 27 | spring-boot-team-harness (`telemetry.py`) | Server failures behind healthy responses, with and without the CLI |
 
 To add a scenario, write the task and how it's scored in `baseline-scenarios.md`, run it with and without the skill, and record both runs in `baseline-results/scenario-N.md`. Put the fixture, its answer key or scorer, and a `run.sh` in `fixtures/scenario-N/` so others can rerun it (see `fixtures/README.md`).
 
@@ -26,6 +27,7 @@ To add a scenario, write the task and how it's scored in `baseline-scenarios.md`
 - `test_scan_migration_issues.py`: Maven dependency boundaries, exclusions and namespaces, Modulith schema detection in properties and YAML, SQL comments.
 - `test_progen_config.py`: package and app-name validation, the existing-directory guard, progen failure handling, and Java version patching. A fake `progen` on `PATH` replaces the real binary.
 - `test_check_new_project.py`: the new-project checks.
+- `test_check_dashboards.py`: which empty panels and missing traces `check_dashboards.py` fails on.
 - `test_apply_harness.py`: where the harness script puts each pom fragment, the files it adds or appends to, idempotency, `--no-modules` and `--dry-run`.
 - `test_install.py`: the installer picks only the listed skills at the pinned commit, replaces only Codex folders it copied, turns auto-update on without overriding the user's choice, and every upstream entry is pinned to a full commit.
 - `test_baseline.py`: reading NullAway errors from Maven output (Windows and POSIX paths), and marking a class `@NullUnmarked` without disturbing its annotations or line endings.

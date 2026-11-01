@@ -242,6 +242,46 @@ class CodeRulesTests {
     }
 
     @Test
+    void exceptionsGoToTheLogger() {
+        frozenIfRecorded(noClasses()
+                .should()
+                .callMethodWhere(com.tngtech.archunit.core.domain.JavaCall.Predicates.target(
+                        com.tngtech.archunit.core.domain.properties.HasName.Predicates.name("printStackTrace")))
+                .because("printStackTrace skips log levels and the trace id, so the failure can't be found. "
+                        + "Log it with org.slf4j.Logger")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void catchAllHandlersKeepTheExceptionServerSide() {
+        frozenIfRecorded(methods()
+                .that()
+                .areMetaAnnotatedWith("org.springframework.web.bind.annotation.ExceptionHandler")
+                .should(notReadTheMessageOfACatchAll())
+                .because("the message of an unexpected exception holds internals and can hold personal data, and "
+                        + "logging only the message drops the stack trace. Return a generic ProblemDetail; "
+                        + "HandledFailureFilter logs the exception with its cause")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void openTelemetryComesFromBoot() {
+        frozenIfRecorded(noMethods()
+                .that()
+                .areAnnotatedWith("org.springframework.context.annotation.Bean")
+                .should()
+                .haveRawReturnType("io.opentelemetry.api.OpenTelemetry")
+                .orShould()
+                .haveRawReturnType("io.opentelemetry.sdk.OpenTelemetrySdk")
+                .because("your own OpenTelemetry bean switches off Boot's auto-configuration, so traces can "
+                        + "disappear with no error. Set management.opentelemetry.* instead")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
     void httpClientsComeFromTheBuilder() {
         frozenIfRecorded(classes()
                 .should(buildHttpClientsWithTimeouts())
@@ -405,6 +445,25 @@ class CodeRulesTests {
                 .because("a disabled test keeps the build green while it checks nothing. Fix the test or delete it")
                 .allowEmptyShould(true))
                 .check(TESTS);
+    }
+
+    private static ArchCondition<JavaMethod> notReadTheMessageOfACatchAll() {
+        Set<String> catchAll = Set.of("java.lang.Exception", "java.lang.RuntimeException", "java.lang.Throwable");
+        return new ArchCondition<>("not read the message of a catch-all exception") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                boolean broad = method.getRawParameterTypes().stream()
+                        .anyMatch(type -> catchAll.contains(type.getName()));
+                if (!broad) {
+                    return;
+                }
+                method.getMethodCallsFromSelf().stream()
+                        .filter(call -> call.getTargetOwner().isAssignableTo(Throwable.class))
+                        .filter(call -> call.getName().equals("getMessage")
+                                || call.getName().equals("getLocalizedMessage"))
+                        .forEach(call -> events.add(SimpleConditionEvent.violated(call, call.getDescription())));
+            }
+        };
     }
 
     private static ArchRule frozenIfRecorded(ArchRule rule) {
