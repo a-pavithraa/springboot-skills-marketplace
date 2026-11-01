@@ -4,7 +4,7 @@
 
 Progen has no architecture option. Its layout is always package-by-module with Spring Modulith (`config/`, `shared/`, `users/`).
 
-Tested with progen v1.0.3 on 2026-10-21 (REST, Maven, PostgreSQL). Progen pins Spring Boot 4.1.1 and Java 25. v1.0.4 (2026-10-24) changed `ArchUnitTests` and has not been tested here.
+Tested with progen v1.0.4 on 2026-10-31 (REST, Maven, PostgreSQL). Progen pins Spring Boot 4.1.2 and Java 25. v1.0.4 (2026-10-24) changed `ArchUnitTests` and has not been tested here.
 
 ## When to use progen
 
@@ -38,7 +38,7 @@ Install: `go install github.com/sivaprasadreddy/progen@latest`, or download a bi
 | SQL-first, user asks for it | `--persistence jdbc\|jooq` | `Spring JdbcClient` / `jOOQ` |
 | Database | `--db postgresql\|mysql\|mariadb` | `PostgreSQL` / `MySQL` / `MariaDB` |
 | Migrations | `--migration flyway\|liquibase` | `Flyway` / `Liquibase` |
-| Optional features | `--features aws,email,rabbitmq,redis,otel,k8s,htmx` | `*Support: true` |
+| Optional features | `--features aws,email,rabbitmq,redis,k8s,htmx` | `*Support: true` |
 | Java other than 25 | `--java 21` | Script edits the build file after generation |
 
 Rules:
@@ -46,6 +46,7 @@ Rules:
 - Tomato and DDD+Hexagonal need `--persistence jpa`. The templates in `assets/` assume JPA.
 - With `jdbc` or `jooq`, do not apply JPA templates (`assets/rich-entity.java`, `assets/repository.java`).
 - `htmx` needs `--app-type web`.
+- Don't pass `otel`. Step 6 of `SKILL.md` runs the harness, whose observability pack replaces it. Progen's option (checked on v1.0.4) sets `management.tracing.export.enabled=${TRACING_ENABLED:false}` (false stops the app joining a caller's trace), samples every request in shipped config, and has no switch for metrics export.
 - Read `java-version-policy.md` before you pass `--java` above 25.
 
 ## Step 2: Generate
@@ -113,3 +114,16 @@ Change a rule only when it conflicts with the chosen architecture:
 ```
 
 Run `ArchUnitTests` and `ModularityTests` first. They run without Docker and catch layout errors quickly.
+
+## Align the project with the harness
+
+`scripts/align_progen_project.py` adjusts a new project to the harness rules. `progen_config.py --run` runs it after generating. When you run progen another way, run it yourself before the harness.
+
+| File | Change | Why |
+|---|---|---|
+| `users/AuthUtils`, `users/TokenHelper` | Marks three methods that can return `null` as `@Nullable` | NullAway in `all` mode |
+| `config/GlobalExceptionHandler` | Returns a generic detail from the catch-all handler | `CodeRulesTests.catchAllHandlersKeepTheExceptionServerSide` |
+| `config/GlobalExceptionHandler` | Leaves the logging of failures to `HandledFailureFilter` | Each 5xx is logged once |
+| `users/AuthController`, `users/UserRestController` | Removes the email address from log lines | `LogLeakCheck` |
+
+Each edit matches exact generated text. If the script prints `skipped`, the generated code differs: check it against these rules, then update the script. Checked on progen v1.0.4 with REST, Maven, JPA and PostgreSQL.
