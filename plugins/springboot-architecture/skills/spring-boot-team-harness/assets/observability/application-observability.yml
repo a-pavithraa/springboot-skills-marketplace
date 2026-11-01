@@ -1,0 +1,18 @@
+# Local only: sends everything to the Grafana stack in compose.observability.yml, over the same OTLP path a
+# deployment uses. Deployed environments set OTLP_EXPORT_ENABLED instead. See docs/observability.md.
+management:
+  tracing:
+    sampling:
+      probability: 1
+    export:
+      otlp:
+        enabled: true
+  logging:
+    export:
+      otlp:
+        enabled: true
+  otlp:
+    metrics:
+      export:
+        enabled: true
+        step: 10s

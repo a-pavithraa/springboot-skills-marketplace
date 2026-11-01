@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: project
+    folder: Project
+    type: file
+    options:
+      path: /otel-lgtm/project-dashboards

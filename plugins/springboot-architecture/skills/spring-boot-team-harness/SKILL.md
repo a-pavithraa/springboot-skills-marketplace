@@ -17,6 +17,8 @@ The harness steers the agent in three places. `AGENTS.md` tells it how this repo
    `${CLAUDE_SKILL_DIR}` is this skill's folder. Codex doesn't set it, so there use the folder this `SKILL.md` is in.
    Run it in the Maven project's folder. When that folder is inside a larger repository (for example `backend/` next to `frontend/`), the CI workflow, `.claude/settings.json`, the hooks and `.gitattributes` go to the repository root, where GitHub and Claude Code read them, and the root `AGENTS.md` gets a line pointing to the project's own. The Stop hook then reacts only to changes in that folder.
 
+   The observability pack comes by default: dependencies, safe defaults, a local Grafana stack, Service health and JVM dashboards, a filter that logs and marks every handled 5xx, a test check that fails on logged emails and credentials, and `docs/observability.md`. Telemetry stays off in deployments until `OTLP_EXPORT_ENABLED=true`. It narrows `management.endpoints.web.exposure.include` to what's safe on the public port, and says so. Pass `--no-observability` to skip it.
+
    Pass `--no-modules` when the base package's subpackages are layers (`controller`, `service`, `domain`) rather than modules; Spring Modulith would report them as cycles. Rerunning with `--no-modules` after a run without it removes `ModuleBoundariesTests` and the `add-module` skill unless they were edited, and names what to remove from `AGENTS.md` by hand.
 
    NullAway checks every class under the base package by default. On an existing codebase with many null findings, offer `--nullaway marked`: NullAway then checks only packages whose `package-info.java` has `@NullMarked`, so the team adopts null-safety one package at a time instead of marking classes `@NullUnmarked` across the codebase. The script reports how many packages are marked. With none, NullAway checks nothing, so mark at least the packages the team changes most. A rerun keeps the pom's mode unless `--nullaway` is passed again. Switch to `--nullaway all` once every package is marked.
@@ -34,6 +36,7 @@ The harness steers the agent in three places. `AGENTS.md` tells it how this repo
    - The app has a UI, or signs users in with `oauth2Login`: `/pstack:create-verification-skill`. It generates a skill that drives the real app and saves evidence. For a browser app, tell it to follow `references/browser-verification.md`.
    - The riskiest code is a state machine, retries, idempotency or concurrent updates: `/pstack:create-formal-verification-skill`. It checks one property of that code against every case in a stated scope.
    - Both apply: start with the first; the second can follow in its own pull request.
+   If the project has `docs/observability.md`, tell the generator to read it, so journeys also check for server errors the page hides.
    If pstack isn't installed, say so and skip this step. Adding the skill to `AGENTS.md` doesn't make agents use it. They verify when the task asks for proof, so tell the team to ask for it in the task.
 
 ## What each piece does

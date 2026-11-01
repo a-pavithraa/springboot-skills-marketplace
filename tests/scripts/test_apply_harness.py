@@ -205,7 +205,8 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("Spring Boot 4.1.1 on Java 25", agents)
         for path in root.rglob("*"):
             if path.is_file():
-                self.assertNotIn("{{", path.read_text(encoding="utf-8"), path)
+                if "dashboards" not in path.parts:  # Grafana legends use {{label}}
+                    self.assertNotIn("{{", path.read_text(encoding="utf-8"), path)
 
     def test_project_skills_go_to_both_claude_and_codex_folders(self):
         root = self.project(STANDARD)
@@ -220,6 +221,238 @@ class ApplyHarnessTests(unittest.TestCase):
         self.run_script(root)
         self.assertTrue((root / ".claude/skills/db-migration/SKILL.md").exists())
         self.assertTrue((root / ".agents/skills/db-migration/SKILL.md").exists())
+
+    def test_observability_comes_by_default_and_once(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        self.run_script(root)
+        pom_text = (root / "pom.xml").read_text(encoding="utf-8")
+        self.assertEqual(pom_text.count("<artifactId>spring-boot-starter-opentelemetry</artifactId>"), 1)
+        self.assertEqual(pom_text.count("<artifactId>opentelemetry-logback-appender-1.0</artifactId>"), 1)
+        for path in ("compose.observability.yml", "docs/observability.md", "observability/check_dashboards.py",
+                     "observability/dashboards/service-health.json",
+                     "observability/dashboards/jvm-resources.json",
+                     "src/main/resources/application-observability-defaults.yml",
+                     "src/main/resources/logback-spring.xml"):
+            self.assertTrue((root / path).exists(), path)
+        defaults = (root / "src/main/resources/application-observability-defaults.yml").read_text(encoding="utf-8")
+        self.assertIn("enabled: ${OTLP_EXPORT_ENABLED:false}", defaults)
+        self.assertIn("include-parameter-values: false", defaults)
+        self.assertNotRegex(defaults, r"export:\s+# [^\n]*\n\s+enabled: false")
+        self.assertIn("service.instance.id:", defaults)
+        self.assertIn("service.version:", defaults)
+        appender = next(root.rglob("InstallOpenTelemetryAppender.java")).read_text(encoding="utf-8")
+        self.assertIn("@Lazy(false)", appender)
+        compose = (root / "compose.observability.yml").read_text(encoding="utf-8")
+        self.assertNotRegex(compose, r'- "\d+:\d+"')
+        health = json.loads((root / "observability/dashboards/service-health.json").read_text(encoding="utf-8"))
+        log_panels = [panel for panel in health["panels"] if panel["targets"][0].get("logql")]
+        self.assertTrue(any(not panel.get("optional") for panel in log_panels))
+
+    def test_logging_guards_are_added(self):
+        root = self.project(STANDARD)
+        (root / "src/test/resources").mkdir(parents=True, exist_ok=True)
+        (root / "src/test/resources/junit-platform.properties").write_text("a=b\n", encoding="utf-8")
+        self.run_script(root)
+        self.run_script(root)
+        properties = (root / "src/test/resources/junit-platform.properties").read_text(encoding="utf-8")
+        self.assertEqual(properties, "a=b\njunit.jupiter.extensions.autodetection.enabled=true\n")
+        self.assertTrue(next(root.rglob("LogLeakCheck.java"), None))
+        service = root / "src/test/resources/META-INF/services/org.junit.jupiter.api.extension.Extension"
+        self.assertRegex(service.read_text(encoding="utf-8"), r"\.LogLeakCheck$")
+
+    def test_an_older_otel_appender_gets_the_info_cap(self):
+        plain = ('<configuration>\n    <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.'
+                 'appender.v1_0.OpenTelemetryAppender"/>\n    <root/>\n</configuration>\n')
+        tuned = plain.replace('OpenTelemetryAppender"/>', 'OpenTelemetryAppender">\n'
+                              '        <captureCodeAttributes>true</captureCodeAttributes>\n    </appender>')
+        for existing in (plain, tuned):
+            root = self.project(STANDARD)
+            logback = root / "src/main/resources/logback-spring.xml"
+            logback.parent.mkdir(parents=True, exist_ok=True)
+            logback.write_text(existing, encoding="utf-8")
+            self.run_script(root)
+            patched = logback.read_text(encoding="utf-8")
+            ET.fromstring(patched)
+            self.assertEqual(patched.count("ThresholdFilter"), 1)
+            self.assertEqual(patched.count("captureKeyValuePairAttributes>true"), 1)
+            self.assertEqual("captureCodeAttributes" in patched, "captureCodeAttributes" in existing)
+            self.run_script(root)
+            self.assertEqual(logback.read_text(encoding="utf-8"), patched)
+
+    def test_a_low_threshold_on_the_otel_appender_is_reported_not_trusted(self):
+        appender = ('<configuration><appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.'
+                    'OpenTelemetryAppender"><filter class="ch.qos.logback.classic.filter.ThresholdFilter">'
+                    '<level>{}</level></filter></appender></configuration>\n')
+        for level, expected in (("DEBUG", "level is DEBUG: set it to INFO by hand"), ("WARN", "already stops at WARN"),
+                                ("${LEVEL}", "level is ${LEVEL}: set it to INFO by hand")):
+            root = self.project(STANDARD, {"src/main/resources/logback-spring.xml": appender.format(level)})
+            self.assertIn(expected, self.run_script(root).stdout)
+            self.assertEqual((root / "src/main/resources/logback-spring.xml").read_text(encoding="utf-8"),
+                             appender.format(level))
+
+    def test_log_leak_check_joins_existing_junit_setup(self):
+        services = "src/test/resources/META-INF/services/org.junit.jupiter.api.extension.Extension"
+        properties = "src/test/resources/junit-platform.properties"
+        root = self.project(STANDARD, {services: "com.acme.Other", properties: "junit.jupiter.testclass.order.default=x"})
+        self.run_script(root)
+        self.run_script(root)
+        self.assertEqual((root / services).read_text(encoding="utf-8"), "com.acme.Other\ncom.acme.orders.LogLeakCheck\n")
+        self.assertEqual((root / properties).read_text(encoding="utf-8"), "junit.jupiter.testclass.order.default=x\n"
+                         "junit.jupiter.extensions.autodetection.enabled=true\n")
+
+    def test_autodetection_turned_off_is_reported(self):
+        properties = "src/test/resources/junit-platform.properties"
+        root = self.project(STANDARD, {properties: "junit.jupiter.extensions.autodetection.enabled=false\n"})
+        self.assertIn("LogLeakCheck doesn't run", self.run_script(root).stdout)
+
+    def test_messaging_and_reactive_defaults_follow_the_starters(self):
+        dependency = "<dependency><artifactId>{}</artifactId></dependency></dependencies>"
+        root = self.project(STANDARD.replace("</dependencies>", dependency.format("spring-boot-starter-kafka"), 1))
+        self.run_script(root)
+        defaults = (root / "src/main/resources/application-observability-defaults.yml").read_text(encoding="utf-8")
+        self.assertIn("kafka:", defaults)
+        self.assertNotIn("rabbitmq:", defaults)
+        self.assertNotIn("reactor:", defaults)
+        self.assertIn("spring:\n  kafka:\n", defaults)
+
+    def test_no_observability_adds_none_of_it(self):
+        root = self.project(STANDARD)
+        self.run_script(root, "--no-observability")
+        pom_text = (root / "pom.xml").read_text(encoding="utf-8")
+        self.assertNotIn("opentelemetry", pom_text)
+        self.assertNotIn("datasource-micrometer", pom_text)
+        self.assertFalse((root / "compose.observability.yml").exists())
+
+    def test_no_observability_describes_only_what_is_installed(self):
+        root = self.project(STANDARD)
+        self.run_script(root, "--no-observability")
+        guides = (root / "AGENTS.md").read_text(encoding="utf-8") + (root / "REVIEW.md").read_text(encoding="utf-8")
+        for missing in ("LogLeakCheck", "HandledFailureFilter", "docs/observability.md", "panel", ":begin"):
+            self.assertNotIn(missing, guides)
+
+    def test_the_pack_is_described_when_installed(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        guides = (root / "AGENTS.md").read_text(encoding="utf-8") + (root / "REVIEW.md").read_text(encoding="utf-8")
+        for present in ("LogLeakCheck", "HandledFailureFilter", "docs/observability.md"):
+            self.assertIn(present, guides)
+        self.assertNotIn(":begin", guides)
+        self.assertNotIn(":begin", (root / "docs/observability.md").read_text(encoding="utf-8"))
+
+    def test_a_project_without_the_filter_is_not_told_about_it(self):
+        root = self.project(STANDARD.replace("spring-boot-starter-webmvc", "spring-boot-starter"))
+        self.run_script(root)
+        guides = "".join((root / name).read_text(encoding="utf-8")
+                         for name in ("AGENTS.md", "REVIEW.md", "docs/observability.md"))
+        self.assertNotIn("HandledFailureFilter", guides)
+        self.assertIn("LogLeakCheck", guides)
+
+    def test_a_rerun_opting_out_keeps_describing_an_installed_pack(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        (root / "REVIEW.md").unlink()
+        self.run_script(root, "--no-observability")
+        self.assertIn("HandledFailureFilter", (root / "REVIEW.md").read_text(encoding="utf-8"))
+
+    def test_adding_the_pack_later_flags_the_agents_file(self):
+        root = self.project(STANDARD)
+        self.run_script(root, "--no-observability")
+        self.assertIn("AGENTS.md doesn't mention the observability pack", self.run_script(root).stdout)
+
+    def test_jdbc_query_time_has_a_histogram(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        self.assertIn("jdbc.query: true", (root / "src/main/resources/application-observability-defaults.yml")
+                      .read_text(encoding="utf-8"))
+
+    def test_sql_tracing_comes_only_with_a_database(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        self.assertNotIn("datasource-micrometer", (root / "pom.xml").read_text(encoding="utf-8"))
+        with_jdbc = STANDARD.replace("<dependencies>", """<dependencies>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jdbc</artifactId></dependency>""", 1)
+        root = self.project(with_jdbc)
+        self.run_script(root)
+        pom_text = (root / "pom.xml").read_text(encoding="utf-8")
+        self.assertEqual(pom_text.count("<artifactId>datasource-micrometer-spring-boot</artifactId>"), 1)
+        self.assertIn("<datasource-micrometer.version>", pom_text)
+
+    def test_existing_config_imports_the_defaults_and_loses_unsafe_endpoints(self):
+        root = self.project(STANDARD, {"src/main/resources/application.properties":
+                                       "spring.application.name=orders\n"
+                                       "management.endpoints.web.exposure.include=configprops,env,health,info\n"})
+        self.run_script(root)
+        config = (root / "src/main/resources/application.properties").read_text(encoding="utf-8")
+        self.assertIn("spring.config.import=optional:classpath:application-observability-defaults.yml", config)
+        self.assertIn("management.endpoints.web.exposure.include=health,info\n", config)
+
+    def test_exposure_on_a_separate_management_port_is_left_to_the_gate(self):
+        exposure = "management.endpoints.web.exposure.include=health,loggers\n"
+        root = self.project(STANDARD, {"src/main/resources/application.properties":
+                                       "spring.application.name=orders\nmanagement.server.port=9090\n" + exposure})
+        self.run_script(root)
+        self.assertIn(exposure, (root / "src/main/resources/application.properties").read_text(encoding="utf-8"))
+
+    def test_an_existing_import_is_joined_not_replaced(self):
+        root = self.project(STANDARD, {"src/main/resources/application.properties":
+                                       "spring.application.name=orders\n"
+                                       "spring.config.import=optional:file:.env.properties\n"})
+        self.run_script(root)
+        self.run_script(root)
+        config = (root / "src/main/resources/application.properties").read_text(encoding="utf-8")
+        self.assertIn("spring.config.import=optional:file:.env.properties,"
+                      "optional:classpath:application-observability-defaults.yml\n", config)
+        self.assertEqual(config.count("spring.config.import"), 1)
+
+    def test_an_existing_yaml_import_is_joined_not_replaced(self):
+        root = self.project(STANDARD, {"src/main/resources/application.yml":
+                                       "spring:\n  config:\n    import: optional:file:.env[.properties]\n"
+                                       "  application:\n    name: orders\n"})
+        self.run_script(root)
+        config = (root / "src/main/resources/application.yml").read_text(encoding="utf-8")
+        self.assertIn("    import: optional:file:.env[.properties],"
+                      "optional:classpath:application-observability-defaults.yml\n", config)
+
+    def test_yaml_import_forms_stay_valid_or_are_left_for_a_person(self):
+        location = "optional:classpath:application-observability-defaults.yml"
+        spec = importlib.util.spec_from_file_location("apply_harness", SCRIPT)
+        harness = importlib.util.module_from_spec(spec)
+        sys.modules["apply_harness"] = harness
+        spec.loader.exec_module(harness)
+        nested = "spring:\n  config:\n    import: {}\n"
+        for existing, joined in (('"a.yml"', f'"a.yml,{location}"'),
+                                 ("'a.yml' # note", f"'a.yml,{location}' # note"),
+                                 ("[a.yml, b.yml]", f"[a.yml, b.yml, {location}]"),
+                                 ("a.yml # note", f"a.yml,{location} # note")):
+            self.assertEqual(harness.import_observability_defaults(nested.format(existing), True), nested.format(joined))
+        self.assertEqual(harness.import_observability_defaults("spring.config.import: a.yml\n", True),
+                         f"spring.config.import: a.yml,{location}\n")
+        for unsafe in ("spring:\n  config:\n    import:\n      - a.yml\n", nested.format("[a[1].yml]"),
+                       nested.format("a.yml") + "---\n" + nested.format("b.yml"),
+                       "spring:\n    application:\n        name: orders\n", "spring: # main\n  application:\n    name: a\n"):
+            self.assertIsNone(harness.import_observability_defaults(unsafe, True), unsafe)
+        unrelated = "app:\n  import: catalog.csv\n"
+        self.assertIn("app:\n  import: catalog.csv\n", harness.import_observability_defaults(unrelated, True))
+        self.assertIn(f"spring:\n  config:\n    import: {location}\n", harness.import_observability_defaults(unrelated, True))
+        self.assertIsNone(harness.import_observability_defaults("spring.config.import[0]=a.yml\n", False))
+        self.assertIsNone(harness.import_observability_defaults("spring.config.import=a.yml,\\\n  b.yml\n", False))
+
+    def test_a_list_import_stays_valid_yaml_after_a_second_run(self):
+        root = self.project(STANDARD, {"src/main/resources/application.yml":
+                                       "spring:\n  application:\n    name: orders\n  config:\n    import: [a.yml]\n"})
+        self.run_script(root)
+        self.run_script(root)
+        config = (root / "src/main/resources/application.yml").read_text(encoding="utf-8")
+        self.assertEqual(config.count("application-observability-defaults.yml"), 1)
+        self.assertIn("import: [a.yml, optional:classpath:", config)
+
+    def test_yaml_config_gets_the_import_under_spring(self):
+        root = self.project(STANDARD, {"src/main/resources/application.yml": "spring:\n  application:\n    name: orders\n"})
+        self.run_script(root)
+        config = (root / "src/main/resources/application.yml").read_text(encoding="utf-8")
+        self.assertIn("spring:\n  config:\n    import: optional:classpath:application-observability-defaults.yml\n"
+                      "  application:\n", config)
 
     def test_no_modules_leaves_out_modulith_for_layered_projects(self):
         root = self.project(STANDARD)

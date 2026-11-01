@@ -148,6 +148,8 @@ python3 "${CLAUDE_SKILL_DIR}/../spring-boot-team-harness/scripts/apply_harness.p
 
 `${CLAUDE_SKILL_DIR}` is this skill's folder. Codex doesn't set it, so there use the folder this `SKILL.md` is in.
 
+This also adds the observability pack, so every new project starts with traces, metrics, logs, a local Grafana stack and a dashboard. See `docs/observability.md` in the generated project.
+
 On a progen project, it keeps what progen already set up (Spotless, Spring Modulith, `ModularityTests`, `ArchUnitTests`, `AGENTS.md`) and adds only what's missing. See `references/progen-integration.md` for the `ArchUnitTests` rules that conflict with some architectures. Then run `./mvnw spotless:apply` and `./mvnw verify`. Expect NullAway to flag progen methods that return `null` without `@Nullable`: annotate them and handle the null at the callers. Then draft the `Modules`, `Run and test` and `Team conventions` sections of `AGENTS.md` from the code, as the harness skill's step 4 describes, and go through them with the user.
 
 The harness supports Maven only. For a Gradle project, copy `../spring-boot-team-harness/assets/tests/CodeRulesTests.java` to `src/test/java/<package>/CodeRulesTests.java`, replace `{{TEST_PACKAGE}}` and `{{BASE_PACKAGE}}` with the base package, and add `testImplementation 'com.tngtech.archunit:archunit:1.5.1'`.

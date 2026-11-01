@@ -32,6 +32,11 @@ class ConfigurationKeysTests {
 
     private static final List<String> CHECKED_PREFIXES = List.of("spring.", "management.", "server.", "logging.");
 
+    private static final Set<String> UNSAFE_ENDPOINTS =
+            Set.of("*", "env", "configprops", "beans", "heapdump", "threaddump", "logfile", "loggers", "shutdown");
+
+    private static final Set<String> LOCAL_PROFILES = Set.of("local", "dev", "test", "observability");
+
     private static final String[] METADATA_FILES = {
         "META-INF/spring-configuration-metadata.json", "META-INF/additional-spring-configuration-metadata.json"
     };
@@ -55,6 +60,84 @@ class ConfigurationKeysTests {
             }
         }
         assertThat(problems).as("Fix or remove these configuration keys").isEmpty();
+    }
+
+    @Test
+    void shippedConfigKeepsActuatorPrivate() throws IOException {
+        List<String> problems = new ArrayList<>();
+        Map<String, String> base = new HashMap<>();
+        for (Resource file : configFiles()) {
+            if (!String.valueOf(file.getFilename()).contains("-")) {
+                base.putAll(valuesIn(file));
+            }
+        }
+        for (Resource file : configFiles()) {
+            if (isLocalProfile(file)) {
+                continue;
+            }
+            Map<String, String> values = valuesIn(file);
+            Map<String, String> effective = new HashMap<>(base);
+            effective.putAll(values);
+            if (!actuatorHasItsOwnPort(effective)) {
+                effective.forEach((key, value) -> {
+                    if (key.startsWith("management.endpoints.web.exposure.include")) {
+                        for (String endpoint : value.split(",")) {
+                            if (UNSAFE_ENDPOINTS.contains(endpoint.strip())) {
+                                problems.add(file.getFilename() + " exposes " + endpoint.strip()
+                                        + " on the public port. Move it to a local profile, or set "
+                                        + "management.server.port to a literal port other than server.port, "
+                                        + "and keep that port off the public network");
+                            }
+                        }
+                    }
+                });
+            }
+            if ("always".equals(values.get("management.endpoint.health.show-details"))) {
+                problems.add(file.getFilename() + " shows health details to anyone. Use when-authorized");
+            }
+        }
+        assertThat(problems).as("Actuator can leak secrets and internals").isEmpty();
+    }
+
+    /** Only says the ports differ. Whether the port is reachable depends on the deployment, which can't be read here. */
+    private static boolean actuatorHasItsOwnPort(Map<String, String> values) {
+        String management = port(values.get("management.server.port"));
+        String server = port(values.getOrDefault("server.port", "8080"));
+        if (management == null || server == null) {
+            return false;
+        }
+        return Set.of("0", "-1").contains(management) || !management.equals(server);
+    }
+
+    /** The literal port, or the default of a ${VAR:default} placeholder; null when the file doesn't decide it. */
+    private static @Nullable String port(@Nullable String value) {
+        if (value == null) {
+            return null;
+        }
+        String port = value.strip().replaceAll("^\\$\\{[^:}]+:(.*)}$", "$1");
+        return port.contains("${") ? null : port;
+    }
+
+    private static boolean isLocalProfile(Resource file) {
+        String name = file.getFilename() == null ? "" : file.getFilename();
+        int dash = name.indexOf('-');
+        int dot = name.lastIndexOf('.');
+        return dash > 0 && dot > dash && LOCAL_PROFILES.contains(name.substring(dash + 1, dot));
+    }
+
+    private static Map<String, String> valuesIn(Resource file) throws IOException {
+        String name = file.getFilename() == null ? "" : file.getFilename();
+        PropertySourceLoader loader =
+                name.endsWith(".properties") ? new PropertiesPropertySourceLoader() : new YamlPropertySourceLoader();
+        Map<String, String> values = new HashMap<>();
+        for (PropertySource<?> source : loader.load(name, file)) {
+            if (source instanceof EnumerablePropertySource<?> enumerable) {
+                for (String key : enumerable.getPropertyNames()) {
+                    values.put(key, String.valueOf(enumerable.getProperty(key)));
+                }
+            }
+        }
+        return values;
     }
 
     private static List<Resource> configFiles() throws IOException {

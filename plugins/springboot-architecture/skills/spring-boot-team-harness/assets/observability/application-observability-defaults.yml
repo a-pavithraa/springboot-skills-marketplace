@@ -1,0 +1,61 @@
+# Owned by the team harness. application.yml or .properties imports this file, so its values win over that file.
+# To change one, set the environment variable, or set the key in a profile file such as application-prod.yml.
+# Telemetry leaves the app only over OTLP, and only when OTLP_EXPORT_ENABLED is true. See docs/observability.md.
+management:
+  otlp:
+    metrics:
+      export:
+        enabled: ${OTLP_EXPORT_ENABLED:false}
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+  logging:
+    export:
+      otlp:
+        enabled: ${OTLP_EXPORT_ENABLED:false}
+  tracing:
+    export:
+      # Leave this on: false also stops the app joining a trace started by its caller.
+      enabled: true
+      otlp:
+        enabled: ${OTLP_EXPORT_ENABLED:false}
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+    resource-attributes:
+      deployment.environment.name: ${DEPLOYMENT_ENVIRONMENT:local}
+      service.version: ${spring.application.version:unknown}
+      # Each process needs its own id, or the metrics of two tasks or pods land on one series.
+      service.instance.id: ${random.uuid}
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        jdbc.query: true
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
+
+spring:
+  task:
+    execution:
+      # Without this, a log line from an @Async method has no trace id.
+      propagate-context: true
+
+# SQL with ? placeholders only. Bound values can hold personal data, so they must never reach a span.
+jdbc:
+  includes: query
+  datasource-proxy:
+    include-parameter-values: false
