@@ -46,7 +46,7 @@ Rules:
 - Tomato and DDD+Hexagonal need `--persistence jpa`. The templates in `assets/` assume JPA.
 - With `jdbc` or `jooq`, do not apply JPA templates (`assets/rich-entity.java`, `assets/repository.java`).
 - `htmx` needs `--app-type web`.
-- Don't pass `otel`. Step 6 of `SKILL.md` runs the harness, whose observability pack replaces it. Progen's option (checked on v1.0.4) sets `management.tracing.export.enabled=${TRACING_ENABLED:false}` (false stops the app joining a caller's trace), samples every request in shipped config, and has no switch for metrics export.
+- Don't pass `otel`. Step 6 of `SKILL.md` runs the harness, whose observability pack replaces it.
 - Read `java-version-policy.md` before you pass `--java` above 25.
 
 ## Step 2: Generate
