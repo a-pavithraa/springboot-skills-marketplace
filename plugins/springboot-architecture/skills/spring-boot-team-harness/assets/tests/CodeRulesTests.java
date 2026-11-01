@@ -260,8 +260,8 @@ class CodeRulesTests {
                 .areMetaAnnotatedWith("org.springframework.web.bind.annotation.ExceptionHandler")
                 .should(notReadTheMessageOfACatchAll())
                 .because("the message of an unexpected exception holds internals and can hold personal data, and "
-                        + "logging only the message drops the stack trace. Return a generic ProblemDetail; "
-                        + "HandledFailureFilter logs the exception with its cause")
+                        + "logging only the message drops the stack trace. Return a generic ProblemDetail, and "
+                        + "keep the exception and its cause in the server log")
                 .allowEmptyShould(true))
                 .check(MAIN);
     }

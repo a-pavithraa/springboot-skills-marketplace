@@ -37,6 +37,7 @@ management:
     distribution:
       percentiles-histogram:
         http.server.requests: true
+        jdbc.query: true
   endpoint:
     health:
       probes:

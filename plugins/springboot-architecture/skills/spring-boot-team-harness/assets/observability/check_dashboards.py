@@ -11,6 +11,7 @@ Exit codes: 0 every required panel has data and traces arrive, 1 something is em
 
 import argparse
 import json
+import math
 import sys
 import urllib.parse
 import urllib.request
@@ -31,13 +32,17 @@ def fill(query: str, args) -> str:
             .replace("$__rate_interval", "2m"))
 
 
-def has_data(target: dict, args) -> bool:
+def result(target: dict, args) -> str:
     if target.get("queryType") == "traceql":
-        return bool(get(f"{args.tempo}/api/search", q=fill(target["query"], args), limit=1).get("traces"))
-    if "expr" not in target or target.get("queryType") == "range" or target.get("logql"):
-        return bool(get(f"{args.loki}/loki/api/v1/query_range", query=fill(target["expr"], args), since="1h",
-                        limit=1)["data"]["result"])
-    return bool(get(f"{args.prometheus}/api/v1/query", query=fill(target["expr"], args))["data"]["result"])
+        found = get(f"{args.tempo}/api/search", q=fill(target["query"], args), limit=1).get("traces")
+    elif "expr" not in target or target.get("queryType") == "range" or target.get("logql"):
+        found = get(f"{args.loki}/loki/api/v1/query_range", query=fill(target["expr"], args), since="1h",
+                    limit=1)["data"]["result"]
+    else:
+        found = get(f"{args.prometheus}/api/v1/query", query=fill(target["expr"], args))["data"]["result"]
+        if found and not any(math.isfinite(float(series["value"][1])) for series in found):
+            return "no number"
+    return "data" if found else "empty"
 
 
 def main() -> int:
@@ -52,14 +57,18 @@ def main() -> int:
     for path in sorted(DASHBOARDS.glob("*.json")):
         for panel in json.loads(path.read_text(encoding="utf-8"))["panels"]:
             for target in panel["targets"]:
-                if has_data(target, args):
+                found = result(target, args)
+                if found == "data":
                     print(f"ok    {path.stem}: {panel['title']}")
+                elif found == "no number":
+                    empty += 1
+                    print(f"NaN   {path.stem}: {panel['title']} (no recent traffic, or its histogram is off)")
                 elif panel.get("optional"):
                     print(f"skip  {path.stem}: {panel['title']} (optional, no data)")
                 else:
                     empty += 1
                     print(f"EMPTY {path.stem}: {panel['title']}")
-    if has_data(ANY_TRACE, args):
+    if result(ANY_TRACE, args) == "data":
         print("ok    traces arrive")
     else:
         empty += 1

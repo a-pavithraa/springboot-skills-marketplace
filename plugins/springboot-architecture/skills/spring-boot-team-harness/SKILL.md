@@ -36,7 +36,7 @@ The harness steers the agent in three places. `AGENTS.md` tells it how this repo
    - The app has a UI, or signs users in with `oauth2Login`: `/pstack:create-verification-skill`. It generates a skill that drives the real app and saves evidence. For a browser app, tell it to follow `references/browser-verification.md`.
    - The riskiest code is a state machine, retries, idempotency or concurrent updates: `/pstack:create-formal-verification-skill`. It checks one property of that code against every case in a stated scope.
    - Both apply: start with the first; the second can follow in its own pull request.
-   Tell the generator to read `docs/observability.md`, so journeys also check for server errors the page hides.
+   If the project has `docs/observability.md`, tell the generator to read it, so journeys also check for server errors the page hides.
    If pstack isn't installed, say so and skip this step. Adding the skill to `AGENTS.md` doesn't make agents use it. They verify when the task asks for proof, so tell the team to ask for it in the task.
 
 ## What each piece does

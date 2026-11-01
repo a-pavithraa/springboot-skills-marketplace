@@ -35,6 +35,7 @@ TAG = re.compile(r"<!--.*?-->|<(/?)([\w.:-]+)[^>]*?(/?)>", re.S)
 ITEM = re.compile(r"^ *<(?P<kind>dependency|plugin)>.*?^ *</(?P=kind)>\n|^ *<(?P<property>[\w.-]+)>[^<]*</(?P=property)>\n",
                   re.S | re.M)
 MODULE_BLOCK = re.compile(r"<!-- modules:begin -->\n(.*?)<!-- modules:end -->\n", re.S)
+PACK_BLOCK = re.compile(r"<!-- (observability|failure-filter):begin -->(\n)?(.*?)<!-- \1:end -->(?(2)\n)", re.S)
 SKILL_DIRS = (".claude/skills", ".agents/skills")
 ARCHUNIT = re.compile(r"<artifactId>\s*(taikai|archunit[\w-]*)\s*</artifactId>")
 WORKFLOW = ".github/workflows/verify.yml"
@@ -567,9 +568,13 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         "{{NULLAWAY_CHECKED}}": nullaway_checked(nullaway, base_package),
     }
     other_mode = nullaway_checked("all" if nullaway == "marked" else "marked", base_package)
+    # A rerun with --no-observability leaves an installed pack in place, so the docs still describe it.
+    has_pack = observability or (project / "docs" / "observability.md").exists()
+    installed = {"observability": has_pack, "failure-filter": bool(has_pack and USES_TOMCAT.search(pom))}
 
     def render(text: str, with_modules: bool = modules) -> str:
         text = MODULE_BLOCK.sub(lambda match: match.group(1) if with_modules else "", text)
+        text = PACK_BLOCK.sub(lambda match: match.group(3) if installed[match.group(1)] else "", text)
         for placeholder, value in values.items():
             text = text.replace(placeholder, value)
         return text
@@ -591,6 +596,9 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
                                       "section by hand")
         else:
             changes.keep("AGENTS.md", "has the harness section")
+        if has_pack and "docs/observability.md" not in current:
+            changes.lines.append(f"{'note':8} AGENTS.md doesn't mention the observability pack; add its lines "
+                                 "from the template by hand")
     else:
         section = agents_template[agents_template.index("## Done means"):agents_template.index("## Team conventions")]
         existing = agents.read_text(encoding="utf-8").rstrip("\n")
@@ -645,7 +653,7 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     if (root / "REVIEW.md").exists():
         changes.keep(at_root("REVIEW.md"), "the team's review guide")
     else:
-        changes.write(at_root("REVIEW.md"), (ASSETS / "project" / "REVIEW.md").read_text(encoding="utf-8"), "added")
+        changes.write(at_root("REVIEW.md"), render((ASSETS / "project" / "REVIEW.md").read_text(encoding="utf-8")), "added")
 
     claude_md = project / "CLAUDE.md"
     if not claude_md.exists():

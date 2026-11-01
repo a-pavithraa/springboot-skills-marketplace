@@ -13,9 +13,9 @@ Add a line each time a review misses a bug that one would have caught. -->
 
 - High: security configuration, sign-in and access checks, database migrations, `pom.xml`, CI workflows.<!-- Add the packages where a bug is expensive. --> Read the callers and the tests of what changed, and check each rule above that the change touches.
 - High: `management.tracing.sampling.probability` raised in shipped config (it can overwhelm the trace store), `server.shutdown=immediate` (it drops requests during deploys), and `include-parameter-values` turned on (it puts personal data in spans).
-- High: a log line, exception message or `addKeyValue` that holds personal data or a credential. `LogLeakCheck` catches emails and credentials on tested paths; names, phone numbers and untested paths need a reader.
-- High: a `catch` that returns a default or a success response without logging, or a 5xx built by hand in a controller. `HandledFailureFilter` only sees exceptions that reach an `@ExceptionHandler`.
-- Medium: a log line inside a loop or on every request at INFO or above, an expected client error logged as ERROR, or the same failure logged again on its way up. The Log events by level panel shows the effect.
+- High: a log line, exception message or `addKeyValue` that holds personal data or a credential.<!-- observability:begin --> `LogLeakCheck` catches emails and credentials on tested paths; names, phone numbers and untested paths need a reader.<!-- observability:end -->
+- High: a `catch` that returns a default or a success response without logging, or a 5xx built by hand in a controller.<!-- failure-filter:begin --> `HandledFailureFilter` only sees exceptions that reach an `@ExceptionHandler`.<!-- failure-filter:end -->
+- Medium: a log line inside a loop or on every request at INFO or above, an expected client error logged as ERROR, or the same failure logged again on its way up.<!-- observability:begin --> The Log lines by level panel shows the effect.<!-- observability:end -->
 - Medium: a security failure with no log line: failed sign-ins and refused access should leave a WARN.
 - Medium: an ID or free text as a metric tag, which creates one series per value. Put it in a span instead. A `@KafkaListener` or `KafkaTemplate` without `observationEnabled`, which ends the trace at the topic.
 - Low: docs, changes to tests only, frontend copy and styling. A quick pass is enough.

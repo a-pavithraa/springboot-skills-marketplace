@@ -43,12 +43,20 @@ curl localhost:3200/api/traces/<traceId>
 curl -G localhost:3100/loki/api/v1/query_range --data-urlencode 'query={service_name="{{PROJECT_NAME}}"} | detected_level="error"' --data-urlencode since=1h
 
 # Loki: every log line from one request
-curl -G localhost:3100/loki/api/v1/query_range --data-urlencode 'query={service_name="{{PROJECT_NAME}}", trace_id="<traceId>"}' --data-urlencode since=1h
+curl -G localhost:3100/loki/api/v1/query_range --data-urlencode 'query={service_name="{{PROJECT_NAME}}"} | trace_id="<traceId>"' --data-urlencode since=1h
 ```
 
 A page that looks right can hide a failure behind it, so read the errors as well as the response.
 
-After adding a panel, or upgrading Boot or the image, send traffic for a few minutes and run this. An unknown metric gives an empty panel and no error. The Slow or failed requests panel may be empty on a healthy service, so the script checks separately that traces arrive.
+To check a change, follow one request you sent. Older data can't prove anything about it. Send your own trace id, then read that trace and its log lines with the queries above:
+
+```bash
+trace=$(openssl rand -hex 16)
+curl -H "traceparent: 00-$trace-0123456789abcdef-01" localhost:8080/api/orders
+echo "$trace"
+```
+
+After adding a panel, or upgrading Boot or the image, run this while traffic is flowing. An unknown metric gives an empty panel and no error, and a missing histogram gives `NaN`. It proves the pipeline and the queries work. It doesn't prove a change behaved: it passes while errors exist, and on data left by an app that has stopped. The Slow or failed requests panel may be empty on a healthy service, so the script checks separately that traces arrive.
 
 ```bash
 python3 observability/check_dashboards.py --service <spring.application.name>
@@ -65,10 +73,12 @@ python3 observability/check_dashboards.py --service <spring.application.name>
 - Only Boot's own `@Async` executor carries the trace id. A pool you build yourself needs `ContextPropagatingTaskDecorator`, or its log lines have none.
 - `LogLeakCheck` fails a test when app code logs an email address or a credential, but it only sees tested paths. As a second line, add the collector's `redaction` or `transform` processor before any export. Hashing doesn't protect values that are easy to guess, such as numeric ids.
 
+<!-- failure-filter:begin -->
 ## Failed requests
 
 `HandledFailureFilter` logs every 5xx that an `@ExceptionHandler` answered, including `Callable` and `DeferredResult` failures, with its stack trace, and records the error on the observation. Without it Spring treats those requests as dealt with. Find them in Tempo with `{ span.outcome = "SERVER_ERROR" }`, not `{ status = error }`: in testing, a 500 answered by a handler left the span status unset. New traces can take up to a minute to appear in search. Handlers return a generic `ProblemDetail` and leave the exception out of the response. The filter only sees handlers that write the response body: one that returns an error view isn't covered, so it must log the exception itself.
 
+<!-- failure-filter:end -->
 ## Move to ECS
 
 1. Add a collector container to the task. It shares the task's network, so the default endpoint already fits.

@@ -324,6 +324,48 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertNotIn("datasource-micrometer", pom_text)
         self.assertFalse((root / "compose.observability.yml").exists())
 
+    def test_no_observability_describes_only_what_is_installed(self):
+        root = self.project(STANDARD)
+        self.run_script(root, "--no-observability")
+        guides = (root / "AGENTS.md").read_text(encoding="utf-8") + (root / "REVIEW.md").read_text(encoding="utf-8")
+        for missing in ("LogLeakCheck", "HandledFailureFilter", "docs/observability.md", "panel", ":begin"):
+            self.assertNotIn(missing, guides)
+
+    def test_the_pack_is_described_when_installed(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        guides = (root / "AGENTS.md").read_text(encoding="utf-8") + (root / "REVIEW.md").read_text(encoding="utf-8")
+        for present in ("LogLeakCheck", "HandledFailureFilter", "docs/observability.md"):
+            self.assertIn(present, guides)
+        self.assertNotIn(":begin", guides)
+        self.assertNotIn(":begin", (root / "docs/observability.md").read_text(encoding="utf-8"))
+
+    def test_a_project_without_the_filter_is_not_told_about_it(self):
+        root = self.project(STANDARD.replace("spring-boot-starter-webmvc", "spring-boot-starter"))
+        self.run_script(root)
+        guides = "".join((root / name).read_text(encoding="utf-8")
+                         for name in ("AGENTS.md", "REVIEW.md", "docs/observability.md"))
+        self.assertNotIn("HandledFailureFilter", guides)
+        self.assertIn("LogLeakCheck", guides)
+
+    def test_a_rerun_opting_out_keeps_describing_an_installed_pack(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        (root / "REVIEW.md").unlink()
+        self.run_script(root, "--no-observability")
+        self.assertIn("HandledFailureFilter", (root / "REVIEW.md").read_text(encoding="utf-8"))
+
+    def test_adding_the_pack_later_flags_the_agents_file(self):
+        root = self.project(STANDARD)
+        self.run_script(root, "--no-observability")
+        self.assertIn("AGENTS.md doesn't mention the observability pack", self.run_script(root).stdout)
+
+    def test_jdbc_query_time_has_a_histogram(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        self.assertIn("jdbc.query: true", (root / "src/main/resources/application-observability-defaults.yml")
+                      .read_text(encoding="utf-8"))
+
     def test_sql_tracing_comes_only_with_a_database(self):
         root = self.project(STANDARD)
         self.run_script(root)
