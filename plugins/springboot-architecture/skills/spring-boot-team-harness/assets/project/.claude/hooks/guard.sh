@@ -6,7 +6,7 @@
 # harness's report.py summarises.
 set -u
 input=$(cat)
-rule_tests='CodeRulesTests|ConfigurationKeysTests|BuildSetupTests|UnusedCodeTests|ModuleBoundariesTests|ModularityTests|ArchUnitTests|ArchitectureRulesTest'
+rule_tests='CodeRulesTests|ConfigurationKeysTests|BuildSetupTests|UnusedCodeTests|ModuleBoundariesTests|ModularityTests|ArchUnitTests|ArchitectureRulesTest|LogLeakCheck'
 
 # block <reason> <rule>
 block() {
@@ -46,7 +46,7 @@ case "$path" in
   */archunit.properties)
     block "archunit.properties sets how the freeze record works; with store creation allowed, new violations would be recorded as accepted. Fix the violation instead, or ask the user." archunit-properties ;;
   */CodeRulesTests.java | */ConfigurationKeysTests.java | */BuildSetupTests.java | */UnusedCodeTests.java | */ModuleBoundariesTests.java \
-    | */ModularityTests.java | */ArchUnitTests.java | */ArchitectureRulesTest.java)
+    | */ModularityTests.java | */ArchUnitTests.java | */ArchitectureRulesTest.java | */LogLeakCheck.java)
     [ -e "$path" ] && block "${path##*/} holds the team's build rules, and a change to it changes what every developer's build accepts. Fix the code the rule reports. To change a rule, ask the user." rule-test
     exit 0 ;;
   */db/migration/*.sql) ;;
