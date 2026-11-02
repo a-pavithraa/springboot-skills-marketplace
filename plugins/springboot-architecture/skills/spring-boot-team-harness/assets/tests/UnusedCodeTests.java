@@ -111,6 +111,7 @@ class UnusedCodeTests {
                     if (modifiers.contains(JavaModifier.PRIVATE)
                             || modifiers.contains(JavaModifier.PROTECTED)
                             || modifiers.contains(JavaModifier.SYNTHETIC)
+                            || method.getName().equals("main")
                             || (method.getName().matches("(get|is)[A-Z].*") && method.getRawParameterTypes().isEmpty())
                             || ENTRY_POINTS.stream().anyMatch(method::isMetaAnnotatedWith)
                             || overridesAnother(type, method)

@@ -141,8 +141,22 @@ public class Parcel {
     }
 }
 JAVA
+cat > src/main/java/com/acme/shop/orders/CatchAll.java <<'JAVA'
+package com.acme.shop.orders;
+
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+class CatchAll {
+    @ExceptionHandler(Exception.class)
+    String handle(Exception e) {
+        return String.valueOf(e.getMessage());
+    }
+}
+JAVA
 "$MVN" -B test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1 || true
-for rule in httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls proxiedMethodsCanBeIntercepted \
+for rule in catchAllHandlersKeepTheExceptionServerSide httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls proxiedMethodsCanBeIntercepted \
     asyncAndSchedulingAreSwitchedOn oldCodeIsDeletedNotDeprecated servicesDontUseHttpTypes toOneAssociationsAreLazy \
     enumColumnsAreStoredByName; do
   if grep -q "CodeRulesTests.$rule" out.log; then pass "CodeRulesTests: $rule"; else fail "CodeRulesTests: $rule did not fail"; fi
@@ -167,6 +181,55 @@ expect_failure "ModuleBoundariesTests: use of another module's internal package"
 perl -0pi -e 's|(\n\}\s*)$|\n    public int size() {\n        return prices.size();\n    }$1|' src/main/java/com/acme/shop/catalog/Catalog.java
 printf 'package com.acme.shop;\n\nclass CatalogSizeTests {\n    @org.junit.jupiter.api.Test\n    void counts() {\n        new com.acme.shop.catalog.Catalog().size();\n    }\n}\n' > src/test/java/com/acme/shop/CatalogSizeTests.java
 expect_failure "UnusedCodeTests: a method only a test calls" 'is called only from tests' test -Dtest=UnusedCodeTests -Dsurefire.failIfNoSpecifiedTests=false
+
+printf 'management.endpoints.web.exposure.include=health,env\n' >> src/main/resources/application.properties
+expect_failure "ConfigurationKeysTests: env exposed on the public port" 'exposes env' test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false
+
+printf 'server.port=8080\nmanagement.server.port=8080\nmanagement.endpoints.web.exposure.include=health,env\n' >> src/main/resources/application.properties
+expect_failure "ConfigurationKeysTests: management port equal to server port" 'exposes env' test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false
+
+printf 'management.server.port=${MANAGEMENT_PORT}\nmanagement.endpoints.web.exposure.include=health,env\n' >> src/main/resources/application.properties
+expect_failure "ConfigurationKeysTests: management port the file doesn't decide" 'exposes env' test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false
+
+printf 'server.port=${PORT}\nmanagement.server.port=9090\nmanagement.endpoints.web.exposure.include=health,env\n' >> src/main/resources/application.properties
+expect_failure "ConfigurationKeysTests: server port the file doesn't decide" 'exposes env' test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false
+
+printf 'management.server.port=9090\nmanagement.endpoints.web.exposure.include=health,env\n' >> src/main/resources/application.properties
+if "$MVN" -B test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then pass "ConfigurationKeysTests: a separate management port is allowed"
+else fail "ConfigurationKeysTests: a separate management port was rejected"; tail -40 out.log; fi
+reset
+
+cat > src/test/java/com/acme/shop/LeakyTests.java <<'JAVA'
+package com.acme.shop;
+
+class LeakyTests {
+    @org.junit.jupiter.api.Test
+    void logsAnEmail() {
+        org.slf4j.LoggerFactory.getLogger(LeakyTests.class).info("signed in {}", "person@example.com");
+    }
+}
+JAVA
+expect_failure "LogLeakCheck: email in a log line" 'logged an email address' test -Dtest=LeakyTests -Dsurefire.failIfNoSpecifiedTests=false
+
+perl -pi -e 's|return catalog|new IllegalStateException().printStackTrace();\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
+expect_failure "CodeRulesTests: printStackTrace" 'printStackTrace' test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false
+
+cat > src/main/java/com/acme/shop/orders/TelemetryConfig.java <<'JAVA'
+package com.acme.shop.orders;
+
+import io.opentelemetry.api.OpenTelemetry;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+class TelemetryConfig {
+    @Bean
+    OpenTelemetry openTelemetry() {
+        return OpenTelemetry.noop();
+    }
+}
+JAVA
+expect_failure "CodeRulesTests: hand-built OpenTelemetry bean" 'openTelemetry' test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false
 
 perl -pi -e 's|    private final Catalog catalog;|  private final Catalog catalog;|' src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "Spotless: unformatted code" 'spotless' verify -DskipTests
@@ -223,4 +286,118 @@ else fail "integrity check: failed for another reason"; cat out.log; fi
 rm -f out.log
 
 echo
+perl -0pi -e 's|<artifactId>spring-boot-starter</artifactId>|<artifactId>spring-boot-starter-webmvc</artifactId>|' pom.xml
+python3 "$REPO/plugins/springboot-architecture/skills/spring-boot-team-harness/scripts/apply_harness.py" . --nullaway "$MODE" > /dev/null
+cat > src/test/java/com/acme/shop/HandledFailureTests.java <<'JAVA'
+package com.acme.shop;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CopyOnWriteArrayList;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.server.observation.ServerRequestObservationContext;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(HandledFailureTests.Setup.class)
+@ExtendWith(OutputCaptureExtension.class)
+class HandledFailureTests {
+
+    static final List<Throwable> ERRORS = new CopyOnWriteArrayList<>();
+
+    @Value("${local.server.port}")
+    int port;
+
+    @Test
+    void aHandledSynchronousFailureIsLoggedOnceAndOnTheObservation(CapturedOutput output) throws Exception {
+        assertFailureIsRecorded("/sync", "sync boom", output);
+    }
+
+    @Test
+    void aHandledAsyncFailureIsLoggedOnceAndOnTheObservation(CapturedOutput output) throws Exception {
+        assertFailureIsRecorded("/async", "async boom", output);
+    }
+
+    private void assertFailureIsRecorded(String path, String cause, CapturedOutput output) throws Exception {
+        ERRORS.clear();
+        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).build();
+        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(500);
+        await().untilAsserted(() -> assertThat(ERRORS).extracting(Throwable::getMessage).containsExactly(cause));
+        assertThat(output.getOut().split("Request failed with status 500", -1)).hasSize(2);
+        assertThat(output.getOut()).contains(cause);
+    }
+
+    @TestConfiguration
+    @Import({Failing.class, Handler.class})
+    static class Setup {
+        @Bean
+        ObservationHandler<ServerRequestObservationContext> errorRecorder() {
+            return new ObservationHandler<>() {
+                @Override
+                public void onStop(ServerRequestObservationContext context) {
+                    if (context.getError() != null) {
+                        ERRORS.add(context.getError());
+                    }
+                }
+
+                @Override
+                public boolean supportsContext(Observation.Context context) {
+                    return context instanceof ServerRequestObservationContext;
+                }
+            };
+        }
+    }
+
+    @RestController
+    static class Failing {
+        @GetMapping("/sync")
+        String sync() {
+            throw new IllegalStateException("sync boom");
+        }
+
+        @GetMapping("/async")
+        Callable<String> async() {
+            return () -> {
+                throw new IllegalStateException("async boom");
+            };
+        }
+    }
+
+    @RestControllerAdvice
+    static class Handler {
+        @ExceptionHandler(IllegalStateException.class)
+        ProblemDetail handle() {
+            return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong");
+        }
+    }
+}
+JAVA
+if "$MVN" -B test -Dtest=HandledFailureTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then pass "HandledFailureFilter: sync and async failures on a real server"
+else fail "HandledFailureFilter: sync or async failure missed"; grep -E "Tests run|ERROR|Expect" out.log | head -30; fi
+perl -pi -e 's|return false;|return true;|' src/main/java/com/acme/shop/HandledFailureFilter.java
+expect_failure "HandledFailureTests: a filter that skips async dispatches" 'aHandledAsyncFailure' test -Dtest=HandledFailureTests -Dsurefire.failIfNoSpecifiedTests=false
+
 if [ "$failures" -eq 0 ]; then echo "All harness gates work (JDK $(java -version 2>&1 | grep -v "Picked up" | head -1), NullAway $MODE)"; else echo "$failures check(s) failed"; exit 1; fi

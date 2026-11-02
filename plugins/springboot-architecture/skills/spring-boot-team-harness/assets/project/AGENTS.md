@@ -14,10 +14,19 @@ Run `./mvnw verify` (`mvnw.cmd verify` on Windows) before you say a change is fi
 <!-- modules:end -->
 | `ConfigurationKeysTests` | A `spring.`, `management.`, `server.` or `logging.` key in `application*.properties` or `.yml` is unknown or deprecated | Use the key the message names, or the dependency that defines it |
 | `CodeRulesTests` | Code compiles but breaks at runtime or on an upgrade. Among the rules: a class calls its own `@Transactional` or `@Async` method; a controller starts a transaction, uses a repository, or takes or returns a JPA entity; a transaction waits on an HTTP or AWS call; a service throws `ResponseStatusException`; a test is `@Disabled` | Each failure message says what to do instead. Violations recorded in `src/test/resources/archunit_store` are older than the harness and tolerated; never edit that record to get a new one through, and don't change `archunit.properties`. If a rule fails on code nobody changed, the record is missing or older than the rule: ask the user to run the harness's `baseline.py` |
+<!-- observability:begin -->
+| `LogLeakCheck` (around every test) | The app's code logs an email address or a credential | Log an internal id, or give the type a `toString` that leaves the value out |
+<!-- observability:end -->
 | `BuildSetupTests` | A Boot starter is in `test` scope; `spring-boot-autoconfigure-classic` is a dependency; Flyway migrations exist without `spring-boot-starter-flyway`; `ddl-auto` creates or updates the schema, or code writes `flyway_schema_history` | Each failure message says what to do instead. Don't work around a missing feature by adding it to the test classpath only |
 | `UnusedCodeTests` (in `verify` only, not the end-of-turn check) | A non-private method is called only from tests | If the change is meant to call it, wire that up. Otherwise test through the public behaviour and delete the method; don't open up internals for a test. If the user asked for a method nothing calls yet, ask them; don't route existing code through it to pass |
 | Spotless | Code isn't formatted | Run `./mvnw spotless:apply` |
 
+Log levels: ERROR means someone must act, and passes the exception as the last argument. WARN means the app recovered but someone should look. INFO is one line per business state change. DEBUG is everything else. Log internal ids, never personal data or credentials. Let `@ExceptionHandler` methods build the response<!-- failure-filter:begin -->; `HandledFailureFilter` logs every 5xx with its cause, so don't log the same exception again<!-- failure-filter:end -->.
+
+<!-- observability:begin -->
+To see what the running app did, read `docs/observability.md`. It shows how to start the local stack and query traces, metrics and logs. A response that looks right can hide a failure, so check for errors as well.
+
+<!-- observability:end -->
 The rule tests above hold the team's rules, and the harness blocks edits to them. When a rule seems wrong, say so and ask the user.
 
 `verify` also runs the tests that start containers, so Docker must be running. If it isn't, say that those tests didn't run. Don't skip or disable them.

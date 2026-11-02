@@ -49,6 +49,19 @@ Codex also picks skills by their description, but that hasn't been trialled here
 3. **Review it.** Ask for a review of the branch, and fix what it finds.
 4. **Open the PR.** Ask for the PR description.
 
+## See what a running app did
+
+In a repository with the team harness, start the local stack and run the app with the `observability` profile:
+
+```bash
+docker compose -f compose.observability.yml up -d
+./mvnw spring-boot:run -Dspring-boot.run.profiles=observability
+```
+
+Open <http://localhost:3000> for the dashboards. It needs Docker, and it listens on this machine only. `docs/observability.md` in the project has the queries, and `AGENTS.md` points agents to it, so you can ask "check the logs and traces for that request".
+
+Nothing leaves a deployed app until `OTLP_EXPORT_ENABLED=true`, and the app needs a collector to send to. The harness doesn't set one up.
+
 ## Optional: pstack
 
 `python3 install.py --with pstack` adds Lauren Tan's pstack. Most of its skills run only when you type them, such as `/technical-writing`, `/unslop`, `/blast-radius` and `/correct`. It works in Claude Code only.

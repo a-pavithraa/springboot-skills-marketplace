@@ -1,0 +1,312 @@
+{
+  "uid": "project-jvm",
+  "title": "JVM and resources",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "tags": [
+    "project"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "prometheus",
+        "label": "Metrics",
+        "type": "datasource",
+        "query": "prometheus"
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prometheus}"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "query": "label_values(http_server_requests_milliseconds_count, job)",
+        "definition": "label_values(http_server_requests_milliseconds_count, job)"
+      },
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${prometheus}"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "query": "label_values(http_server_requests_milliseconds_count{job=\"$service\"}, deployment_environment_name)",
+        "definition": "label_values(http_server_requests_milliseconds_count{job=\"$service\"}, deployment_environment_name)"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Heap used",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (jvm_memory_used_bytes{job=\"$service\", deployment_environment_name=\"$environment\", area=\"heap\"})",
+          "legendFormat": "used {{instance}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (instance) (jvm_memory_max_bytes{job=\"$service\", deployment_environment_name=\"$environment\", area=\"heap\"})",
+          "legendFormat": "max {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Heap left after GC",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (instance) (jvm_memory_usage_after_gc{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "description": "Share of the long-lived pool still full after a collection. A steady climb is a leak."
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "GC pause time per second",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (rate(jvm_gc_pause_milliseconds_sum{job=\"$service\", deployment_environment_name=\"$environment\"}[$__rate_interval]))",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "optional": true,
+      "description": "Empty until the first collection."
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "CPU",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (instance) (process_cpu_usage{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "process {{instance}}"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (instance) (system_cpu_usage{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "system {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Threads",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (state) (jvm_threads_states{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Connection pool",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(hikaricp_connections_active{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "active"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(hikaricp_connections_idle{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "idle"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(hikaricp_connections_pending{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "waiting"
+        },
+        {
+          "refId": "D",
+          "expr": "sum(hikaricp_connections_max{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "max"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "optional": true
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Web server threads",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(tomcat_threads_busy{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "busy"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(tomcat_threads_current{job=\"$service\", deployment_environment_name=\"$environment\"})",
+          "legendFormat": "current"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "optional": true
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Log events by level",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (level) (rate(logback_events_total{job=\"$service\", deployment_environment_name=\"$environment\"}[$__rate_interval]))",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

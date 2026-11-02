@@ -22,6 +22,9 @@ It steers the agent at three points:
 - code that compiles but breaks at runtime (ArchUnit): a class calling its own `@Transactional` or `@Cacheable` method, controllers using repositories or returning JPA entities, `@Retryable` or `@Async` that nothing switches on, a transaction held open across an HTTP call, HTTP clients with no timeouts, `@ManyToOne` left eager, enums stored by position, `@ManyToMany` mapped as a `List`, `@Autowired` fields, Jackson 2 code that Boot 4 ignores, and JUnit 4 or `@Disabled` tests that never run
 - build shortcuts that pass the tests while production lacks the feature: a starter in `test` scope, `spring-boot-autoconfigure-classic`, Flyway migrations that Boot 4 never runs, and a schema from `ddl-auto` instead of the migrations
 - unformatted code (Spotless)
+- an email address or credential that the app's code logs during a test (`LogLeakCheck`)
+- `printStackTrace`, a catch-all handler that reads the exception message, or a hand-built OpenTelemetry bean
+- Actuator endpoints such as `env` exposed on the public port
 
 Each failure message says how to fix it. On an existing codebase, `scripts/baseline.py` makes `verify` pass on day one: it marks the classes NullAway rejects today `@NullUnmarked` and records today's ArchUnit violations with `FreezingArchRule`. New code gets the full checks, and fixed violations drop out of the record. The Stop hook blocks only on errors in files the session changed.
 
@@ -41,6 +44,17 @@ Skills are portable; enforcement is not. The hooks run only in Claude Code, so i
 | CI: `verify` and the integrity check | Yes | Yes |
 
 Installing the skills in Codex doesn't turn on any of the Claude Code guardrails. Make both CI checks required on the main branch: they are the protection every tool shares.
+
+### Observability
+
+The harness also adds an observability pack by default, so an agent can check what a running app did, not only what it returned. A page can look right while the server fails behind it.
+
+- **Telemetry:** Boot sends traces, metrics and logs over OTLP, including SQL spans. Export is off until `OTLP_EXPORT_ENABLED=true`, and logs are capped at INFO on export. The app only knows an OTLP endpoint, so it doesn't change between a laptop, ECS and EKS.
+- **Local stack:** `compose.observability.yml` runs Grafana, Prometheus, Tempo and Loki on this machine only, and the `observability` profile sends everything to it. Boot's Docker Compose support doesn't start it, so you run it when you want it.
+- **Dashboards:** Service health and JVM and resources. `observability/check_dashboards.py` proves the pipeline and queries work: it fails if a required panel is empty, a panel has only `NaN`, or no traces arrive. It doesn't prove a change behaved.
+- **Handled failures:** `HandledFailureFilter` logs each 5xx that an `@ExceptionHandler` answers once, with its cause, including async requests. Handlers can return a generic response without hiding the failure.
+
+The harness doesn't provision a collector or anything else on AWS, and none of this has been run there yet. Each project gets `docs/observability.md` with the settings and queries.
 
 ### Why it's built this way
 
@@ -131,6 +145,7 @@ python3 -m unittest discover -s tests/scripts -v
 - Python 3.10 or later for `install.py` and the skills' scripts. The `python3` that ships with macOS is 3.9
 - Java 17 or later, Java 25 for new projects. A project with the harness needs JDK 21.0.8 or later, because Error Prone does
 - Maven or Gradle
+- Docker, for the harness's local Grafana stack
 - Optional: [progen](https://github.com/sivaprasadreddy/progen) (`go install github.com/sivaprasadreddy/progen@latest`)
 
 ## Credits
