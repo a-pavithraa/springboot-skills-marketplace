@@ -155,13 +155,51 @@ class CatchAll {
     }
 }
 JAVA
+cat > src/main/java/com/acme/shop/orders/Quotes.java <<'JAVA'
+package com.acme.shop.orders;
+
+import java.util.concurrent.Callable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
+public class Quotes {
+    private static final Logger log = LoggerFactory.getLogger(Quotes.class);
+
+    public String quote(Callable<String> carrier) {
+        try {
+            return carrier.call();
+        } catch (Exception e) {
+            log.debug("carrier unavailable {}", e.getClass());
+            return "unknown";
+        }
+    }
+
+    public String expected(Callable<String> carrier) {
+        try {
+            return carrier.call();
+        } catch (Exception e) {
+            log.warn("carrier unavailable", e);
+            return "unknown";
+        }
+    }
+
+    public TaskExecutor pool() {
+        ThreadPoolTaskExecutor pool = new ThreadPoolTaskExecutor();
+        pool.initialize();
+        return pool;
+    }
+}
+JAVA
 "$MVN" -B test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1 || true
-for rule in catchAllHandlersKeepTheExceptionServerSide httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls proxiedMethodsCanBeIntercepted \
+for rule in fallbacksAreVisible handBuiltPoolsCarryTheTraceId catchAllHandlersKeepTheExceptionServerSide httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls proxiedMethodsCanBeIntercepted \
     asyncAndSchedulingAreSwitchedOn oldCodeIsDeletedNotDeprecated servicesDontUseHttpTypes toOneAssociationsAreLazy \
     enumColumnsAreStoredByName; do
   if grep -q "CodeRulesTests.$rule" out.log; then pass "CodeRulesTests: $rule"; else fail "CodeRulesTests: $rule did not fail"; fi
 done
-for case in "RestClient.builder()" "which makes a remote call, inside a transaction"; do
+if grep -qF "(Quotes.java:24)" out.log; then fail "CodeRulesTests: a catch logged at WARN was reported"; else pass "CodeRulesTests: a catch logged at WARN is allowed"; fi
+for case in "RestClient.builder()" "which makes a remote call, inside a transaction" "(Quotes.java:15)"; do
   if grep -qF "$case" out.log; then pass "CodeRulesTests: $case"; else fail "CodeRulesTests: no violation for $case"; fi
 done
 if ! grep -q "Tests run:" out.log; then tail -40 out.log; fi

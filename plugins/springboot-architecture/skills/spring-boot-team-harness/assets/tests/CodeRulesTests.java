@@ -17,6 +17,7 @@ import static com.tngtech.archunit.library.freeze.FreezingArchRule.freeze;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaEnumConstant;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMember;
@@ -45,6 +46,8 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
@@ -66,6 +69,15 @@ class CodeRulesTests {
     private static final JavaClasses TESTS = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.ONLY_INCLUDE_TESTS)
             .importPackages(BASE_PACKAGE);
+
+    private static final Path MAIN_SOURCES = Path.of("src/main/java");
+
+    private static final Pattern BROAD_CATCH = Pattern.compile(
+            "catch\\s*\\(\\s*(?:final\\s+)?(?:java\\.lang\\.)?(Exception|RuntimeException|Throwable)\\s+\\w+\\s*\\)\\s*\\{");
+
+    private static final Pattern QUIET_LOG = Pattern.compile("(?i)\\b(?:log|logger)\\.(?:trace|debug|info)\\(");
+
+    private static final Pattern RAISED = Pattern.compile("(?i)\\bthrow\\b|\\b(?:log|logger)\\.(?:warn|error)\\(");
 
     private static final boolean RECORDING = Boolean.getBoolean("archunit.freeze.store.default.allowStoreCreation");
 
@@ -288,6 +300,29 @@ class CodeRulesTests {
                 .because("a client built this way has no connect or read timeout, so a slow server holds the "
                         + "caller's thread, and it skips Boot's metrics and tracing. Build it from the injected "
                         + "RestClient.Builder or WebClient.Builder, with timeouts in spring.http.clients.*")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void fallbacksAreVisible() {
+        frozenIfRecorded(classes()
+                .that()
+                .areTopLevelClasses()
+                .should(notLogABroadCatchBelowWarn())
+                .because("the app logs at INFO or above when deployed, so the failure leaves no sign while the caller "
+                        + "gets the fallback. Log it at WARN with the exception, or catch only the type you expect")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void handBuiltPoolsCarryTheTraceId() {
+        frozenIfRecorded(classes()
+                .should(decorateHandBuiltPools())
+                .because("work on this pool loses the trace id, so its log lines and spans can't be found from the "
+                        + "request that started them. Call setTaskDecorator(new ContextPropagatingTaskDecorator()) "
+                        + "on it, or inject ThreadPoolTaskExecutorBuilder")
                 .allowEmptyShould(true))
                 .check(MAIN);
     }
@@ -682,6 +717,67 @@ class CodeRulesTests {
                         .filter(call -> call.getTargetOwner().getName().equals("org.springframework.web.client.RestTemplate")
                                 && call.getTarget().getRawParameterTypes().isEmpty())
                         .forEach(call -> events.add(SimpleConditionEvent.violated(call, call.getDescription())));
+            }
+        };
+    }
+
+    private static ArchCondition<JavaClass> notLogABroadCatchBelowWarn() {
+        return new ArchCondition<>("not log a broad catch below WARN") {
+            @Override
+            public void check(JavaClass javaClass, ConditionEvents events) {
+                String file = javaClass.getSource().flatMap(source -> source.getFileName()).orElse("");
+                Path path = MAIN_SOURCES.resolve(javaClass.getPackageName().replace('.', '/')).resolve(file);
+                if (file.isEmpty() || !Files.isRegularFile(path)) {
+                    return;
+                }
+                String source = read(path);
+                Matcher match = BROAD_CATCH.matcher(source);
+                while (match.find()) {
+                    String body = source.substring(match.end(), blockEnd(source, match.end()));
+                    if (QUIET_LOG.matcher(body).find() && !RAISED.matcher(body).find()) {
+                        long line = source.chars().limit(match.start()).filter(c -> c == '\n').count() + 1;
+                        events.add(SimpleConditionEvent.violated(javaClass, "%s catches %s and logs it below WARN (%s:%d)"
+                                .formatted(javaClass.getName(), match.group(1), file, line)));
+                    }
+                }
+            }
+        };
+    }
+
+    /** Where the block that starts at this offset closes. Braces in a log message come in pairs, so they cancel out. */
+    private static int blockEnd(String source, int start) {
+        int depth = 1;
+        for (int i = start; i < source.length(); i++) {
+            char c = source.charAt(i);
+            depth += c == '{' ? 1 : c == '}' ? -1 : 0;
+            if (depth == 0) {
+                return i;
+            }
+        }
+        return source.length();
+    }
+
+    private static String read(Path path) {
+        try {
+            return Files.readString(path);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static ArchCondition<JavaClass> decorateHandBuiltPools() {
+        return new ArchCondition<>("decorate hand-built pools") {
+            @Override
+            public void check(JavaClass javaClass, ConditionEvents events) {
+                for (JavaConstructorCall call : javaClass.getConstructorCallsFromSelf()) {
+                    boolean pool = call.getTargetOwner().getName()
+                            .equals("org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor");
+                    boolean decorated = call.getOrigin().getMethodCallsFromSelf().stream()
+                            .anyMatch(setter -> setter.getTarget().getName().equals("setTaskDecorator"));
+                    if (pool && !decorated) {
+                        events.add(SimpleConditionEvent.violated(call, call.getDescription()));
+                    }
+                }
             }
         };
     }
