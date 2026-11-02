@@ -437,6 +437,7 @@ def apply_observability(project: Path, changes: "Changes", render, pom: str):
                             ("compose.observability.yml", "compose.observability.yml"),
                             ("observability/grafana-provider.yaml", "grafana-provider.yaml"),
                             ("observability/check_dashboards.py", "check_dashboards.py"),
+                            ("observability/check_request.py", "check_request.py"),
                             ("observability/dashboards/service-health.json", "dashboards/service-health.json"),
                             ("observability/dashboards/jvm-resources.json", "dashboards/jvm-resources.json"),
                             ("docs/observability.md", "observability.md")):
