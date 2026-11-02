@@ -26,6 +26,8 @@ Log levels: ERROR means someone must act, and passes the exception as the last a
 <!-- observability:begin -->
 To see what the running app did, read `docs/observability.md`. It shows how to start the local stack and query traces, metrics and logs. A response that looks right can hide a failure, so check for errors as well.
 
+Before you say a change to runtime behaviour works, prove it on one request: start the app from this checkout with the local stack, run `python3 observability/check_request.py --service <spring.application.name> <url>` on a request the change affects, and report its output. The check shows the request ran here and hid no failure. You still have to say what in the trace or response shows the change worked. If you can't run the app or the stack, say that the change isn't verified at runtime. Tests alone aren't this proof, and neither is `check_dashboards.py`.
+
 <!-- observability:end -->
 The rule tests above hold the team's rules, and the harness blocks edits to them. When a rule seems wrong, say so and ask the user.
 

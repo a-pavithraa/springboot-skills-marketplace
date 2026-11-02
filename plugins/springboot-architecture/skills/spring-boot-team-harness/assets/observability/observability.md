@@ -48,13 +48,24 @@ curl -G localhost:3100/loki/api/v1/query_range --data-urlencode 'query={service_
 
 A page that looks right can hide a failure behind it, so read the errors as well as the response.
 
-To check a change, follow one request you sent. Older data can't prove anything about it. Send your own trace id, then read that trace and its log lines with the queries above:
+To check a change, follow one request you sent. Older data can't prove anything about it, and a passing test doesn't show the running app did it. Do this for any change to runtime behaviour:
 
 ```bash
-trace=$(openssl rand -hex 16)
-curl -H "traceparent: 00-$trace-0123456789abcdef-01" localhost:8080/api/orders
-echo "$trace"
+python3 observability/check_request.py --service {{PROJECT_NAME}} http://localhost:8080/api/orders
+python3 observability/check_request.py --service {{PROJECT_NAME}} --expect 404 http://localhost:8080/api/orders/0
+python3 observability/check_request.py --service {{PROJECT_NAME}} -X POST -H 'Content-Type: application/json' -d '{}' <url>
 ```
+
+It sends the request with a fresh trace id, waits for that trace, and reports the status, spans and ERROR lines. It fails on a 5xx, on a failed span, on an ERROR line, and when no trace arrives. No trace usually means another process answered on that port, or the app runs without the `observability` profile. With `--expect`, failed spans are reported but don't fail the check, because a refused request marks its security span as failed. ERROR lines still fail it unless the expected status is a 5xx. Exit 2 means the app or the stack is down, so nothing was proved.
+
+A request that needs a signed-in session can't be sent this way. Set the header in the browser test that sends it, then read the result with `--trace`:
+
+```text
+traceparent: 00-<32 hex trace id>-<16 hex span id>-01
+python3 observability/check_request.py --service {{PROJECT_NAME}} --trace <trace id>
+```
+
+The check proves the request ran here and hid no failure. It doesn't know what the change was meant to do, so say what in the trace or response shows it worked.
 
 After adding a panel, or upgrading Boot or the image, run this while traffic is flowing. An unknown metric gives an empty panel and no error, and a missing histogram gives `NaN`. It proves the pipeline and the queries work. It doesn't prove a change behaved: it passes while errors exist, and on data left by an app that has stopped. The Slow or failed requests panel may be empty on a healthy service, so the script checks separately that traces arrive.
 

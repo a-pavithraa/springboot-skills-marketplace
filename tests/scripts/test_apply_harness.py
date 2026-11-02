@@ -229,6 +229,7 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual(pom_text.count("<artifactId>spring-boot-starter-opentelemetry</artifactId>"), 1)
         self.assertEqual(pom_text.count("<artifactId>opentelemetry-logback-appender-1.0</artifactId>"), 1)
         for path in ("compose.observability.yml", "docs/observability.md", "observability/check_dashboards.py",
+                     "observability/check_request.py",
                      "observability/dashboards/service-health.json",
                      "observability/dashboards/jvm-resources.json",
                      "src/main/resources/application-observability-defaults.yml",

@@ -28,6 +28,7 @@ To add a scenario, write the task and how it's scored in `baseline-scenarios.md`
 - `test_progen_config.py`: package and app-name validation, the existing-directory guard, progen failure handling, and Java version patching. A fake `progen` on `PATH` replaces the real binary.
 - `test_check_new_project.py`: the new-project checks.
 - `test_check_dashboards.py`: which empty panels and missing traces `check_dashboards.py` fails on.
+- `test_check_request.py`: what `check_request.py` passes and fails on: the sent trace id, failed spans, ERROR lines, a missing trace and a stack that's down.
 - `test_apply_harness.py`: where the harness script puts each pom fragment, the files it adds or appends to, idempotency, `--no-modules` and `--dry-run`.
 - `test_install.py`: the installer picks only the listed skills at the pinned commit, replaces only Codex folders it copied, turns auto-update on without overriding the user's choice, and every upstream entry is pinned to a full commit.
 - `test_baseline.py`: reading NullAway errors from Maven output (Windows and POSIX paths), and marking a class `@NullUnmarked` without disturbing its annotations or line endings.
