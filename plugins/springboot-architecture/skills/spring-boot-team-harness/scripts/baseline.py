@@ -100,7 +100,11 @@ def main():
     if code != 0:
         sys.exit("ERROR: the ArchUnit rule tests failed while recording today's violations:\n" + output[-3000:])
     print("ArchUnit: recorded today's violations in src/test/resources/archunit_store")
-    maven(project, "spotless:apply")
+    code, output = maven(project, "spotless:apply")
+    if code != 0:
+        sys.exit("ERROR: spotless:apply failed, so the marked classes may not be formatted. The NullAway marks and the "
+                 "ArchUnit record are in place; fix the formatter error, rerun ./mvnw spotless:apply, then commit:\n"
+                 + output[-3000:])
     print("\nNext: ./mvnw verify, then commit the marked classes and archunit_store.")
 
 

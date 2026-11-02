@@ -1,0 +1,29 @@
+name: Harness integrity
+
+# Fails a pull request that changes the build rules, the ArchUnit freeze record or an applied migration. Make this a
+# required check; a maintainer adds the harness-rule-change label to accept such a change on purpose.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  protected-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # The base branch's copy of the check runs, so a pull request can't weaken the check that judges it.
+      - run: |
+          if git cat-file -e "$BASE:.github/harness/check-protected.sh" 2> /dev/null; then
+            git show "$BASE:.github/harness/check-protected.sh" > "$RUNNER_TEMP/check-protected.sh"
+          else
+            cp .github/harness/check-protected.sh "$RUNNER_TEMP/check-protected.sh"
+          fi
+          bash "$RUNNER_TEMP/check-protected.sh" "$BASE"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HARNESS_RULE_CHANGE: ${{ contains(github.event.pull_request.labels.*.name, 'harness-rule-change') }}

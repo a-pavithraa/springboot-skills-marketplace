@@ -119,9 +119,106 @@ class GuardHookTests(unittest.TestCase):
         self.assertEqual(self.guard({"tool_name": "Bash", "tool_input": {"command": "./mvnw verify"}}, root).returncode, 0)
         self.assertFalse((root / ".git/harness/events.jsonl").exists())
 
+    def test_blocks_bash_commands_that_write_protected_files(self):
+        for command in ("sed -i 's/x//' src/test/resources/archunit_store/stored.rules",
+                        "sed -E -i 's/rule//' src/test/java/com/acme/CodeRulesTests.java",
+                        "echo x >> src/test/resources/archunit_store/abc",
+                        "python3 -c \"open('src/test/resources/archunit.properties', 'w')\"",
+                        "rm -rf src/test/resources/archunit_store"):
+            result = self.bash(command)
+            self.assertEqual(result.returncode, 2, command)
+            self.assertIn("Blocked by the team harness", result.stderr)
+
+    def test_allows_bash_commands_that_only_read_protected_files(self):
+        for command in ("cat src/test/resources/archunit_store/stored.rules 2>/dev/null",
+                        "sed -n 1,40p src/test/java/com/acme/CodeRulesTests.java | grep -i transactional",
+                        "git diff src/test/resources/archunit_store"):
+            self.assertEqual(self.bash(command).returncode, 0, command)
+
+    def test_blocks_maven_flags_that_record_violations_as_accepted(self):
+        for command in ("./mvnw test -Darchunit.freeze.store.default.allowStoreCreation=true",
+                        "./mvnw verify -Darchunit.freeze.refreeze=true"):
+            self.assertEqual(self.bash(command).returncode, 2, command)
+
     def test_ignores_other_files(self):
         result = self.guard({"tool_name": "Write", "tool_input": {"file_path": str(Path("src/main/java/A.java").resolve())}})
         self.assertEqual(result.returncode, 0)
+
+
+CHECK = HOOKS.parents[1] / ".github" / "harness" / "check-protected.sh"
+
+
+@unittest.skipUnless(BASH, "bash not found")
+class IntegrityCheckTests(unittest.TestCase):
+    """The CI backstop for the guard hook: what a pull request may change, whichever tool changed it."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.write({"src/test/resources/archunit_store/stored.rules": "rule-1=abc\n",
+                    "src/test/resources/archunit_store/abc": "A uses B\nC uses D\n",
+                    "src/test/resources/archunit.properties": "freeze.store.default.allowStoreCreation=false\n",
+                    "src/test/java/com/acme/CodeRulesTests.java": "class CodeRulesTests {}\n",
+                    str(MIGRATIONS / "V1__orders.sql"): "create table orders (id bigint);\n",
+                    ".claude/hooks/guard.sh": "#!/usr/bin/env bash\n",
+                    "src/main/java/com/acme/A.java": "class A {}\n"})
+        git(self.root, "init", "-q", "-b", "main")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "base")
+        self.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True, text=True,
+                                   check=True).stdout.strip()
+        git(self.root, "switch", "-qc", "feature")
+
+    def write(self, files: dict[str, str]):
+        for name, text in files.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(text, encoding="utf-8", newline="\n")
+
+    def check(self, files: dict[str, str | None], label: bool = False) -> subprocess.CompletedProcess:
+        for name, text in files.items():
+            if text is None:
+                (self.root / name).unlink()
+            else:
+                self.write({name: text})
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "change", "--allow-empty")
+        env = dict(os.environ, HARNESS_RULE_CHANGE="true" if label else "false")
+        return subprocess.run([BASH, str(CHECK), self.base], cwd=self.root, capture_output=True, text=True, env=env)
+
+    def test_ordinary_changes_and_new_migrations_and_rule_tests_pass(self):
+        result = self.check({"src/main/java/com/acme/A.java": "class A { int x; }\n",
+                             str(MIGRATIONS / "V2__lines.sql"): "create table lines (id bigint);\n",
+                             "src/test/java/com/acme/billing/ModularityTests.java": "class ModularityTests {}\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_removing_fixed_violations_from_the_record_passes(self):
+        result = self.check({"src/test/resources/archunit_store/abc": "A uses B\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_each_protected_change_fails(self):
+        cases = {"src/test/resources/archunit_store/abc": "A uses B\nC uses D\nE uses F\n",
+                 "src/test/resources/archunit_store/new": "X uses Y\n",
+                 "src/test/resources/archunit.properties": "freeze.store.default.allowStoreCreation=true\n",
+                 "src/test/java/com/acme/CodeRulesTests.java": "class CodeRulesTests { /* weaker */ }\n",
+                 str(MIGRATIONS / "V1__orders.sql"): "create table orders (id bigint, x int);\n",
+                 ".claude/hooks/guard.sh": "#!/usr/bin/env bash\nexit 0\n"}
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.setUp()
+                result = self.check({name: text})
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(f"::error file={Path(name).as_posix()}::", result.stdout)
+
+    def test_deleting_an_applied_migration_or_a_rule_test_fails(self):
+        result = self.check({str(MIGRATIONS / "V1__orders.sql"): None,
+                             "src/test/java/com/acme/CodeRulesTests.java": None})
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(result.stdout.count("::error"), 2)
+
+    def test_the_label_accepts_the_change_but_still_lists_it(self):
+        result = self.check({"src/test/java/com/acme/CodeRulesTests.java": "class CodeRulesTests { /* new rule */ }\n"},
+                            label=True)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("::warning file=src/test/java/com/acme/CodeRulesTests.java::", result.stdout)
 
 
 FAKE_MVNW = """#!/usr/bin/env bash
