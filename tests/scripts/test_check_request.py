@@ -17,6 +17,9 @@ from pathlib import Path
 SCRIPT = (Path(__file__).resolve().parents[2] / "plugins/springboot-architecture/skills/spring-boot-team-harness"
           / "assets/observability/check_request.py")
 SERVER_SPAN = {"name": "http get /api/orders", "kind": "SPAN_KIND_SERVER"}
+JOB_SPAN = {"name": "task order-sync.run", "kind": "SPAN_KIND_INTERNAL"}
+LISTENER_SPAN = {"name": "http post", "kind": "SPAN_KIND_CLIENT",
+                 "attributes": [{"key": "outcome", "value": {"stringValue": "SERVER_ERROR"}}]}
 FAILED_SPAN = {"name": "http get /api/orders", "kind": "SPAN_KIND_SERVER",
                "attributes": [{"key": "outcome", "value": {"stringValue": "SERVER_ERROR"}}]}
 
@@ -34,13 +37,14 @@ def serve(handler):
 
 class CheckRequestTests(unittest.TestCase):
 
-    def start(self, status=200, trace=None, streams=()):
+    def start(self, status=200, trace=None, streams=(), runs=None, later=None):
         """A stand-in for the app and for Tempo and Loki. It records each header the app got, and each log query."""
-        seen = {"sent": [], "logs": []}
+        seen = {"sent": [], "logs": [], "traces": [], "searches": []}
 
         class Handler(BaseHTTPRequestHandler):
             def reply(self, code, body=b"{}"):
                 self.send_response(code)
+                self.send_header("Location", "/")
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -55,7 +59,12 @@ class CheckRequestTests(unittest.TestCase):
             def do_GET(self):
                 url = urllib.parse.urlparse(self.path)
                 if url.path.startswith("/api/traces/"):
-                    self.reply(404) if trace is None else self.reply(200, json.dumps(trace).encode())
+                    seen["traces"].append(url.path.rsplit("/", 1)[1])
+                    current = later if later is not None and len(seen["traces"]) > 1 else trace
+                    self.reply(404) if current is None else self.reply(200, json.dumps(current).encode())
+                elif url.path == "/api/search":
+                    seen["searches"].append(urllib.parse.parse_qs(url.query))
+                    self.reply(200, json.dumps({"traces": runs or []}).encode())
                 elif url.path == "/loki/api/v1/query_range":
                     seen["logs"].append(urllib.parse.parse_qs(url.query)["query"][0])
                     self.reply(200, json.dumps({"data": {"result": list(streams)}}).encode())
@@ -160,6 +169,70 @@ class CheckRequestTests(unittest.TestCase):
         result = self.check(url, "--trace", "a" * 32, target=None)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertEqual(seen["sent"], [])
+
+    def test_a_listener_span_that_arrives_after_the_response_still_counts(self):
+        url, _ = self.start(trace=trace_of([SERVER_SPAN]), later=trace_of([SERVER_SPAN, LISTENER_SPAN]))
+        result = self.check(url, "--wait", "5")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("FAIL     failed spans: http post", result.stdout)
+
+    def test_a_failed_event_listener_fails_though_modulith_logs_it_at_info(self):
+        stream = {"stream": {"detected_level": "info", "scope_name": "org.springframework.modulith.events.support."
+                             "CompletionRegisteringAdvisor$CompletionRegisteringMethodInterceptor"},
+                  "values": [["1", "Invocation of listener failed with message someone@example.com"]]}
+        url, _ = self.start(trace=trace_of([SERVER_SPAN]), streams=[stream])
+        result = self.check(url)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("FAIL     an event listener failed", result.stdout)
+        self.assertNotIn("someone@example.com", result.stdout)
+
+    def test_a_redirect_is_reported_not_followed(self):
+        url, seen = self.start(status=302, trace=trace_of([SERVER_SPAN]))
+        result = self.check(url, "-d", "a=1")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("-> 302", result.stdout)
+        self.assertEqual(len(seen["sent"]), 1)
+
+    def test_job_mode_reads_the_newest_run(self):
+        runs = [{"traceID": "old", "startTimeUnixNano": "1"}, {"traceID": "new", "startTimeUnixNano": "2"}]
+        url, seen = self.start(trace=trace_of([JOB_SPAN]), runs=runs)
+        result = self.check(url, "--job", "order-sync", "--since", "120", target=None)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(seen["traces"], ["new".zfill(32)])
+        self.assertEqual(seen["sent"], [])
+        search = seen["searches"][0]
+        self.assertEqual(int(search["end"][0]) - int(search["start"][0]), 120)
+
+    def test_job_mode_restores_the_zeros_tempo_drops(self):
+        url, seen = self.start(trace=trace_of([JOB_SPAN]), runs=[{"traceID": "abc"}])
+        self.check(url, "--job", "order-sync", target=None)
+        self.assertEqual(seen["logs"][0], f'{{service_name="orders"}} | trace_id="{"abc".zfill(32)}"')
+
+    def test_job_mode_escapes_the_name_for_tempo(self):
+        url, seen = self.start(trace=trace_of([JOB_SPAN]), runs=[{"traceID": "a"}])
+        self.check(url, "--job", "order.sync", target=None)
+        self.assertEqual(seen["searches"][0]["q"][0],
+                         r'{ resource.service.name = "orders" && name =~ "(?i).*order\\.sync.*" }')
+
+    def test_a_job_that_logged_an_error_fails(self):
+        stream = {"stream": {"detected_level": "error"}, "values": [["1", "boom"]]}
+        url, _ = self.start(trace=trace_of([JOB_SPAN]), runs=[{"traceID": "a"}], streams=[stream])
+        result = self.check(url, "--job", "order-sync", target=None)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("FAIL     ERROR log lines", result.stdout)
+
+    def test_a_job_that_did_not_run_fails(self):
+        url, seen = self.start(trace=trace_of([JOB_SPAN]))
+        result = self.check(url, "--job", "order-sync", target=None)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("FAIL     no run of order-sync", result.stdout)
+        self.assertEqual(seen["traces"], [])
+
+    def test_a_job_and_a_url_are_refused(self):
+        url, _ = self.start()
+        result = self.check(url, "--job", "order-sync")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn("give one of a URL, --trace or --job", result.stderr)
 
     def test_an_app_that_is_down_exits_2(self):
         url, _ = self.start(trace=trace_of([SERVER_SPAN]))

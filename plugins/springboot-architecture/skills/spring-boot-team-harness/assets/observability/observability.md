@@ -56,7 +56,7 @@ python3 observability/check_request.py --service {{PROJECT_NAME}} --expect 404 h
 python3 observability/check_request.py --service {{PROJECT_NAME}} -X POST -H 'Content-Type: application/json' -d '{}' <url>
 ```
 
-It sends the request with a fresh trace id, waits for that trace, and reports the status, spans and ERROR lines. It fails on a 5xx, on a failed span, on an ERROR line, and when no trace arrives. No trace usually means another process answered on that port, or the app runs without the `observability` profile. With `--expect`, failed spans are reported but don't fail the check, because a refused request marks its security span as failed. ERROR lines still fail it unless the expected status is a 5xx. Exit 2 means the app or the stack is down, so nothing was proved.
+It sends the request with a fresh trace id, waits for that trace, and reports the status, spans and ERROR lines. It waits until the trace has stopped growing for a few seconds, so it includes what an event listener did after the response, and it reports a redirect rather than following it. It fails on a 5xx, on a failed span, on an ERROR line, and when no trace arrives. No trace usually means another process answered on that port, or the app runs without the `observability` profile. With `--expect`, failed spans are reported but don't fail the check, because a refused request marks its security span as failed. ERROR lines still fail it unless the expected status is a 5xx. Exit 2 means the app or the stack is down, so nothing was proved.
 
 A request that needs a signed-in session can't be sent this way. Set the header in the browser test that sends it, then read the result with `--trace`:
 
@@ -64,6 +64,16 @@ A request that needs a signed-in session can't be sent this way. Set the header 
 traceparent: 00-<32 hex trace id>-<16 hex span id>-01
 python3 observability/check_request.py --service {{PROJECT_NAME}} --trace <trace id>
 ```
+
+Work no request starts has no URL to send, so make it run, then read its newest run by span name. Boot traces `@Scheduled` methods, in spans named like `task orderJobs.reconcileOrders`:
+
+```bash
+python3 observability/check_request.py --service {{PROJECT_NAME}} --job reconcileOrders --since 120
+```
+
+Keep `--since` shorter than the time since the app restarted, or the run it finds can be from older code. A listener needs its own observation switched on before it has a span. The check fails on a failed span and on an ERROR line, so a job that catches its own exception must log it at ERROR to fail here. No run in that time also fails.
+
+Spring Modulith logs a listener that threw at INFO, not ERROR, and leaves its event publication incomplete for a retry. The check fails on that line too. A listener that is still retrying when `--wait` runs out, such as a client with backoff, can pass the check, so read the trace again later with `--trace`.
 
 The check proves the request ran here and hid no failure. It doesn't know what the change was meant to do, so say what in the trace or response shows it worked.
 
@@ -81,8 +91,12 @@ python3 observability/check_dashboards.py --service <spring.application.name>
 - Only INFO and above is exported, whatever level a profile sets, because framework DEBUG lines can hold sign-in tokens. The console and log file still get DEBUG.
 - Log lines, exception messages and `addKeyValue` pairs are exported as they are, so keep personal data out of them.
 - A deployed collector and its stores need the same access rules and retention as the logs.
-- Only Boot's own `@Async` executor carries the trace id. A pool you build yourself needs `ContextPropagatingTaskDecorator`, or its log lines have none.
+- Only Boot's own `@Async` executor carries the trace id. A pool you build yourself needs `ContextPropagatingTaskDecorator`, or its log lines have none. `CodeRulesTests` fails on a `ThreadPoolTaskExecutor` built without it.
 - `LogLeakCheck` fails a test when app code logs an email address or a credential, but it only sees tested paths. As a second line, add the collector's `redaction` or `transform` processor before any export. Hashing doesn't protect values that are easy to guess, such as numeric ids.
+
+## Adding a metric
+
+Boot already measures requests, queries, scheduled methods and the JVM. Add a metric for an outcome none of those count, such as a fallback taken, messages sent to a dead-letter queue, or invoices issued. Use one `Counter` per outcome with a short tag, and put IDs in a span.
 
 <!-- failure-filter:begin -->
 ## Failed requests
