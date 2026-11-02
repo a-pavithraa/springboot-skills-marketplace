@@ -223,6 +223,10 @@ def run_progen(out_dir: Path, config: dict, java_version: int, check_java: bool 
     if java_version != JAVA_VERSION_DEFAULT and not patch_java_version(project_dir, java_version):
         fail(f"Project generated at {project_dir}, but the Java version is still "
              f"{JAVA_VERSION_DEFAULT}.", code=5)
+    aligned = subprocess.run([sys.executable, str(Path(__file__).with_name("align_progen_project.py")), str(project_dir)])
+    if aligned.returncode != 0:
+        print("WARNING: some harness edits weren't applied; see 'skipped' above and "
+              "references/progen-integration.md.")
     print(f"Project generated at {project_dir}")
     return 0
 
