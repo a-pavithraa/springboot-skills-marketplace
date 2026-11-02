@@ -95,7 +95,7 @@ class GuardHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         rules.parent.mkdir(parents=True)
         rules.write_text("class CodeRulesTests {}\n")
-        for name in ("CodeRulesTests", "BuildSetupTests", "UnusedCodeTests", "ArchUnitTests"):
+        for name in ("CodeRulesTests", "BuildSetupTests", "UnusedCodeTests", "ArchUnitTests", "LogLeakCheck"):
             path = rules.with_name(f"{name}.java")
             path.write_text("")
             result = self.guard({"tool_name": "Edit", "tool_input": {"file_path": str(path)}}, root)
@@ -146,6 +146,9 @@ class GuardHookTests(unittest.TestCase):
 
 
 CHECK = HOOKS.parents[1] / ".github" / "harness" / "check-protected.sh"
+EXTENSIONS = "src/test/resources/META-INF/services/org.junit.jupiter.api.extension.Extension"
+JUNIT = "src/test/resources/junit-platform.properties"
+AUTODETECTION = "junit.jupiter.extensions.autodetection.enabled"
 
 
 @unittest.skipUnless(BASH, "bash not found")
@@ -219,6 +222,51 @@ class IntegrityCheckTests(unittest.TestCase):
                             label=True)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("::warning file=src/test/java/com/acme/CodeRulesTests.java::", result.stdout)
+
+    def commit_as_base(self, files: dict[str, str | None]):
+        self.check(files)
+        self.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True, text=True,
+                                   check=True).stdout.strip()
+
+    def install_log_leak_check(self):
+        self.commit_as_base({"src/test/java/com/acme/LogLeakCheck.java": "class LogLeakCheck {}\n",
+                             EXTENSIONS: "com.acme.Other\ncom.acme.LogLeakCheck\n",
+                             JUNIT: f"{AUTODETECTION}=true\n"})
+
+    def test_each_way_of_switching_off_log_leak_check_fails(self):
+        cases = {"changed": {"src/test/java/com/acme/LogLeakCheck.java": "class LogLeakCheck { /* weaker */ }\n"},
+                 "deleted": {"src/test/java/com/acme/LogLeakCheck.java": None},
+                 "unregistered": {EXTENSIONS: "com.acme.Other\n"},
+                 "commented out": {EXTENSIONS: "com.acme.Other\n# com.acme.LogLeakCheck\n"},
+                 "services file deleted": {EXTENSIONS: None},
+                 "autodetection off": {JUNIT: f"{AUTODETECTION}=false\n"},
+                 "autodetection overridden": {JUNIT: f"{AUTODETECTION}=true\n{AUTODETECTION}=false\n"},
+                 "autodetection line removed": {JUNIT: "junit.jupiter.execution.parallel.enabled=true\n"},
+                 "properties file deleted": {JUNIT: None}}
+        for name, change in cases.items():
+            with self.subTest(name):
+                self.setUp()
+                self.install_log_leak_check()
+                result = self.check(change)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(f"::error file={next(iter(change))}::", result.stdout)
+
+    def test_other_edits_to_the_junit_files_pass(self):
+        self.install_log_leak_check()
+        result = self.check({EXTENSIONS: "com.acme.LogLeakCheck\ncom.acme.Another\n",
+                             JUNIT: f"{AUTODETECTION} = true\njunit.jupiter.execution.parallel.enabled=true\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_the_junit_files_are_free_without_log_leak_check(self):
+        self.commit_as_base({EXTENSIONS: "com.acme.Other\n", JUNIT: f"{AUTODETECTION}=true\n"})
+        result = self.check({EXTENSIONS: "com.acme.Another\n", JUNIT: f"{AUTODETECTION}=false\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_the_label_accepts_switching_off_log_leak_check(self):
+        self.install_log_leak_check()
+        result = self.check({JUNIT: f"{AUTODETECTION}=false\n"}, label=True)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn(f"::warning file={JUNIT}::", result.stdout)
 
 
 FAKE_MVNW = """#!/usr/bin/env bash

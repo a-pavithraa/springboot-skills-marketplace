@@ -13,14 +13,28 @@
 #   - changes or deletes an existing rule test (adding a new one is fine)
 #   - changes or deletes a migration that is on the base branch (adding a new one is fine)
 #   - changes or deletes the harness hooks, this script or its workflow
+#   - stops LogLeakCheck running, by unregistering it or turning off JUnit's extension autodetection
 
 set -u
 base=${1:?usage: check-protected.sh <base-commit>}
-rule_tests='CodeRulesTests|ConfigurationKeysTests|BuildSetupTests|UnusedCodeTests|ModuleBoundariesTests|ModularityTests|ArchUnitTests|ArchitectureRulesTest'
+rule_tests='CodeRulesTests|ConfigurationKeysTests|BuildSetupTests|UnusedCodeTests|ModuleBoundariesTests|ModularityTests|ArchUnitTests|ArchitectureRulesTest|LogLeakCheck'
+extensions=META-INF/services/org.junit.jupiter.api.extension.Extension
+fork=$(git merge-base "$base" HEAD)
 problems=()
 
 problem() {
   problems+=("$1"$'\t'"$2")
+}
+
+# log_leak_check_registered <commit> <services-file>
+log_leak_check_registered() {
+  git show "$1:$2" 2> /dev/null | grep -Eq '^[[:space:]]*[^#[:space:]]+\.LogLeakCheck[[:space:]]*$'
+}
+
+# autodetection_on <commit> <properties-file>. The last assignment wins, as in java.util.Properties.
+autodetection_on() {
+  git show "$1:$2" 2> /dev/null | grep -E '^[[:space:]]*junit\.jupiter\.extensions\.autodetection\.enabled[[:space:]=:]' \
+    | tail -1 | grep -Eiq '[[:space:]=:]true[[:space:]]*$'
 }
 
 while IFS=$'\t' read -r status path; do
@@ -36,6 +50,15 @@ while IFS=$'\t' read -r status path; do
       problem "$path" "changes how the ArchUnit freeze record works." ;;
     */db/migration/*)
       [ "$status" = A ] || problem "$path" "is on the base branch, so it may already have run; Flyway fails when its checksum changes. Add a new migration instead." ;;
+    */"$extensions")
+      if log_leak_check_registered "$fork" "$path" && ! log_leak_check_registered HEAD "$path"; then
+        problem "$path" "stops LogLeakCheck running, so nothing fails on personal data in logs."
+      fi ;;
+    */junit-platform.properties)
+      if log_leak_check_registered "$fork" "${path%/*}/$extensions" && autodetection_on "$fork" "$path" \
+        && ! autodetection_on HEAD "$path"; then
+        problem "$path" "turns off extension autodetection, which stops LogLeakCheck running."
+      fi ;;
     .claude/hooks/* | .github/harness/* | .github/workflows/harness-integrity.yml)
       problem "$path" "is part of the harness's own enforcement." ;;
     *)
