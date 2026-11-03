@@ -9,6 +9,9 @@
 #
 # A pull request fails when it:
 #   - adds lines or files to src/test/resources/archunit_store (removing fixed violations is fine)
+#   - adds lines to src/test/resources/modulith_store, or creates it (removing fixed violations is fine)
+#   - widens a module's boundary rules in package-info.java: adds to allowedDependencies, removes it, or changes
+#     @ApplicationModule otherwise (removing entries from allowedDependencies is fine)
 #   - changes archunit.properties
 #   - changes or deletes an existing rule test (adding a new one is fine)
 #   - changes or deletes a migration that is on the base branch (adding a new one is fine)
@@ -37,6 +40,30 @@ autodetection_on() {
     | tail -1 | grep -Eiq '[[:space:]=:]true[[:space:]]*$'
 }
 
+# module_rules <commit> <package-info>: the @ApplicationModule annotation on one line, without whitespace. Other
+# annotations between it and the package line, such as @NullMarked, are left out.
+module_rules() {
+  git show "$1:$2" 2> /dev/null \
+    | sed -n '/^[[:space:]]*@\(org\.springframework\.modulith\.\)\{0,1\}ApplicationModule\b/,/^[[:space:]]*package[[:space:]]/p' \
+    | sed '$d' | awk 'NR == 1 || !/^[[:space:]]*@/' | tr -d '[:space:]'
+}
+
+allowed_value='allowedDependencies=(\{[^}]*\}|"[^"]*")'
+
+# allowed_entries <rules>: the quoted entries of allowedDependencies, one per line, sorted.
+allowed_entries() {
+  printf '%s' "$1" | grep -oE "$allowed_value" | grep -o '"[^"]*"' | sort -u
+}
+
+# narrowed <base-rules> <head-rules>: true when head only drops entries from a non-empty allowedDependencies.
+narrowed() {
+  local before after
+  before=$(allowed_entries "$1")
+  after=$(allowed_entries "$2")
+  [ -n "$before" ] && [ -n "$after" ] && [ -z "$(comm -13 <(echo "$before") <(echo "$after"))" ] \
+    && [ "$(printf '%s' "$1" | sed -E "s/$allowed_value//")" = "$(printf '%s' "$2" | sed -E "s/$allowed_value//")" ]
+}
+
 while IFS=$'\t' read -r status path; do
   [ -n "$path" ] || continue
   case "$path" in
@@ -45,6 +72,19 @@ while IFS=$'\t' read -r status path; do
         problem "$path" "records rule violations as accepted. Fix the violation instead."
       elif [ "$status" = M ] && [ "$(git diff --numstat "$base"...HEAD -- "$path" | cut -f1)" != 0 ]; then
         problem "$path" "adds entries to the ArchUnit freeze record, which accepts new violations. Fix them instead."
+      fi ;;
+    */modulith_store | modulith_store)
+      if [ "$status" = A ]; then
+        problem "$path" "records module-boundary violations as accepted. Fix the violation instead."
+      elif [ "$status" = M ] && [ "$(git diff --numstat "$base"...HEAD -- "$path" | cut -f1)" != 0 ]; then
+        problem "$path" "adds entries to the module-boundary record, which accepts new violations. Fix them instead."
+      fi ;;
+    */package-info.java)
+      before=$(module_rules "$fork" "$path")
+      if [ -n "$before" ] && [ "$status" != A ]; then
+        after=$(module_rules HEAD "$path")
+        [ "$before" = "$after" ] || narrowed "$before" "$after" \
+          || problem "$path" "changes the module's boundary rules (allowedDependencies or its type), which lets new dependencies through."
       fi ;;
     */archunit.properties | archunit.properties)
       problem "$path" "changes how the ArchUnit freeze record works." ;;

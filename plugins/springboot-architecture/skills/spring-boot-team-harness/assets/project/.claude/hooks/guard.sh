@@ -30,12 +30,12 @@ if printf '%s' "$input" | grep -q '"tool_name" *: *"Bash"'; then
     && block "git reset --hard discards uncommitted work. Use git stash, or ask the user." reset-hard
   printf '%s' "$command" | grep -Eq 'git[[:space:]].*clean([[:space:]].*)?[[:space:]]-[a-zA-Z]*f' \
     && block "git clean -f deletes untracked files for good. Ask the user." clean-force
-  printf '%s' "$command" | grep -Eq 'allowStoreCreation=true|freeze\.refreeze=true' \
-    && block "that setting records today's ArchUnit violations as accepted. Fix the violation instead; to record a baseline on purpose, ask the user to run the harness's baseline.py." archunit-record
+  printf '%s' "$command" | grep -Eq 'allowStoreCreation=true|freeze\.refreeze=true|modulith\.store\.record=true' \
+    && block "that setting records today's ArchUnit or Spring Modulith violations as accepted. Fix the violation instead; to record a baseline on purpose, ask the user to run the harness's baseline.py." archunit-record
   # Writing commands that name a protected file. Not exhaustive: the Harness integrity CI check is the backstop.
-  printf '%s' "$command" | grep -Eq "archunit_store|archunit\.properties|($rule_tests)\.java" \
+  printf '%s' "$command" | grep -Eq "archunit_store|modulith_store|archunit\.properties|($rule_tests)\.java" \
     && printf '%s' "$command" | grep -Eq '(^|[^0-9&])>|(^|[[:space:];&|])(sed|perl)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(-[a-zA-Z]*i|--in-place)|(^|[[:space:];&|])(tee|truncate|rm|mv|cp|python3?|node|ruby)([[:space:]]|$)' \
-    && block "that command writes to a file holding the team's build rules or the ArchUnit freeze record. Fix the code the rule reports. To change a rule, ask the user." bash-protected-file
+    && block "that command writes to a file holding the team's build rules or a record of tolerated violations. Fix the code the rule reports. To change a rule, ask the user." bash-protected-file
   exit 0
 fi
 
@@ -43,11 +43,21 @@ path=$(printf '%s' "$input" | grep -o '"file_path" *: *"[^"]*"' | head -1 | sed 
 case "$path" in
   */archunit_store/*)
     block "src/test/resources/archunit_store records the rule violations that existed before the harness, so they're frozen. Fix the new violation instead. To accept one on purpose, ask the user." archunit-store ;;
+  */modulith_store)
+    block "src/test/resources/modulith_store records the module-boundary violations that existed before the harness, so they're tolerated. Fix the new violation instead. To accept one on purpose, ask the user." modulith-store ;;
   */archunit.properties)
     block "archunit.properties sets how the freeze record works; with store creation allowed, new violations would be recorded as accepted. Fix the violation instead, or ask the user." archunit-properties ;;
   */CodeRulesTests.java | */ConfigurationKeysTests.java | */BuildSetupTests.java | */UnusedCodeTests.java | */ModuleBoundariesTests.java \
     | */ModularityTests.java | */ArchUnitTests.java | */ArchitectureRulesTest.java | */LogLeakCheck.java)
     [ -e "$path" ] && block "${path##*/} holds the team's build rules, and a change to it changes what every developer's build accepts. Fix the code the rule reports. To change a rule, ask the user." rule-test
+    exit 0 ;;
+  */package-info.java)
+    # A module's allowedDependencies and type are its boundary rules: widening them would get any breach past the
+    # boundary test. Widening needs a quoted module name, the type or the annotation itself, so an edit with none of
+    # them, such as adding @NullMarked, passes. In the JSON input a quote inside the edit arrives escaped as \".
+    [ -e "$path" ] && grep -q 'ApplicationModule' "$path" \
+      && printf '%s' "$input" | grep -Eq '\\"|ApplicationModule|allowedDependencies|Type|type *=' \
+      && block "${path%/*}/package-info.java declares the module's boundary rules (allowedDependencies, OPEN). Call the other module through an allowed dependency, or ask the user to change the rule." module-rules
     exit 0 ;;
   */db/migration/*.sql) ;;
   *) exit 0 ;;
