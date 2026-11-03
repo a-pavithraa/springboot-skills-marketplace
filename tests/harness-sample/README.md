@@ -15,4 +15,4 @@ A small Spring Boot 4.1.1 project with two modules (`catalog`, marked `@NullMark
 tests/harness-sample/check.sh all      # or: marked
 ```
 
-It needs JDK 21.0.8 or later, Maven and Python 3. CI runs it on JDK 21 and 25 in both NullAway modes (`.github/workflows/harness-build.yml`).
+It needs JDK 21.0.8 or later, Maven and Python 3, on Linux or macOS. On Windows, run `tests/harness-sample/check-in-docker.sh all` from Git Bash instead; it runs the same check in a Linux container. CI runs it on JDK 21 and 25 in both NullAway modes (`.github/workflows/harness-build.yml`).
