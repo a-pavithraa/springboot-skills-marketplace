@@ -55,12 +55,19 @@ allowed_entries() {
   printf '%s' "$1" | grep -oE "$allowed_value" | grep -o '"[^"]*"' | sort -u
 }
 
+# plain_names <rules>: true when allowedDependencies holds only quoted module names. A constant, a concatenation, a
+# comment or a Unicode escape can name a module that the quoted entries don't show.
+plain_names() {
+  printf '%s' "$1" | grep -oE "$allowed_value" | sed 's/^allowedDependencies=//' \
+    | grep -Eqx '\{("[^"\\]*"(,"[^"\\]*")*,?)?\}|"[^"\\]*"'
+}
+
 # narrowed <base-rules> <head-rules>: true when head only drops entries from a non-empty allowedDependencies.
 narrowed() {
   local before after
   before=$(allowed_entries "$1")
   after=$(allowed_entries "$2")
-  [ -n "$before" ] && [ -n "$after" ] && [ -z "$(comm -13 <(echo "$before") <(echo "$after"))" ] \
+  plain_names "$2" && [ -n "$before" ] && [ -n "$after" ] && [ -z "$(comm -13 <(echo "$before") <(echo "$after"))" ] \
     && [ "$(printf '%s' "$1" | sed -E "s/$allowed_value//")" = "$(printf '%s' "$2" | sed -E "s/$allowed_value//")" ]
 }
 

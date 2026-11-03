@@ -33,7 +33,7 @@ if printf '%s' "$input" | grep -q '"tool_name" *: *"Bash"'; then
   printf '%s' "$command" | grep -Eq 'allowStoreCreation=true|freeze\.refreeze=true|modulith\.store\.record=true' \
     && block "that setting records today's ArchUnit or Spring Modulith violations as accepted. Fix the violation instead; to record a baseline on purpose, ask the user to run the harness's baseline.py." archunit-record
   # Writing commands that name a protected file. Not exhaustive: the Harness integrity CI check is the backstop.
-  printf '%s' "$command" | grep -Eq "archunit_store|modulith_store|archunit\.properties|($rule_tests)\.java" \
+  printf '%s' "$command" | grep -Eq "archunit_store|modulith_store|archunit\.properties|package-info\.java|($rule_tests)\.java" \
     && printf '%s' "$command" | grep -Eq '(^|[^0-9&])>|(^|[[:space:];&|])(sed|perl)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(-[a-zA-Z]*i|--in-place)|(^|[[:space:];&|])(tee|truncate|rm|mv|cp|python3?|node|ruby)([[:space:]]|$)' \
     && block "that command writes to a file holding the team's build rules or a record of tolerated violations. Fix the code the rule reports. To change a rule, ask the user." bash-protected-file
   exit 0
@@ -53,10 +53,9 @@ case "$path" in
     exit 0 ;;
   */package-info.java)
     # A module's allowedDependencies and type are its boundary rules: widening them would get any breach past the
-    # boundary test. Widening needs a quoted module name, the type or the annotation itself, so an edit with none of
-    # them, such as adding @NullMarked, passes. In the JSON input a quote inside the edit arrives escaped as \".
+    # boundary test. Telling a widening edit from a harmless one takes parsing Java, so every edit to a module's
+    # package-info.java is refused; creating one for a new module is fine.
     [ -e "$path" ] && grep -q 'ApplicationModule' "$path" \
-      && printf '%s' "$input" | grep -Eq '\\"|ApplicationModule|allowedDependencies|Type|type *=' \
       && block "${path%/*}/package-info.java declares the module's boundary rules (allowedDependencies, OPEN). Call the other module through an allowed dependency, or ask the user to change the rule." module-rules
     exit 0 ;;
   */db/migration/*.sql) ;;

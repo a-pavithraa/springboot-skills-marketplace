@@ -89,7 +89,7 @@ class GuardHookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, tool)
             self.assertIn("module-boundary violations", result.stderr)
 
-    def test_blocks_edits_to_a_modules_boundary_rules_but_not_other_package_info_edits(self):
+    def test_blocks_every_edit_to_a_modules_package_info_but_not_creating_one(self):
         root = Path(tempfile.mkdtemp())
         info = root / "src/main/java/com/acme/orders/package-info.java"
         info.parent.mkdir(parents=True)
@@ -101,12 +101,17 @@ class GuardHookTests(unittest.TestCase):
         self.assertEqual(self.guard({"tool_name": "Write", "tool_input": {
             "file_path": str(info), "content": '@ApplicationModule(allowedDependencies = "catalog")\npackage x;\n'}},
             root).returncode, 0)
-        info.write_text('@ApplicationModule(allowedDependencies = "catalog")\npackage com.acme.orders;\n')
-        widened = edit('"catalog"', '{"catalog", "billing"}')
+        info.write_text('@ApplicationModule(allowedDependencies = {"catalog", "shared"})\npackage com.acme.orders;\n')
+        widened = edit('"catalog"', '"catalog", "billing"')
         self.assertEqual(widened.returncode, 2)
         self.assertIn("boundary rules", widened.stderr)
-        self.assertEqual(edit("@ApplicationModule(", "@ApplicationModule(type = Type.OPEN, ").returncode, 2)
-        self.assertEqual(edit("package com.acme.orders;", "@NullMarked\npackage com.acme.orders;").returncode, 0)
+        for old, new in (("@ApplicationModule(", "@ApplicationModule(type = Type.OPEN, "),
+                         ("shared", "billing"),
+                         ("})", ", Deps.BILLING})"),
+                         ("package com.acme.orders;", "@NullMarked\npackage com.acme.orders;")):
+            with self.subTest(old=old, new=new):
+                self.assertEqual(edit(old, new).returncode, 2)
+        self.assertEqual(self.bash(f"sed -i s/shared/billing/ {info.as_posix()}").returncode, 2)
         info.write_text("@NullMarked\npackage com.acme.orders;\n")
         self.assertEqual(edit("@NullMarked\n", "").returncode, 0)
 
@@ -240,7 +245,10 @@ class IntegrityCheckTests(unittest.TestCase):
                    "another annotation": '@ApplicationModule(allowedDependencies = {"catalog", "shared"})\n@NullMarked'}
         failing = {"widened": '@ApplicationModule(allowedDependencies = {"catalog", "shared", "billing"})',
                    "removed": "@ApplicationModule",
-                   "opened": '@ApplicationModule(allowedDependencies = {"catalog"}, type = ApplicationModule.Type.OPEN)'}
+                   "opened": '@ApplicationModule(allowedDependencies = {"catalog"}, type = ApplicationModule.Type.OPEN)',
+                   "widened by a constant": '@ApplicationModule(allowedDependencies = {"catalog", Deps.BILLING})',
+                   "widened by a unicode escape":
+                       '@ApplicationModule(allowedDependencies = {"catalog", \\u0022billing\\u0022})'}
         for name, annotation in {**passing, **failing}.items():
             with self.subTest(name):
                 self.setUp()
