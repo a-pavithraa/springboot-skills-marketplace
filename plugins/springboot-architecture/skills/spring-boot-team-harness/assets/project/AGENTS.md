@@ -10,7 +10,7 @@ Run `./mvnw verify` (`mvnw.cmd verify` on Windows) before you say a change is fi
 | --- | --- | --- |
 | NullAway, at compile | {{NULLAWAY_CHECKED}} can pass or return `null` where the type doesn't allow it | Annotate with `org.jspecify.annotations.Nullable` and handle the null. Don't add `@SuppressWarnings("NullAway")`, and don't add `@NullUnmarked`: classes that have it are legacy code waiting to be fixed |
 <!-- modules:begin -->
-| `{{BOUNDARY_TEST}}` | A module uses another module's nested (internal) package, or modules depend on each other in a cycle | Call the other module through a type in its top-level package, or publish an event |
+| `{{BOUNDARY_TEST}}` | A module uses another module's internal type (outside its top-level package and named interfaces), modules depend on each other in a cycle, a module depends on one its `allowedDependencies` leave out or lists one it doesn't use | Call the other module through a type in its top-level package, or publish an event. Don't change `allowedDependencies` or a module's type to get through: ask the user. Violations in the violation record `src/test/resources/modulith_store` are older than the harness and tolerated; never edit it. When you change a module, fix its recorded violations one module per change |
 <!-- modules:end -->
 | `ConfigurationKeysTests` | A `spring.`, `management.`, `server.` or `logging.` key in `application*.properties` or `.yml` is unknown or deprecated | Use the key the message names, or the dependency that defines it |
 | `CodeRulesTests` | Code compiles but breaks at runtime or on an upgrade. Among the rules: a class calls its own `@Transactional` or `@Async` method; a controller starts a transaction, uses a repository, or takes or returns a JPA entity; a transaction waits on an HTTP or AWS call; a service throws `ResponseStatusException`; a test is `@Disabled` | Each failure message says what to do instead. Violations recorded in `src/test/resources/archunit_store` are older than the harness and tolerated; never edit that record to get a new one through, and don't change `archunit.properties`. If a rule fails on code nobody changed, the record is missing or older than the rule: ask the user to run the harness's `baseline.py` |
@@ -62,9 +62,11 @@ When a request matches one of these, read the code it touches, then load its ski
 
 ## Modules
 
-Each direct subpackage of `{{BASE_PACKAGE}}` is a module. Its top-level package is its API; nested packages are internal.
+Each direct subpackage of `{{BASE_PACKAGE}}` is a module. Its top-level package is its API; nested packages are internal. A module that declares `@ApplicationModule(allowedDependencies = ...)` in its `package-info.java` may depend only on those modules; add one there only when the user agrees the dependency belongs.
 
-<!-- List the modules and what each owns, one line each. -->
+Modules are named in the domain language of the project's glossary (`GLOSSARY.md` or `CONTEXT.md`): each owns a section of it, and is named after that business capability, not a vendor or a layer. A term the glossary lacks is agreed with the user and added there before code uses it.
+
+<!-- List the modules, one line each: name, the glossary section it owns, what it owns. -->
 <!-- modules:end -->
 
 ## Run and test
