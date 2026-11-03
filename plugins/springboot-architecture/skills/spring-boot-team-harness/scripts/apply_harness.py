@@ -724,7 +724,8 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         text = render((ASSETS / "project-skills" / "add-module" / "SKILL.md").read_text(encoding="utf-8"), True)
         for skills_dir in SKILL_DIRS:
             changes.disown(f"{skills_dir}/add-module/SKILL.md", text, "--no-modules doesn't use it")
-    skills = (["add-module"] if modules else []) + (["db-migration"] if "flyway" in pom.lower() else [])
+    skills = ((["add-module"] if modules else []) + ["move-code"]
+              + (["db-migration"] if "flyway" in pom.lower() else []))
     for skill in skills:
         text = render((ASSETS / "project-skills" / skill / "SKILL.md").read_text(encoding="utf-8"))
         for skills_dir in SKILL_DIRS:
