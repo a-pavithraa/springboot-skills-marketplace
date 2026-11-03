@@ -8,6 +8,7 @@ import contextlib
 import importlib.util
 import io
 import sys
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -92,6 +93,23 @@ class MainTests(unittest.TestCase):
         calls, printed = self.run_main(0)
         self.assertEqual(calls[-1], ("spotless:apply",))
         self.assertIn("Next: ./mvnw verify", printed)
+
+    def test_records_module_violations_only_when_the_project_has_the_boundary_test(self):
+        calls, printed = self.run_main(0)
+        self.assertNotIn("-Dmodulith.store.record=true", [arg for call in calls for arg in call])
+        self.assertNotIn("Spring Modulith", printed)
+
+        project = Path(tempfile.mkdtemp())
+        test = project / "src/test/java/com/acme/ModuleBoundariesTests.java"
+        test.parent.mkdir(parents=True)
+        test.write_text("class ModuleBoundariesTests {}\n")
+        (project / "src/test/resources").mkdir(parents=True)
+        (project / baseline.MODULITH_STORE).write_text("cycle|a,b\ndependency|c|a\n")
+        with mock.patch.object(baseline.Path, "resolve", lambda self: project):
+            calls, printed = self.run_main(0)
+        self.assertIn(("test", "-Dtest=ModuleBoundariesTests", "-Dmodulith.store.record=true",
+                       "-Dsurefire.failIfNoSpecifiedTests=false"), calls)
+        self.assertIn("recorded 2 module-boundary violations", printed)
 
     def test_a_formatting_failure_stops_with_the_formatter_output(self):
         with self.assertRaises(SystemExit) as stopped:
