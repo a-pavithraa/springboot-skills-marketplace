@@ -13,6 +13,11 @@ already fails:
   violations fail; fixed ones drop out of the record. Only this script creates the record: without it, every violation
   fails, so a fresh checkout or CI never records violations by itself. A rule the record doesn't list fails in full
   too; after a harness update adds rules, run this again to record theirs.
+- Spring Modulith: when the project has ModuleBoundariesTests, it runs once in record mode and writes today's
+  module-boundary violations to src/test/resources/modulith_store, one per line. Each is keyed by what it is, not
+  where: a cycle by its modules, a disallowed dependency by its two modules, an internal-type access by caller and
+  callee. New violations fail; a fixed one drops out the next time the test runs. Without the record, every
+  violation fails. A rerun records only the violations still present.
 """
 
 import argparse
@@ -28,6 +33,9 @@ TYPE_DECLARATION = re.compile(
     r"^(?:(?:public|protected|private|abstract|final|sealed|non-sealed|static|strictfp)\s+)*"
     r"(?:class|interface|enum|record)\s+\w", re.M)
 MAX_ROUNDS = 10
+BOUNDARY_TEST = "ModuleBoundariesTests.java"
+RECORD_FLAG = "modulith.store.record=true"
+MODULITH_STORE = "src/test/resources/modulith_store"
 
 
 def failing_files(output: str) -> set[Path]:
@@ -55,6 +63,19 @@ def maven(project: Path, *args: str) -> tuple[int, str]:
     result = subprocess.run([*command, "-q", "-B", *args], cwd=project, capture_output=True, text=True,
                             encoding="utf-8", errors="replace")
     return result.returncode, result.stdout + result.stderr
+
+
+def record_module_violations(project: Path):
+    if not any((project / "src" / "test").rglob(BOUNDARY_TEST)):
+        return
+    code, output = maven(project, "test", "-Dtest=ModuleBoundariesTests", f"-D{RECORD_FLAG}",
+                         "-Dsurefire.failIfNoSpecifiedTests=false")
+    if code != 0:
+        sys.exit("ERROR: ModuleBoundariesTests failed while recording today's module-boundary violations:\n"
+                 + output[-3000:])
+    store = project / MODULITH_STORE
+    count = len(store.read_text(encoding="utf-8").splitlines()) if store.exists() else 0
+    print(f"Spring Modulith: recorded {count} module-boundary violations in {MODULITH_STORE}")
 
 
 def main():
@@ -100,12 +121,13 @@ def main():
     if code != 0:
         sys.exit("ERROR: the ArchUnit rule tests failed while recording today's violations:\n" + output[-3000:])
     print("ArchUnit: recorded today's violations in src/test/resources/archunit_store")
+    record_module_violations(project)
     code, output = maven(project, "spotless:apply")
     if code != 0:
         sys.exit("ERROR: spotless:apply failed, so the marked classes may not be formatted. The NullAway marks and the "
                  "ArchUnit record are in place; fix the formatter error, rerun ./mvnw spotless:apply, then commit:\n"
                  + output[-3000:])
-    print("\nNext: ./mvnw verify, then commit the marked classes and archunit_store.")
+    print("\nNext: ./mvnw verify, then commit the marked classes, archunit_store and modulith_store.")
 
 
 if __name__ == "__main__":

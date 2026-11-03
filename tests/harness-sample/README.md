@@ -1,6 +1,6 @@
 # Harness sample
 
-A small Spring Boot 4.1.1 project with two modules (`catalog`, marked `@NullMarked`, and `orders`). `check.sh` copies it to a temporary folder, applies `spring-boot-team-harness`, and checks that:
+A small Spring Boot 4.1.1 project with two modules (`catalog`, marked `@NullMarked`, and `orders`), each with an `@ApplicationModuleTest`. `check.sh` copies it to a temporary folder, applies `spring-boot-team-harness`, and checks that:
 
 - `verify` passes on the clean project;
 - NullAway fails on a `return null` (in both modules, or with `marked` only in `catalog`);
@@ -9,10 +9,10 @@ A small Spring Boot 4.1.1 project with two modules (`catalog`, marked `@NullMark
 - `HandledFailureFilter` logs sync and async handled failures on a real server, and its test fails on a filter that skips async dispatches;
 - rerunning `apply_harness.py` changes nothing;
 - the Stop hook, on a real build, blocks a class that calls its own `@Async` method and lets the fixed code through;
-- on code that broke the rules before the harness, `baseline.py` marks and records it, `verify` passes, a new violation still fails, and the integrity check refuses a pull request that adds to the freeze record.
+- on code that broke the rules before the harness, `baseline.py` marks and records it (including a module-boundary violation in `modulith_store`), `verify` passes, a recorded boundary violation moved down a line still passes, a new violation of either kind still fails, and the integrity check refuses a pull request that adds to the freeze record or to `modulith_store`.
 
 ```bash
 tests/harness-sample/check.sh all      # or: marked
 ```
 
-It needs JDK 21.0.8 or later, Maven and Python 3. CI runs it on JDK 21 and 25 in both NullAway modes (`.github/workflows/harness-build.yml`).
+It needs JDK 21.0.8 or later, Maven and Python 3, on Linux or macOS. On Windows, run `tests/harness-sample/check-in-docker.sh all` from Git Bash instead; it runs the same check in a Linux container. CI runs it on JDK 21 and 25 in both NullAway modes (`.github/workflows/harness-build.yml`).

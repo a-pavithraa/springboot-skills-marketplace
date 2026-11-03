@@ -214,6 +214,8 @@ class ApplyHarnessTests(unittest.TestCase):
             skill = (root / skills_dir / "add-module/SKILL.md").read_text(encoding="utf-8")
             self.assertIn("src/test/java/com/acme/orders/<module>", skill)
             self.assertFalse((root / skills_dir / "db-migration").exists())
+            move = (root / skills_dir / "move-code/SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("com.acme.orders.orders.internal.Discounts", move)
 
     def test_migration_skill_is_added_only_for_flyway_projects(self):
         root = self.project(STANDARD.replace("spring-boot-starter-webmvc", "spring-boot-starter-flyway"))

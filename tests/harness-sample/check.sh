@@ -264,9 +264,15 @@ reset
 # violations still fail. The integrity check then refuses a pull request that adds to the record.
 null_return catalog Legacy
 perl -pi -e 's|return catalog|System.out.println(sku);\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
+mkdir -p src/main/java/com/acme/shop/catalog/internal
+printf 'package com.acme.shop.catalog.internal;\n\npublic class Discounts {\n    public static int percent() {\n        return 5;\n    }\n\n    public static int cap() {\n        return 50;\n    }\n}\n' \
+  > src/main/java/com/acme/shop/catalog/internal/Discounts.java
+perl -pi -e 's|return catalog|int legacy = com.acme.shop.catalog.internal.Discounts.percent();\n        return catalog|' \
+  src/main/java/com/acme/shop/orders/Orders.java
 git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm legacy
-if python3 "$HARNESS/baseline.py" . > baseline.log 2>&1 && grep -q "marked 1 classes" baseline.log; then
-  pass "baseline.py: marks the legacy class and records the legacy violation"
+if python3 "$HARNESS/baseline.py" . > baseline.log 2>&1 && grep -q "marked 1 classes" baseline.log \
+  && grep -q "recorded 1 module-boundary violations" baseline.log; then
+  pass "baseline.py: marks the legacy class and records the legacy violations"
 else fail "baseline.py failed"; tail -30 baseline.log; fi
 rm -f baseline.log
 if "$MVN" -B verify > out.log 2>&1; then pass "baseline: verify passes on the legacy code"
@@ -277,11 +283,27 @@ base=$(git rev-parse HEAD)
 perl -pi -e 's|return catalog|System.out.println(quantity);\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "baseline: a new violation still fails" 'CodeRulesTests' test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false
 
+perl -pi -e 's|^(\s*)(int legacy = )|$1// moved down a line\n$1$2|' src/main/java/com/acme/shop/orders/Orders.java
+if "$MVN" -B test -Dtest=ModuleBoundariesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then
+  pass "baseline: a recorded boundary violation on another line still passes"
+else fail "baseline: a recorded boundary violation on another line failed"; tail -40 out.log; fi
+reset
+perl -pi -e 's|return catalog|int fresh = com.acme.shop.catalog.internal.Discounts.cap();\n        return catalog|' \
+  src/main/java/com/acme/shop/orders/Orders.java
+expect_failure "baseline: a new boundary violation still fails" '1 module-boundary violations are new' \
+  test -Dtest=ModuleBoundariesTests -Dsurefire.failIfNoSpecifiedTests=false
+
 record=$(git ls-files src/test/resources/archunit_store | grep -v stored.rules | head -1)
 echo "Method <com.acme.shop.orders.Orders.total(java.lang.String, int)> calls System.out" >> "$record"
 git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm "sneak a violation into the record"
 if bash .github/harness/check-protected.sh "$base" > out.log; then fail "integrity check: accepted an addition to the record"; cat out.log
 elif grep -q "::error file=$record::" out.log; then pass "integrity check: refuses an addition to the freeze record"
+else fail "integrity check: failed for another reason"; cat out.log; fi
+rm -f out.log
+echo "cycle|catalog,orders" >> src/test/resources/modulith_store
+git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm "sneak a cycle into the module record"
+if bash .github/harness/check-protected.sh "$base" > out.log; then fail "integrity check: accepted an addition to modulith_store"; cat out.log
+elif grep -q "::error file=src/test/resources/modulith_store::" out.log; then pass "integrity check: refuses an addition to modulith_store"
 else fail "integrity check: failed for another reason"; cat out.log; fi
 rm -f out.log
 

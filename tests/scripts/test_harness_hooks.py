@@ -82,6 +82,39 @@ class GuardHookTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, tool)
             self.assertIn("frozen", result.stderr)
 
+    def test_blocks_edits_to_the_module_boundary_record(self):
+        record = Path("src/test/resources/modulith_store").resolve()
+        for tool in ("Edit", "Write"):
+            result = self.guard({"tool_name": tool, "tool_input": {"file_path": str(record)}})
+            self.assertEqual(result.returncode, 2, tool)
+            self.assertIn("module-boundary violations", result.stderr)
+
+    def test_blocks_every_edit_to_a_modules_package_info_but_not_creating_one(self):
+        root = Path(tempfile.mkdtemp())
+        info = root / "src/main/java/com/acme/orders/package-info.java"
+        info.parent.mkdir(parents=True)
+
+        def edit(old: str, new: str) -> subprocess.CompletedProcess:
+            return self.guard({"tool_name": "Edit",
+                               "tool_input": {"file_path": str(info), "old_string": old, "new_string": new}}, root)
+
+        self.assertEqual(self.guard({"tool_name": "Write", "tool_input": {
+            "file_path": str(info), "content": '@ApplicationModule(allowedDependencies = "catalog")\npackage x;\n'}},
+            root).returncode, 0)
+        info.write_text('@ApplicationModule(allowedDependencies = {"catalog", "shared"})\npackage com.acme.orders;\n')
+        widened = edit('"catalog"', '"catalog", "billing"')
+        self.assertEqual(widened.returncode, 2)
+        self.assertIn("boundary rules", widened.stderr)
+        for old, new in (("@ApplicationModule(", "@ApplicationModule(type = Type.OPEN, "),
+                         ("shared", "billing"),
+                         ("})", ", Deps.BILLING})"),
+                         ("package com.acme.orders;", "@NullMarked\npackage com.acme.orders;")):
+            with self.subTest(old=old, new=new):
+                self.assertEqual(edit(old, new).returncode, 2)
+        self.assertEqual(self.bash(f"sed -i s/shared/billing/ {info.as_posix()}").returncode, 2)
+        info.write_text("@NullMarked\npackage com.acme.orders;\n")
+        self.assertEqual(edit("@NullMarked\n", "").returncode, 0)
+
     def test_blocks_edits_to_the_archunit_freeze_settings(self):
         settings = Path("src/test/resources/archunit.properties").resolve()
         result = self.guard({"tool_name": "Edit", "tool_input": {"file_path": str(settings)}})
@@ -124,7 +157,8 @@ class GuardHookTests(unittest.TestCase):
                         "sed -E -i 's/rule//' src/test/java/com/acme/CodeRulesTests.java",
                         "echo x >> src/test/resources/archunit_store/abc",
                         "python3 -c \"open('src/test/resources/archunit.properties', 'w')\"",
-                        "rm -rf src/test/resources/archunit_store"):
+                        "rm -rf src/test/resources/archunit_store",
+                        "echo 'cycle|a,b' >> src/test/resources/modulith_store"):
             result = self.bash(command)
             self.assertEqual(result.returncode, 2, command)
             self.assertIn("Blocked by the team harness", result.stderr)
@@ -137,7 +171,8 @@ class GuardHookTests(unittest.TestCase):
 
     def test_blocks_maven_flags_that_record_violations_as_accepted(self):
         for command in ("./mvnw test -Darchunit.freeze.store.default.allowStoreCreation=true",
-                        "./mvnw verify -Darchunit.freeze.refreeze=true"):
+                        "./mvnw verify -Darchunit.freeze.refreeze=true",
+                        "./mvnw test -Dtest=ModuleBoundariesTests -Dmodulith.store.record=true"):
             self.assertEqual(self.bash(command).returncode, 2, command)
 
     def test_ignores_other_files(self):
@@ -160,6 +195,7 @@ class IntegrityCheckTests(unittest.TestCase):
         self.write({"src/test/resources/archunit_store/stored.rules": "rule-1=abc\n",
                     "src/test/resources/archunit_store/abc": "A uses B\nC uses D\n",
                     "src/test/resources/archunit.properties": "freeze.store.default.allowStoreCreation=false\n",
+                    "src/test/resources/modulith_store": "cycle|catalog,orders\ndependency|inventory|catalog\n",
                     "src/test/java/com/acme/CodeRulesTests.java": "class CodeRulesTests {}\n",
                     str(MIGRATIONS / "V1__orders.sql"): "create table orders (id bigint);\n",
                     ".claude/hooks/guard.sh": "#!/usr/bin/env bash\n",
@@ -197,9 +233,54 @@ class IntegrityCheckTests(unittest.TestCase):
         result = self.check({"src/test/resources/archunit_store/abc": "A uses B\n"})
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    MODULE_INFO = "src/main/java/com/acme/orders/package-info.java"
+
+    def module_info(self, annotation: str) -> str:
+        return f"/** Orders. */\n{annotation}\npackage com.acme.orders;\n\nimport org.springframework.modulith.ApplicationModule;\n"
+
+    def test_narrowing_a_modules_allowed_dependencies_passes_and_widening_fails(self):
+        base = self.module_info('@ApplicationModule(\n        allowedDependencies = {"catalog", "shared"})')
+        passing = {"narrowed": '@ApplicationModule(allowedDependencies = {"catalog"})',
+                   "reformatted": '@ApplicationModule(allowedDependencies = {"catalog",\n    "shared"})',
+                   "another annotation": '@ApplicationModule(allowedDependencies = {"catalog", "shared"})\n@NullMarked'}
+        failing = {"widened": '@ApplicationModule(allowedDependencies = {"catalog", "shared", "billing"})',
+                   "removed": "@ApplicationModule",
+                   "opened": '@ApplicationModule(allowedDependencies = {"catalog"}, type = ApplicationModule.Type.OPEN)',
+                   "widened by a constant": '@ApplicationModule(allowedDependencies = {"catalog", Deps.BILLING})',
+                   "widened by a unicode escape":
+                       '@ApplicationModule(allowedDependencies = {"catalog", \\u0022billing\\u0022})'}
+        for name, annotation in {**passing, **failing}.items():
+            with self.subTest(name):
+                self.setUp()
+                self.move_base({self.MODULE_INFO: base})
+                result = self.check({self.MODULE_INFO: self.module_info(annotation)})
+                self.assertEqual(result.returncode, 1 if name in failing else 0, result.stdout)
+
+    def test_a_new_module_passes_and_deleting_a_modules_rules_fails(self):
+        open_module = self.module_info("@ApplicationModule(type = ApplicationModule.Type.OPEN)")
+        self.assertEqual(self.check({self.MODULE_INFO: open_module}).returncode, 0)
+        self.setUp()
+        self.move_base({self.MODULE_INFO: open_module})
+        result = self.check({self.MODULE_INFO: None})
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def move_base(self, files: dict[str, str]):
+        """Adds the files to the base commit the check compares against."""
+        self.write(files)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "base files")
+        self.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True, text=True,
+                                   check=True).stdout.strip()
+
+    def test_removing_fixed_violations_from_the_module_boundary_record_passes(self):
+        self.assertEqual(self.check({"src/test/resources/modulith_store": "cycle|catalog,orders\n"}).returncode, 0)
+        self.assertEqual(self.check({"src/test/resources/modulith_store": None}).returncode, 0)
+
     def test_each_protected_change_fails(self):
         cases = {"src/test/resources/archunit_store/abc": "A uses B\nC uses D\nE uses F\n",
                  "src/test/resources/archunit_store/new": "X uses Y\n",
+                 "src/test/resources/modulith_store": "cycle|catalog,orders\ncycle|billing,orders\ndependency|inventory|catalog\n",
+                 "backend/src/test/resources/modulith_store": "cycle|a,b\n",
                  "src/test/resources/archunit.properties": "freeze.store.default.allowStoreCreation=true\n",
                  "src/test/java/com/acme/CodeRulesTests.java": "class CodeRulesTests { /* weaker */ }\n",
                  str(MIGRATIONS / "V1__orders.sql"): "create table orders (id bigint, x int);\n",
