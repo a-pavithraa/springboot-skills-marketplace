@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 CHECKED = ("passed", "blocked", "unverified")
-SKIPPED = ("no-change", "already-passed", "gave-up")
+SKIPPED = ("no-change", "already-passed", "gave-up", "no-baseline")
 
 
 def events_file(project: Path) -> Path:
@@ -94,6 +94,8 @@ def text(summary: dict, days: int | None) -> str:
                  f"{r['unverified']} could not be fully verified (failures only in unchanged code)")
     lines.append(f"  Skipped {r['no-change'] + r['already-passed']} turns: {r['no-change']} changed no code, "
                  f"{r['already-passed']} on code that had already passed")
+    if r["no-baseline"]:
+        lines.append(f"  Not checked: {r['no-baseline']} turns in sessions with no recorded starting point")
     if r["blocked"]:
         gates = ", ".join(f"{gate} {n}" for gate, n in summary["blocked_by_gate"].items())
         lines.append(f"  Blocks by gate: {gates}")

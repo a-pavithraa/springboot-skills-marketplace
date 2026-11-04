@@ -60,6 +60,12 @@ class ReportTests(unittest.TestCase):
         self.assertIn("4 turns: 1 passed, 2 blocked, 1 could not be fully verified", text)
         self.assertIn("Fixed by the agent after a block: 1 of 2", text)
 
+    def test_turns_with_no_starting_point_are_counted_as_not_checked(self):
+        root = self.project([stop("no-baseline"), stop("passed", seconds=30)])
+        summary = self.summary(root)
+        self.assertEqual((summary["turns"], summary["checked"], summary["results"]["no-baseline"]), (2, 1, 1))
+        self.assertIn("Not checked: 1 turns in sessions with no recorded starting point", self.report(root).stdout)
+
     def test_old_events_are_left_out_unless_asked_for(self):
         root = self.project([stop("passed", ago_days=40), stop("passed")])
         self.assertEqual(self.summary(root)["checked"], 1)
