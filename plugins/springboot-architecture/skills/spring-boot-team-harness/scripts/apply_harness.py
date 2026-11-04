@@ -143,6 +143,17 @@ def missing_items(fragment: str, pom: str) -> str:
     return begin + "".join(kept) + end
 
 
+SPRING_JAVAFORMAT = re.compile(r"<artifactId>\s*spring-javaformat-maven-plugin\s*</artifactId>")
+
+
+def formatter(pom: str) -> tuple[str, str]:
+    """The project's formatter and the goal that applies it. A project on Spring Java Format keeps it, since two
+    formatters disagree on every file."""
+    if SPRING_JAVAFORMAT.search(re.sub(r"<!--.*?-->", "", pom, flags=re.S)):
+        return "Spring Java Format", "spring-javaformat:apply"
+    return "Spotless", "spotless:apply"
+
+
 def nullaway_scope(nullaway: str) -> str:
     """The Error Prone option that says which code NullAway checks. NullAway takes exactly one of the two."""
     return "-XepOpt:NullAway:OnlyNullMarked=true" if nullaway == "marked" \
@@ -180,7 +191,11 @@ def patch_pom(pom: str, base_package: str, modules: bool, nullaway: str = "all",
                               "rules-dependencies", "observability-dependencies")}
     if not modules:
         fragments["properties"] = re.sub(r".*spring-modulith\.version.*\n", "", fragments["properties"])
-    dependencies = missing_items(fragments["dependencies"], declared)
+    if formatter(pom)[0] != "Spotless":
+        fragments["plugins"] = re.sub(r" *<plugin>\n *<groupId>com\.diffplug\.spotless</groupId>.*?</plugin>\n", "",
+                                      fragments["plugins"], flags=re.S)
+        fragments["properties"] = re.sub(r".*(spotless|palantir-java-format)\.version.*\n", "", fragments["properties"])
+    dependencies =missing_items(fragments["dependencies"], declared)
     if modules:
         dependencies += missing_items(fragments["modules-dependencies"], declared)
     if observability:
@@ -259,6 +274,22 @@ def find_application(project: Path) -> tuple[str, str]:
 def pom_value(pom: str, pattern: str, default: str) -> str:
     match = re.search(pattern, pom, re.S)
     return match.group(1).strip() if match else default
+
+
+# Error Prone needs JDK 21.0.8 or later, whatever release the sources target.
+BUILD_JDK = 25
+
+
+def build_jdk(release: str) -> str:
+    """The JDK CI builds on: the source release, raised to one Error Prone runs on."""
+    return release if release.isdigit() and int(release) > BUILD_JDK else str(BUILD_JDK)
+
+
+def old_jdks(workflow: str) -> list[str]:
+    """The Java versions below 21 that a workflow sets up, from java-version or a java matrix."""
+    values = re.findall(r"^\s*(?:java-version|java)\s*:\s*(.+)$", workflow, re.M)
+    majors = re.findall(r"(?<![\d.])(\d+)(?:\.\d+)*", re.sub(r"\$\{\{.*?\}\}", "", " ".join(values)))
+    return sorted({major for major in majors if int(major) < 21}, key=int)
 
 
 class Changes:
@@ -558,18 +589,22 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
                                    if path.name != "ModuleBoundariesTests.java"
                                    and "ApplicationModules.of(" in path.read_text(encoding="utf-8", errors="replace")),
                                   None)
+    java_version = pom_value(pom, r"<java.version>([^<]+)</java.version>", "25")
     values = {
         "{{BOUNDARY_TEST}}": (existing_boundary_test.stem if modules and existing_boundary_test
                               else "ModuleBoundariesTests"),
         "{{PROJECT_NAME}}": pom_value(pom, r"</parent>.*?<artifactId>([^<]+)</artifactId>", project.name),
         "{{BOOT_VERSION}}": pom_value(pom, r"<parent>.*?<version>([^<]+)</version>", "4"),
-        "{{JAVA_VERSION}}": pom_value(pom, r"<java.version>([^<]+)</java.version>", "25"),
+        "{{JAVA_VERSION}}": java_version,
+        "{{BUILD_JDK}}": build_jdk(java_version),
         "{{BASE_PACKAGE}}": base_package,
         "{{TEST_PACKAGE}}": base_package,
         "{{APP_CLASS}}": f"{app_package}.{app_class}",
         "{{BASE_PATH}}": base_package.replace(".", "/"),
         "{{MAVEN_DIR}}": folder or ".",
         "{{NULLAWAY_CHECKED}}": nullaway_checked(nullaway, base_package),
+        "{{FORMATTER}}": formatter(patched)[0],
+        "{{FORMAT_APPLY}}": formatter(patched)[1],
     }
     other_mode = nullaway_checked("all" if nullaway == "marked" else "marked", base_package)
     # A rerun with --no-observability leaves an installed pack in place, so the docs still describe it.
@@ -714,7 +749,10 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         changes.own(at_root(ours), render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")),
                     ASSETS / "project" / WORKFLOW)
     elif runs_maven:
-        changes.keep(at_root(runs_maven.relative_to(root)), "already runs Maven in CI")
+        old = old_jdks(runs_maven.read_text(encoding="utf-8", errors="replace"))
+        changes.keep(at_root(runs_maven.relative_to(root)), "already runs Maven in CI" + (
+            f", but on JDK {', '.join(old)}; Error Prone needs 21.0.8 or later, so set java-version to {BUILD_JDK}"
+            if old else ""))
     else:
         target = WORKFLOW if not (root / WORKFLOW).exists() else ".github/workflows/harness-verify.yml"
         changes.own(at_root(target), render((ASSETS / "project" / WORKFLOW).read_text(encoding="utf-8")),
@@ -758,7 +796,8 @@ def main():
         print("\nWARNING: no Maven wrapper here, and AGENTS.md, the Stop hook and CI all call ./mvnw. Add it with: "
               "mvn wrapper:wrapper")
     if not args.dry_run:
-        print("\nNext: ./mvnw spotless:apply, then ./mvnw verify, and fix what NullAway reports.")
+        goal = formatter((Path(args.project) / "pom.xml").read_text(encoding="utf-8"))[1]
+        print(f"\nNext: ./mvnw {goal}, then ./mvnw verify, and fix what NullAway reports.")
 
 
 if __name__ == "__main__":

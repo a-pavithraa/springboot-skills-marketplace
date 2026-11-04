@@ -194,6 +194,28 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("<artifactId>maven-compiler-plugin</artifactId>", pom_text)
         self.assertFalse((root / "src/test/java/com/acme/orders/ModuleBoundariesTests.java").exists())
 
+    def test_a_project_on_spring_java_format_keeps_it_instead_of_getting_spotless(self):
+        pom = add_after(STANDARD, "</plugin>\n", """      <plugin>
+        <groupId>io.spring.javaformat</groupId>
+        <artifactId>spring-javaformat-maven-plugin</artifactId>
+      </plugin>
+""")
+        root = self.project(pom)
+        result = self.run_script(root)
+        pom_text = (root / "pom.xml").read_text(encoding="utf-8")
+        self.assertNotIn("spotless", pom_text)
+        self.assertNotIn("palantir", pom_text)
+        self.assertIn("<artifactId>maven-compiler-plugin</artifactId>", pom_text)
+        self.assertIn("| Spring Java Format | Code isn't formatted | Run `./mvnw spring-javaformat:apply` |",
+                      (root / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertIn("Spring Java Format checks them", (root / "REVIEW.md").read_text(encoding="utf-8"))
+        self.assertIn("Next: ./mvnw spring-javaformat:apply", result.stdout)
+
+        root = self.project(STANDARD)
+        self.assertIn("Next: ./mvnw spotless:apply", self.run_script(root).stdout)
+        self.assertIn("| Spotless | Code isn't formatted | Run `./mvnw spotless:apply` |",
+                      (root / "AGENTS.md").read_text(encoding="utf-8"))
+
     def test_templates_are_rendered_with_the_application_package(self):
         root = self.project(STANDARD)
         self.run_script(root)
@@ -590,7 +612,24 @@ class ApplyHarnessTests(unittest.TestCase):
         root = self.project(STANDARD, {".github/workflows/ci.yml": "steps:\n  - run: ./mvnw -ntp verify\n"})
         result = self.run_script(root)
         self.assertIn("kept     .github/workflows/ci.yml", result.stdout)
+        self.assertNotIn("Error Prone needs", result.stdout)
         self.assertFalse((root / ".github/workflows/verify.yml").exists())
+
+    def test_ci_builds_on_a_jdk_error_prone_runs_on_when_sources_target_an_older_release(self):
+        java17 = STANDARD.replace("<java.version>25</java.version>", "<java.version>17</java.version>")
+        root = self.project(java17)
+        self.run_script(root)
+        self.assertIn('java-version: "25"', (root / ".github/workflows/verify.yml").read_text(encoding="utf-8"))
+        self.assertIn("on Java 17, built on JDK 25", (root / "AGENTS.md").read_text(encoding="utf-8"))
+
+        matrix = "strategy:\n  matrix:\n    java: [ '17' ]\nsteps:\n  - uses: actions/setup-java@v4\n" \
+                 "    with:\n      java-version: ${{matrix.java}}\n  - run: ./mvnw -B verify\n"
+        root = self.project(java17, {".github/workflows/maven-build.yml": matrix})
+        result = self.run_script(root)
+        self.assertIn("but on JDK 17; Error Prone needs 21.0.8 or later, so set java-version to 25", result.stdout)
+
+        root = self.project(java17, {".github/workflows/ci.yml": "java-version: '21.0.8'\nrun: ./mvnw verify\n"})
+        self.assertNotIn("Error Prone needs", self.run_script(root).stdout)
 
     def test_archunit_freeze_store_is_configured_without_dropping_existing_properties(self):
         root = self.project(STANDARD)

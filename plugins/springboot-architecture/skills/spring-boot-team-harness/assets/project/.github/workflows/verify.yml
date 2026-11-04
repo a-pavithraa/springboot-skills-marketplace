@@ -19,6 +19,6 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "{{JAVA_VERSION}}"
+          java-version: "{{BUILD_JDK}}"
           cache: maven
       - run: ./mvnw -B verify

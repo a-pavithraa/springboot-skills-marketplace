@@ -2,9 +2,9 @@
 # Claude Code hook that checks the agent's own changes before a turn ends.
 #
 #   verify-on-stop.sh --session-start [folder]   SessionStart: records the code the session starts from.
-#   verify-on-stop.sh [folder]                   Stop: if this session changed the code, formats it and runs the
-#                                                gates that need no Docker (compile with NullAway, then the rules,
-#                                                configuration-key and module tests).
+#   verify-on-stop.sh [folder]                   Stop: if this session changed the code, formats it (checks it on
+#                                                Spring Java Format) and runs the gates that need no Docker (compile
+#                                                with NullAway, then the rules, configuration-key and module tests).
 #
 # It blocks the turn (exit 2) only on errors in files this session changed, so the agent fixes its own mistakes and
 # never code it didn't touch. When the build fails only elsewhere, it tells the user the change couldn't be fully
@@ -118,7 +118,18 @@ format_patterns() {
   done
 }
 to_format=$(printf '%s\n' "$changed" | format_patterns | paste -sd, -)
-if [ -n "$to_format" ]; then
+session_unformatted() {
+  printf '%s\n' "$changed" | grep '\.java$' | while IFS= read -r file; do
+    printf '%s\n' "$1" | tr '\\' '/' | grep -F "$file"
+  done
+}
+if [ -n "$to_format" ] && grep -Eq '<artifactId>[[:space:]]*spring-javaformat-maven-plugin' pom.xml 2> /dev/null; then
+  # Spring Java Format formats the whole project or nothing, so the session's files are only checked.
+  if ! output=$(./mvnw -q -B spring-javaformat:validate 2>&1); then
+    mine=$(session_unformatted "$output")
+    [ -z "$mine" ] || block "Code isn't formatted. Run ./mvnw spring-javaformat:apply, then finish:" "$mine" format
+  fi
+elif [ -n "$to_format" ]; then
   output=$(./mvnw -q -B spotless:apply -DspotlessFiles="$to_format" 2>&1) \
     || block "Formatting with ./mvnw spotless:apply failed. Fix the cause, then finish:" "$(printf '%s\n' "$output" | errors)" \
       format

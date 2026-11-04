@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import javax.xml.XMLConstants;
@@ -30,6 +31,15 @@ class BuildSetupTests {
     /** Boot artifacts that belong on the test classpath. */
     private static final Set<String> TEST_ONLY = Set.of("spring-boot-testcontainers", "spring-boot-docker-compose");
 
+    /**
+     * HTTP client starters, with what main code uses from them. Tests often use one to call the running app; it
+     * belongs in production only when main code builds a client with it.
+     */
+    private static final Map<String, List<String>> HTTP_CLIENTS = Map.of(
+            "spring-boot-starter-restclient", List.of("RestClient.Builder", "RestTemplateBuilder", "@HttpExchange",
+                    "@ImportHttpServices"),
+            "spring-boot-starter-webclient", List.of("WebClient.Builder", "@HttpExchange", "@ImportHttpServices"));
+
     private static final Set<String> SCHEMA_FROM_HIBERNATE = Set.of("update", "create", "create-drop", "create-only");
 
     @Test
@@ -38,7 +48,8 @@ class BuildSetupTests {
                 .filter(dependency -> dependency.group().equals("org.springframework.boot")
                         && dependency.scope().equals("test")
                         && !dependency.artifact().endsWith("-test")
-                        && !TEST_ONLY.contains(dependency.artifact()))
+                        && !TEST_ONLY.contains(dependency.artifact())
+                        && !onlyTestsCallOverHttp(dependency.artifact()))
                 .map(dependency -> "pom.xml: " + dependency.artifact() + " is on the test classpath only, so the tests pass with it "
                         + "and the application runs without it. Remove <scope>test</scope>")
                 .toList();
@@ -143,6 +154,20 @@ class BuildSetupTests {
                 .map(element -> element.getTextContent().trim())
                 .findFirst()
                 .orElse("");
+    }
+
+    private static boolean onlyTestsCallOverHttp(String artifact) {
+        List<String> uses = HTTP_CLIENTS.get(artifact);
+        if (uses == null) {
+            return false;
+        }
+        try (Stream<Path> sources = Files.walk(Path.of("src/main/java"))) {
+            return sources.filter(path -> path.toString().endsWith(".java"))
+                    .map(BuildSetupTests::read)
+                    .noneMatch(source -> uses.stream().anyMatch(source::contains));
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private static boolean buildsFlywayItself() throws IOException {

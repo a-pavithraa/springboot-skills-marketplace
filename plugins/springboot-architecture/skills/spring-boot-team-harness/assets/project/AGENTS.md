@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}}
 
-Spring Boot {{BOOT_VERSION}} on Java {{JAVA_VERSION}}. Base package: `{{BASE_PACKAGE}}`.
+Spring Boot {{BOOT_VERSION}} on Java {{JAVA_VERSION}}, built on JDK {{BUILD_JDK}} (Error Prone needs 21.0.8 or later). Base package: `{{BASE_PACKAGE}}`.
 
 ## Done means verify passes
 
@@ -8,7 +8,7 @@ Run `./mvnw verify` (`mvnw.cmd verify` on Windows) before you say a change is fi
 
 | Gate | Fails when | Fix |
 | --- | --- | --- |
-| NullAway, at compile | {{NULLAWAY_CHECKED}} can pass or return `null` where the type doesn't allow it | Annotate with `org.jspecify.annotations.Nullable` and handle the null. Don't add `@SuppressWarnings("NullAway")`, and don't add `@NullUnmarked`: classes that have it are legacy code waiting to be fixed |
+| NullAway, at compile | {{NULLAWAY_CHECKED}} can pass or return `null` where the type doesn't allow it | Annotate with `org.jspecify.annotations.Nullable` and handle the null. Don't add `@SuppressWarnings("NullAway")`, and don't add `@NullUnmarked`: classes that have it are legacy code waiting to be fixed. NullAway skips all of such a class, your changes included, so when you change one, remove the mark and fix what NullAway reports; if that grows past the change, put the mark back and say the class is still unchecked |
 <!-- modules:begin -->
 | `{{BOUNDARY_TEST}}` | A module uses another module's internal type (outside its top-level package and named interfaces), modules depend on each other in a cycle, a module depends on one its `allowedDependencies` leave out or lists one it doesn't use | Call the other module through a type in its top-level package, or publish an event. Don't change `allowedDependencies` or a module's type to get through: ask the user. Violations in the violation record `src/test/resources/modulith_store` are older than the harness and tolerated; never edit it. When you change a module, fix its recorded violations one module per change |
 <!-- modules:end -->
@@ -19,7 +19,7 @@ Run `./mvnw verify` (`mvnw.cmd verify` on Windows) before you say a change is fi
 <!-- observability:end -->
 | `BuildSetupTests` | A Boot starter is in `test` scope; `spring-boot-autoconfigure-classic` is a dependency; Flyway migrations exist without `spring-boot-starter-flyway`; `ddl-auto` creates or updates the schema, or code writes `flyway_schema_history` | Each failure message says what to do instead. Don't work around a missing feature by adding it to the test classpath only |
 | `UnusedCodeTests` (in `verify` only, not the end-of-turn check) | A non-private method is called only from tests | If the change is meant to call it, wire that up. Otherwise test through the public behaviour and delete the method; don't open up internals for a test. If the user asked for a method nothing calls yet, ask them; don't route existing code through it to pass |
-| Spotless | Code isn't formatted | Run `./mvnw spotless:apply` |
+| {{FORMATTER}} | Code isn't formatted | Run `./mvnw {{FORMAT_APPLY}}` |
 
 Log levels: ERROR means someone must act, and passes the exception as the last argument. WARN means the app recovered but someone should look. INFO is one line per business state change. DEBUG is everything else. Log internal ids, never personal data or credentials. Let `@ExceptionHandler` methods build the response<!-- failure-filter:begin -->; `HandledFailureFilter` logs every 5xx with its cause, so don't log the same exception again<!-- failure-filter:end -->.
 

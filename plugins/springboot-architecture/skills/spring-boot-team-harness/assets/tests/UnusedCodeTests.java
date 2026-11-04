@@ -89,8 +89,9 @@ class UnusedCodeTests {
     }
 
     /**
-     * A method counts when every caller is a test. Getters are left out because Jackson, JPA and templates read
-     * them by reflection, and so are methods named in @PreAuthorize-style expressions, which bytecode can't see.
+     * A method counts when every caller is a test. Getters and setters are left out because Jackson, JPA, templates
+     * and form binding call them by reflection, and so are methods named in @PreAuthorize-style expressions, which
+     * bytecode can't see.
      */
     private static ArchCondition<JavaClass> notHaveMethodsOnlyTestsCall() {
         String expressions = MAIN.stream()
@@ -113,6 +114,7 @@ class UnusedCodeTests {
                             || modifiers.contains(JavaModifier.SYNTHETIC)
                             || method.getName().equals("main")
                             || (method.getName().matches("(get|is)[A-Z].*") && method.getRawParameterTypes().isEmpty())
+                            || (method.getName().matches("set[A-Z].*") && method.getRawParameterTypes().size() == 1)
                             || ENTRY_POINTS.stream().anyMatch(method::isMetaAnnotatedWith)
                             || overridesAnother(type, method)
                             || expressions.contains("." + method.getName() + "(")) {
