@@ -255,12 +255,13 @@ if [ -z "$(git status --porcelain)" ]; then pass "rerunning apply_harness.py cha
 else fail "rerunning apply_harness.py changed files"; git status --porcelain; cat .git/apply.log; fi
 reset
 
-hook() {  # [--session-start] [stop_hook_active]
+hook() {  # [--session-start] [stop_hook_active]; fails when the hook blocks the turn
   local args=() active=false
   [ "${1:-}" = --session-start ] && { args=(--session-start); shift; }
   [ -n "${1:-}" ] && active=$1
   printf '{"session_id":"e2e","stop_hook_active":%s}' "$active" \
-    | CLAUDE_PROJECT_DIR="$WORK" bash .claude/hooks/verify-on-stop.sh "${args[@]}" > hook.out 2>&1
+    | CLAUDE_PROJECT_DIR="$WORK" bash .claude/hooks/verify-on-stop.sh "${args[@]}" > hook.out 2>&1 \
+    && ! grep -q '^{"decision":"block"' hook.out
 }
 hook --session-start
 perl -0pi -e 's|(public BigDecimal total\(String sku, int quantity\) \{\n)|    \@org.springframework.scheduling.annotation.Async\n    public void warm() {}\n\n$1        warm();\n|' \
