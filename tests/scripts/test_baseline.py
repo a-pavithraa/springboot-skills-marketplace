@@ -111,6 +111,15 @@ class MainTests(unittest.TestCase):
                        "-Dsurefire.failIfNoSpecifiedTests=false"), calls)
         self.assertIn("recorded 2 module-boundary violations", printed)
 
+    def test_formats_with_spring_java_format_when_the_pom_uses_it(self):
+        project = Path(tempfile.mkdtemp())
+        (project / "pom.xml").write_text("<project><build><plugins><plugin>"
+                                         "<artifactId>spring-javaformat-maven-plugin</artifactId>"
+                                         "</plugin></plugins></build></project>\n")
+        with mock.patch.object(baseline.Path, "resolve", lambda self: project):
+            calls, _ = self.run_main(0)
+        self.assertEqual(calls[-1], ("spring-javaformat:apply",))
+
     def test_a_formatting_failure_stops_with_the_formatter_output(self):
         with self.assertRaises(SystemExit) as stopped:
             self.run_main(1)

@@ -356,6 +356,8 @@ case "$*" in
   *spotless:apply*)
     [ -f fail-format ] && { echo "[ERROR] spotless failed"; exit 1; }
     [ -f reformat-two ] && echo "// formatted" >> src/main/java/two/B.java ;;
+  *spring-javaformat:validate*)
+    [ -f unformatted ] && { echo "[ERROR] Formatting violations found in the following files:"; sed 's|^|[ERROR]  * /x/|' unformatted; exit 1; } ;;
   *test*) [ -f fail-tests ] && { cat fail-tests; exit 1; } ;;
 esac
 exit 0
@@ -382,7 +384,7 @@ class StopHookFixture:
         mvnw.chmod(0o755)
         (self.root / "frontend").mkdir()
         (self.root / "frontend" / "app.js").write_text("1\n")
-        (self.root / ".gitignore").write_text("mvnw.log\nfail-*\nreformat-*\ntarget/\n")
+        (self.root / ".gitignore").write_text("mvnw.log\nfail-*\nreformat-*\nunformatted\ntarget/\n")
         git(self.root, "init", "-q", "-b", "main")
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "start")
@@ -514,6 +516,22 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         spotless = next(line for line in self.log().splitlines() if "spotless:apply" in line)
         self.assertIn(r"-DspotlessFiles=.*src[\\/]main[\\/]java[\\/]one[\\/]A\.java", spotless)
         self.assertNotIn("two", spotless)
+
+    def test_on_spring_java_format_the_sessions_files_are_checked_not_formatted(self):
+        (self.project / "pom.xml").write_text(
+            "<project><build><plugins><plugin><artifactId>spring-javaformat-maven-plugin</artifactId></plugin>"
+            "</plugins></build></project>\n")
+        self.start_session()
+        self.edit("A")
+        (self.project / "unformatted").write_text(SOURCES["A"] + "\n")
+        result = self.stop()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Run ./mvnw spring-javaformat:apply", result.stderr)
+        self.assertIn(SOURCES["A"], result.stderr)
+        self.assertNotIn("spotless", self.log())
+
+        (self.project / "unformatted").write_text(SOURCES["B"] + "\n")
+        self.assertEqual(self.stop().returncode, 0, "a file the session didn't change blocked the turn")
 
     def test_a_file_reformatted_by_the_check_is_not_the_sessions(self):
         self.start_session()

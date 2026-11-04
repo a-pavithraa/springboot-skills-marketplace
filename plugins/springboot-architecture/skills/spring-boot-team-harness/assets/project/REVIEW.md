@@ -22,7 +22,7 @@ Add a line each time a review misses a bug that one would have caught. -->
 
 ## Don't report
 
-- Formatting and import order: Spotless checks them.
+- Formatting and import order: {{FORMATTER}} checks them.
 - What the build already fails on: NullAway, `CodeRulesTests` and the other rule tests.
 - Naming and comment style, unless they hide a bug.
 

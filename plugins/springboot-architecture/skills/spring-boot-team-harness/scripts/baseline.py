@@ -7,7 +7,7 @@ Usage:
 Run it after apply_harness.py and the one-time formatting commit. It holds new code to the gates and records what
 already fails:
 
-- NullAway: each class that fails today gets @NullUnmarked, so NullAway skips it while new and clean code is checked.
+- NullAway: each class that fails today gets @NullUnmarked, so NullAway skips it while new and clean classes are checked.
   The opt-out is visible in the code; remove it from a class once that class is fixed.
 - ArchUnit: CodeRulesTests and UnusedCodeTests run once and record today's violations in src/test/resources/archunit_store. New
   violations fail; fixed ones drop out of the record. Only this script creates the record: without it, every violation
@@ -36,6 +36,15 @@ MAX_ROUNDS = 10
 BOUNDARY_TEST = "ModuleBoundariesTests.java"
 RECORD_FLAG = "modulith.store.record=true"
 MODULITH_STORE = "src/test/resources/modulith_store"
+
+
+def format_goal(project: Path) -> str:
+    """The goal that formats the project: apply_harness.py keeps Spring Java Format where the pom uses it."""
+    pom = project / "pom.xml"
+    text = re.sub(r"<!--.*?-->", "", pom.read_text(encoding="utf-8"), flags=re.S) if pom.exists() else ""
+    if re.search(r"<artifactId>\s*spring-javaformat-maven-plugin\s*</artifactId>", text):
+        return "spring-javaformat:apply"
+    return "spotless:apply"
 
 
 def failing_files(output: str) -> set[Path]:
@@ -122,10 +131,11 @@ def main():
         sys.exit("ERROR: the ArchUnit rule tests failed while recording today's violations:\n" + output[-3000:])
     print("ArchUnit: recorded today's violations in src/test/resources/archunit_store")
     record_module_violations(project)
-    code, output = maven(project, "spotless:apply")
+    goal = format_goal(project)
+    code, output = maven(project, goal)
     if code != 0:
-        sys.exit("ERROR: spotless:apply failed, so the marked classes may not be formatted. The NullAway marks and the "
-                 "ArchUnit record are in place; fix the formatter error, rerun ./mvnw spotless:apply, then commit:\n"
+        sys.exit(f"ERROR: {goal} failed, so the marked classes may not be formatted. The NullAway marks and the "
+                 f"ArchUnit record are in place; fix the formatter error, rerun ./mvnw {goal}, then commit:\n"
                  + output[-3000:])
     print("\nNext: ./mvnw verify, then commit the marked classes, archunit_store and modulith_store.")
 

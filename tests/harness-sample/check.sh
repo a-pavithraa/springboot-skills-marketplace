@@ -182,6 +182,20 @@ perl -0pi -e 's|(\n\}\s*)$|\n    public int size() {\n        return prices.size
 printf 'package com.acme.shop;\n\nclass CatalogSizeTests {\n    @org.junit.jupiter.api.Test\n    void counts() {\n        new com.acme.shop.catalog.Catalog().size();\n    }\n}\n' > src/test/java/com/acme/shop/CatalogSizeTests.java
 expect_failure "UnusedCodeTests: a method only a test calls" 'is called only from tests' test -Dtest=UnusedCodeTests -Dsurefire.failIfNoSpecifiedTests=false
 
+perl -0pi -e 's|(\n\}\s*)$|\n    public void setCurrency(String currency) {}$1|' src/main/java/com/acme/shop/catalog/Catalog.java
+printf 'package com.acme.shop;\n\nclass CatalogCurrencyTests {\n    @org.junit.jupiter.api.Test\n    void sets() {\n        new com.acme.shop.catalog.Catalog().setCurrency("EUR");\n    }\n}\n' > src/test/java/com/acme/shop/CatalogCurrencyTests.java
+if "$MVN" -B test -Dtest=UnusedCodeTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then pass "UnusedCodeTests: a setter only a test calls is allowed, since binding calls it"
+else fail "UnusedCodeTests: a setter only a test calls was rejected"; tail -40 out.log; fi
+reset
+
+perl -0pi -e 's|(<dependencies>)|$1\n    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-restclient</artifactId><scope>test</scope></dependency>|' pom.xml
+if "$MVN" -B test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then pass "BuildSetupTests: a test-only HTTP client the application doesn't use is allowed"
+else fail "BuildSetupTests: a test-only HTTP client the application doesn't use was rejected"; tail -40 out.log; fi
+perl -0pi -e 's|(<dependencies>)|$1\n    <dependency><groupId>org.springframework</groupId><artifactId>spring-web</artifactId></dependency>|' pom.xml
+printf 'package com.acme.shop.catalog;\n\nclass PriceFeed {\n    PriceFeed(org.springframework.web.client.RestClient.Builder builder) {}\n}\n' > src/main/java/com/acme/shop/catalog/PriceFeed.java
+expect_failure "BuildSetupTests: a test-only HTTP client the application builds a client with" 'spring-boot-starter-restclient is on the test classpath only' \
+  test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false
+
 printf 'management.endpoints.web.exposure.include=health,env\n' >> src/main/resources/application.properties
 expect_failure "ConfigurationKeysTests: env exposed on the public port" 'exposes env' test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false
 
@@ -421,5 +435,23 @@ if "$MVN" -B test -Dtest=HandledFailureTests -Dsurefire.failIfNoSpecifiedTests=f
 else fail "HandledFailureFilter: sync or async failure missed"; grep -E "Tests run|ERROR|Expect" out.log | head -30; fi
 perl -pi -e 's|return false;|return true;|' src/main/java/com/acme/shop/HandledFailureFilter.java
 expect_failure "HandledFailureTests: a filter that skips async dispatches" 'aHandledAsyncFailure' test -Dtest=HandledFailureTests -Dsurefire.failIfNoSpecifiedTests=false
+
+# A project on Spring Java Format keeps it: the harness adds no Spotless, and its formatter's own check passes.
+FORMATTED=$(mktemp -d)
+cp -r "$HERE/project/." "$FORMATTED/"
+cp mvnw "$FORMATTED/"
+if (
+  # set -e doesn't apply inside an if condition, so each step is chained.
+  cd "$FORMATTED" \
+    && perl -0pi -e 's|(<plugins>)|$1\n      <plugin><groupId>io.spring.javaformat</groupId><artifactId>spring-javaformat-maven-plugin</artifactId><version>0.0.48</version><executions><execution><phase>validate</phase><goals><goal>validate</goal></goals></execution></executions></plugin>|' pom.xml \
+    && git init -q && git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm sample \
+    && python3 "$HARNESS/apply_harness.py" . --nullaway "$MODE" | tee apply.log \
+    && grep -q "Next: ./mvnw spring-javaformat:apply" apply.log \
+    && ! grep -q spotless pom.xml \
+    && "$MVN" -B -q spring-javaformat:apply \
+    && "$MVN" -B verify
+) > format.log 2>&1; then pass "Spring Java Format: kept instead of Spotless, and verify passes"
+else fail "Spring Java Format: Spotless added or verify failed"; tail -40 format.log; fi
+rm -rf "$FORMATTED" format.log
 
 if [ "$failures" -eq 0 ]; then echo "All harness gates work (JDK $(java -version 2>&1 | grep -v "Picked up" | head -1), NullAway $MODE)"; else echo "$failures check(s) failed"; exit 1; fi
