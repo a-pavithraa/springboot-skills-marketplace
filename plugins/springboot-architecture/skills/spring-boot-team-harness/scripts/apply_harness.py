@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add the team harness to a Maven Spring Boot project: AGENTS.md, Claude Code settings, and ./mvnw verify gates.
+"""Add the team harness to a Maven Spring Boot project: AGENTS.md, Claude Code and Codex hooks, and ./mvnw verify gates.
 
 Usage:
     python3 apply_harness.py <project-dir> [--base-package com.example.app] [--nullaway all|marked] [--no-observability]
@@ -9,8 +9,8 @@ The pom gets NullAway (JSpecify mode, main code only; every class under the base
 only @NullMarked packages) through Error Prone, Spotless with palantir-java-format,
 Spring Modulith's test starter, and ArchUnit. Four tests are added: ConfigurationKeysTests, CodeRulesTests,
 BuildSetupTests and ModuleBoundariesTests. A GitHub Actions workflow that runs ./mvnw verify is added when no
-workflow runs mvnw. Claude Code hooks run the fast gates when a turn ends, and block destructive git commands, edits
-to migrations already on main, and edits to the rule tests.
+workflow runs mvnw. Claude Code and Codex hooks run the fast gates when a turn ends, and block destructive git
+commands, edits to migrations already on main, and edits to the rule tests.
 A REVIEW.md template tells reviewers what the code doesn't show; the team fills it in.
 Files that already exist are left alone and reported, except CLAUDE.md, which gets an `@AGENTS.md` import as its
 first line, and the files the harness owns (hooks, tests, project skills, its workflow): .claude/harness.lock records
@@ -655,29 +655,30 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
             lead = present.rstrip("\n") + "\n\n" if present else ""
             changes.write(at_root("AGENTS.md"), lead + pointer, "patched" if present else "added")
 
-    template = ASSETS / "project" / ".claude" / "settings.json"
-    wanted_settings = json.loads(render(template.read_text(encoding="utf-8")))
-    if folder:
-        for event in ("SessionStart", "Stop"):
-            for group in wanted_settings["hooks"][event]:
-                for hook in group["hooks"]:
-                    hook["command"] += f' "{folder}"'
-    settings = at_root(".claude/settings.json")
-    if not (project / settings).exists():
-        changes.write(settings, json.dumps(wanted_settings, indent=2) + "\n", "added")
-    else:
+    # Claude Code's settings and Codex's hooks file register the same two scripts, merged into what the team has.
+    for template in (ASSETS / "project" / ".claude" / "settings.json", ASSETS / "project" / ".codex" / "hooks.json"):
+        wanted_settings = json.loads(render(template.read_text(encoding="utf-8")))
+        if folder:
+            for event in ("SessionStart", "Stop"):
+                for group in wanted_settings["hooks"][event]:
+                    for hook in group["hooks"]:
+                        hook["command"] += f' "{folder}"'
+        settings = at_root(template.relative_to(ASSETS / "project"))
+        if not (project / settings).exists():
+            changes.write(settings, json.dumps(wanted_settings, indent=2) + "\n", "added")
+            continue
         try:
             current = json.loads((project / settings).read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             current = None
         if not isinstance(current, dict):
             changes.keep(settings, f"not valid JSON; merge {template} by hand")
+            continue
+        merged = merge_settings(current, wanted_settings)
+        if merged == current:
+            changes.keep(settings, "has the harness entries")
         else:
-            merged = merge_settings(current, wanted_settings)
-            if merged == current:
-                changes.keep(settings, "has the harness entries")
-            else:
-                changes.write(settings, json.dumps(merged, indent=2) + "\n", "patched")
+            changes.write(settings, json.dumps(merged, indent=2) + "\n", "patched")
     for hook in HOOKS:
         changes.own(at_root(hook), (ASSETS / "project" / hook).read_text(encoding="utf-8"), ASSETS / "project" / hook)
 

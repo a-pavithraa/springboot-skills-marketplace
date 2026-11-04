@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Fails a pull request that changes what the build accepts without saying so. The Claude Code guard hook refuses these
-# edits during a session, but it is advisory: a Bash command, another agent or a person can make them anyway. This check
-# is the backstop, and it runs the same way for every tool.
+# Fails a pull request that changes what the build accepts without saying so. The guard hook refuses these edits
+# during a Claude Code or Codex session, but it is advisory: a Bash command, another agent or a person can make them
+# anyway. This check is the backstop, and it runs the same way for every tool.
 #
 # Usage: check-protected.sh <base-commit>
 # Set HARNESS_RULE_CHANGE=true (the harness-rule-change label on the pull request) to accept the changes on purpose;
@@ -15,7 +15,9 @@
 #   - changes archunit.properties
 #   - changes or deletes an existing rule test (adding a new one is fine)
 #   - changes or deletes a migration that is on the base branch (adding a new one is fine)
-#   - changes or deletes the harness hooks, this script or its workflow
+#   - changes or deletes the harness hooks, this script or its workflow, or the verify workflow the harness added
+#   - unregisters a harness hook, or narrows when it runs, in .claude/settings.json or .codex/hooks.json
+#   - changes the harness's plugin block in a pom.xml (NullAway, Spotless), or removes a line from .mvn/jvm.config
 #   - stops LogLeakCheck running, by unregistering it or turning off JUnit's extension autodetection
 
 set -u
@@ -46,6 +48,33 @@ module_rules() {
   git show "$1:$2" 2> /dev/null \
     | sed -n '/^[[:space:]]*@\(org\.springframework\.modulith\.\)\{0,1\}ApplicationModule\b/,/^[[:space:]]*package[[:space:]]/p' \
     | sed '$d' | awk 'NR == 1 || !/^[[:space:]]*@/' | tr -d '[:space:]'
+}
+
+# hook_entries <commit> <file>: each registration of a .claude/hooks/ script, one per line: event, matcher, command.
+# A file that is missing or isn't valid JSON registers nothing.
+hook_entries() {
+  git show "$1:$2" 2> /dev/null | python3 -c '
+import json, sys
+try:
+    hooks = json.load(sys.stdin).get("hooks") or {}
+    for event, groups in hooks.items():
+        for group in groups:
+            for hook in group.get("hooks") or []:
+                if ".claude/hooks/" in str(hook.get("command", "")):
+                    print(event, group.get("matcher", ""), hook["command"], sep="\t")
+except (ValueError, AttributeError, TypeError):
+    pass
+' | sort -u
+}
+
+# plugins_block <commit> <pom>: the plugins the harness added, between its markers; empty when there are none.
+plugins_block() {
+  git show "$1:$2" 2> /dev/null | tr -d '\r' | sed -n '/<!-- harness:begin plugins -->/,/<!-- harness:end plugins -->/p'
+}
+
+# harness_owned <commit> <path>: true when the harness wrote the file, as its lock records.
+harness_owned() {
+  git show "$1:.claude/harness.lock" 2> /dev/null | grep -Fq "\"$2\":"
 }
 
 allowed_value='allowedDependencies=(\{[^}]*\}|"[^"]*")'
@@ -108,6 +137,19 @@ while IFS=$'\t' read -r status path; do
       fi ;;
     .claude/hooks/* | .github/harness/* | .github/workflows/harness-integrity.yml)
       problem "$path" "is part of the harness's own enforcement." ;;
+    .github/workflows/verify.yml | .github/workflows/harness-verify.yml)
+      harness_owned "$fork" "$path" && problem "$path" "runs ./mvnw verify on every pull request, so the gates hold for code nobody ran locally." ;;
+    .claude/settings.json | .codex/hooks.json)
+      [ -z "$(comm -23 <(hook_entries "$fork" "$path") <(hook_entries HEAD "$path"))" ] \
+        || problem "$path" "unregisters a harness hook or narrows when it runs, so agents' changes go unchecked." ;;
+    pom.xml | */pom.xml)
+      before=$(plugins_block "$fork" "$path")
+      [ -z "$before" ] || [ "$before" = "$(plugins_block HEAD "$path")" ] \
+        || problem "$path" "changes the harness's plugin block (NullAway, Spotless), which changes what the build accepts." ;;
+    .mvn/jvm.config | */.mvn/jvm.config)
+      [ -z "$(comm -23 <(git show "$fork:$path" 2> /dev/null | tr -d '\r' | sort -u) \
+        <(git show "HEAD:$path" 2> /dev/null | tr -d '\r' | sort -u))" ] \
+        || problem "$path" "removes a JVM option the compiler needs to run Error Prone and NullAway." ;;
     *)
       if [ "$status" != A ] && printf '%s' "${path##*/}" | grep -Eqx "($rule_tests)\.java"; then
         problem "$path" "holds the team's build rules; changing it changes what every build accepts."

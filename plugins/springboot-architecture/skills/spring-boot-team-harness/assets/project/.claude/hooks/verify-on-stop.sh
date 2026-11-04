@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Claude Code hook that checks the agent's own changes before a turn ends.
+# Claude Code and Codex hook that checks the agent's own changes before a turn ends.
 #
 #   verify-on-stop.sh --session-start [folder]   SessionStart: records the code the session starts from.
 #   verify-on-stop.sh [folder]                   Stop: if this session changed the code, formats it (checks it on
 #                                                Spring Java Format) and runs the gates that need no Docker (compile
 #                                                with NullAway, then the rules, configuration-key and module tests).
 #
-# It blocks the turn (exit 2) only on errors in files this session changed, so the agent fixes its own mistakes and
+# It blocks the turn only on errors in files this session changed, so the agent fixes its own mistakes and
 # never code it didn't touch. When the build fails only elsewhere, it tells the user the change couldn't be fully
 # verified. The full ./mvnw verify still runs in CI. folder is the Maven project, relative to the repository root.
 #
@@ -18,7 +18,8 @@ if [ "${1:-}" = "--session-start" ]; then
   start=true
   shift
 fi
-cd "${CLAUDE_PROJECT_DIR:-.}/${1:-.}" || exit 0
+# Codex sets no project folder variable and runs hooks in the session's folder, which can be a subfolder.
+cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2> /dev/null || pwd)}/${1:-.}" || exit 0
 input=$(cat)
 git rev-parse --git-dir > /dev/null 2>&1 || exit 0
 
@@ -99,8 +100,11 @@ errors() {
 block() {
   printf '%s\n' "$state" > "$FAILED"
   record blocked "$3" "$count"
-  { echo "$1"; printf '%s\n' "$2" | head -60; } >&2
-  exit 2
+  { echo "$1"; printf '%s\n' "$2" | head -60; } \
+    | awk 'BEGIN { ORS = ""; printf "{\"decision\":\"block\",\"reason\":\"" }
+           { gsub(/\r/, ""); gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); if (NR > 1) print "\\n"; print }
+           END { print "\"}\n" }'
+  exit 0
 }
 
 # The session owns the files that differ from its starting point before formatting, so a legacy file that Spotless
