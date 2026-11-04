@@ -104,7 +104,7 @@ The marketplace also lists plugins by other authors, unchanged and pinned to a r
 | `spring-boot-team-harness` | Add `AGENTS.md`, build gates, hooks and CI to a project, as described above |
 | `creating-springboot-projects` | Start a service. It asks about the domain and team, picks an architecture, generates the project with [progen](https://github.com/sivaprasadreddy/progen) or Spring Initializr, and applies the team harness |
 | `springboot-migration` | Upgrade to Boot 4, Java 25, Spring Modulith 2 and Testcontainers 2. It scans the project, then changes dependencies, code and config in that order |
-| `writing-springboot-tests` | Test HTTP clients, retries, timeouts, transactions and Kafka listeners, with templates run against Postgres, Kafka and WireMock. Check who may call each route, with test logins that go through the app's own role mapping |
+| `writing-springboot-tests` | Test HTTP clients, retries, timeouts, transactions and Kafka listeners, with templates run against Postgres, Kafka and WireMock. Check who may call each route, with test logins that go through the app's own role mapping. Test domain rules as properties over generated inputs |
 | `code-reviewer` | Review code or tests for Boot 4 changes, architecture fit and performance traps such as N+1 queries. It proves each test finding by breaking the guarded line and showing the test stays green |
 
 Claude Code and Codex both load a skill when a request matches its description. To make sure one loads, name it: `$code-reviewer review this service` in Codex. Automatic loading has been trialled only in Claude Code ([Scenario 25](tests/baseline-results/scenario-25.md)).
