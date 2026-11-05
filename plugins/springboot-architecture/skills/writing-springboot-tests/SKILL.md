@@ -1,11 +1,11 @@
 ---
 name: writing-springboot-tests
-description: "Use when writing or adding tests for Spring Boot code at a service's edges: HTTP clients that call other services (WireMock: 4xx and 5xx responses, timeouts, retries), Kafka or RabbitMQ listeners (redelivery, poison messages, dead-letter topics), events published to other services, or full-API tests against real databases with Testcontainers; also when a Boot 4 test needs the right imports, slices or container wiring. Supplies verified Boot 4.1 templates and the framework traps that make such tests pass without proving anything. Not for reviewing existing tests (see code-reviewer) or Boot 3 to 4 test migration (see springboot-migration)."
+description: "Use when writing or adding tests for Spring Boot code at a service's edges: HTTP clients that call other services (WireMock: 4xx and 5xx responses, timeouts, retries), Kafka or RabbitMQ listeners (redelivery, poison messages, dead-letter topics), events published to other services, or full-API tests against real databases with Testcontainers; domain logic whose rules must hold for every input (calculations, value objects, state transitions, parsing and formatting), tested as properties over generated inputs; also when a Boot 4 test needs the right imports, slices or container wiring. Supplies verified Boot 4.1 templates and the framework traps that make such tests pass without proving anything. Not for reviewing existing tests (see code-reviewer) or Boot 3 to 4 test migration (see springboot-migration)."
 ---
 
 # Writing Spring Boot Tests
 
-Use this for tests where the framework, not the logic, decides whether the test proves anything: calls and messages between services, retries, timeouts, transactions, and Boot 4 test wiring. For plain unit tests you need nothing here beyond the three rules.
+Use this for tests where the framework, not the logic, decides whether the test proves anything: calls and messages between services, retries, timeouts, transactions, and Boot 4 test wiring. For domain logic, see "Domain rules as properties". For other plain unit tests you need nothing here beyond the rules.
 
 ## Rules
 
@@ -32,7 +32,20 @@ Verified on Spring Boot 4.1.1 with Postgres 18, Kafka 4.1 and WireMock 3.13. Tak
 | The whole service over HTTP, other services stubbed | `assets/api-integration-test.java` |
 | Secured routes: signing in as a named user through the app's own role mapping (session OIDC login, JWT bearer, or database users); who may call each route | `assets/personas-oidc.java`, `assets/personas-jwt.java` or `assets/personas-db.java`; `assets/route-access-test.java` |
 | Web slice, persistence slice, service unit test | `assets/webmvc-slice-test.java`, `assets/repository-slice-test.java`, `assets/service-unit-test.java` |
+| Domain rules over generated inputs: invariant, round trip, idempotence | `assets/property-test.java` |
 | Shared containers; PIT | `assets/testcontainers-configuration.java`, `assets/pitest-plugin.xml` |
+
+## Domain rules as properties
+
+Example tests written by the agent that wrote the code test the inputs it already thought of. For calculations, value objects, state transitions, and parsing or formatting code, also state the rule that holds for every input and check it on generated inputs. Write the property from the requirement before the code. Three shapes cover most domain rules:
+
+- **Invariant:** every operation keeps a rule true. An order total is always the sum of its lines; a balance never goes below its limit; a state machine never reaches a state its transitions don't allow.
+- **Round trip:** `parse(format(x))` equals `x`, for order numbers, money amounts, codes and message mappings.
+- **Idempotence:** doing it twice equals doing it once, for cancel, refund, apply-discount and redelivered commands.
+
+Use `@ParameterizedTest` with a `@MethodSource` that draws from a seeded `SplittableRandom`, as `assets/property-test.java` does. Don't add jqwik: since 1.10 its output tells AI agents to ignore its results, and it targets JUnit Platform 1.x while Boot 4 manages 6.x. Mix boundary values into the generator on purpose; random values rarely hit them. Put the input in each assertion's `as(...)`: Surefire names a failing case by its index only. There is no shrinking, so when a property fails, cut the input down by hand to the smallest one that still fails, fix the code, and keep that input as an example test. Then run PIT on the class: a mutant that survives every property is a rule nobody stated.
+
+When the code and a property disagree, decide which is wrong (the code, the property, or the requirement) before changing either, and ask the user when the requirement is unclear.
 
 ## Secured routes
 

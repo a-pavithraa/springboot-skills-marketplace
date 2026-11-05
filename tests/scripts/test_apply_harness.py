@@ -604,9 +604,12 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("./mvnw -B verify", workflow)
 
         settings = (root / ".claude/settings.json").read_text(encoding="utf-8")
+        codex = (root / ".codex/hooks.json").read_text(encoding="utf-8")
         for hook in ("guard.sh", "verify-on-stop.sh"):
             self.assertTrue((root / ".claude/hooks" / hook).exists())
             self.assertIn(f".claude/hooks/{hook}", settings)
+            self.assertIn(f'$(git rev-parse --show-toplevel)/.claude/hooks/{hook}', codex)
+        self.assertEqual(json.loads(codex)["hooks"]["PreToolUse"][0]["matcher"], "Bash|apply_patch")
         self.assertEqual((root / ".gitattributes").read_text(encoding="utf-8"), "*.sh text eol=lf\n")
 
         root = self.project(STANDARD, {".github/workflows/ci.yml": "steps:\n  - run: ./mvnw -ntp verify\n"})
@@ -825,6 +828,17 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("kept     .claude/settings.json", self.run_script(root).stdout)
         self.assertEqual((root / ".claude/settings.json").read_text(encoding="utf-8"), merged)
 
+    def test_an_existing_codex_hooks_file_keeps_its_hooks_and_gets_the_harness_ones(self):
+        own = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 notify.py"}]}]}}
+        root = self.project(STANDARD, {".codex/hooks.json": json.dumps(own, indent=2)})
+        self.assertIn("patched  .codex/hooks.json", self.run_script(root).stdout)
+        hooks = json.loads((root / ".codex/hooks.json").read_text(encoding="utf-8"))["hooks"]
+        stop = [hook["command"] for group in hooks["Stop"] for hook in group["hooks"]]
+        self.assertIn("python3 notify.py", stop)
+        self.assertTrue(any(command.endswith('verify-on-stop.sh"') for command in stop), stop)
+        self.assertIn("PreToolUse", hooks)
+        self.assertIn("kept     .codex/hooks.json", self.run_script(root).stdout)
+
     def test_the_marketplace_updates_itself_and_an_older_entry_gains_auto_update(self):
         older = {"extraKnownMarketplaces": {"springboot-skills-marketplace": {
             "source": {"source": "github", "repo": "a-pavithraa/springboot-skills-marketplace"}}}}
@@ -896,6 +910,10 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertTrue(any(command.endswith('verify-on-stop.sh" "backend"') for command in stop), stop)
         start = [hook["command"] for group in settings["hooks"]["SessionStart"] for hook in group["hooks"]]
         self.assertTrue(any(command.endswith('verify-on-stop.sh" --session-start "backend"') for command in start), start)
+        codex = json.loads((root / ".codex/hooks.json").read_text(encoding="utf-8"))
+        stop = [hook["command"] for group in codex["hooks"]["Stop"] for hook in group["hooks"]]
+        self.assertTrue(any(command.endswith('verify-on-stop.sh" "backend"') for command in stop), stop)
+        self.assertFalse((backend / ".codex").exists())
         for hook in ("guard.sh", "verify-on-stop.sh"):
             self.assertTrue((root / ".claude/hooks" / hook).exists())
         self.assertFalse((backend / ".claude/settings.json").exists())

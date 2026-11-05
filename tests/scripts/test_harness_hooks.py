@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 HOOKS = Path(__file__).resolve().parents[2] / (
     "plugins/springboot-architecture/skills/spring-boot-team-harness/assets/project/.claude/hooks")
@@ -29,10 +30,17 @@ def git(root: Path, *args: str):
 @unittest.skipUnless(BASH, "bash not found")
 class GuardHookTests(unittest.TestCase):
 
-    def guard(self, payload: dict, project: Path | None = None) -> subprocess.CompletedProcess:
-        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project or Path.cwd()))
-        return subprocess.run([BASH, str(HOOKS / "guard.sh")], input=json.dumps(payload), capture_output=True,
-                              text=True, env=env)
+    def guard(self, payload: dict, project: Path | None = None, env: dict | None = None,
+              cwd: Path | None = None) -> SimpleNamespace:
+        """Runs the hook; it refuses with a deny decision on stdout and exit 0, the form Claude Code and Codex share."""
+        env = env or dict(os.environ, CLAUDE_PROJECT_DIR=str(project or Path.cwd()))
+        result = subprocess.run([BASH, str(HOOKS / "guard.sh")], input=json.dumps(payload), capture_output=True,
+                                text=True, env=env, cwd=cwd)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        decision = json.loads(result.stdout)["hookSpecificOutput"] if result.stdout.strip() else {}
+        if decision:
+            self.assertEqual((decision["hookEventName"], decision["permissionDecision"]), ("PreToolUse", "deny"))
+        return SimpleNamespace(refused=bool(decision), reason=decision.get("permissionDecisionReason", ""))
 
     def bash(self, command: str) -> subprocess.CompletedProcess:
         return self.guard({"tool_name": "Bash", "tool_input": {"command": command}})
@@ -40,18 +48,18 @@ class GuardHookTests(unittest.TestCase):
     def test_blocks_destructive_git_commands(self):
         for command in ("git push --force origin main", "git push -f", "git reset --hard HEAD~1", "git clean -fd"):
             result = self.bash(command)
-            self.assertEqual(result.returncode, 2, command)
-            self.assertIn("Blocked by the team harness", result.stderr)
+            self.assertEqual(result.refused, True, command)
+            self.assertIn("Blocked by the team harness", result.reason)
 
     def test_blocks_destructive_git_commands_with_quoted_arguments(self):
         for command in ('git -C "/workspace/project" reset --hard HEAD~1',
                         'git -C "/workspace/project" push --force origin main'):
-            self.assertEqual(self.bash(command).returncode, 2, command)
+            self.assertEqual(self.bash(command).refused, True, command)
 
     def test_allows_safe_git_and_build_commands(self):
         for command in ("git push --force-with-lease", "git push -u origin feature", "git reset HEAD file",
                         "./mvnw -q verify"):
-            self.assertEqual(self.bash(command).returncode, 0, command)
+            self.assertEqual(self.bash(command).refused, False, command)
 
     def test_blocks_edits_only_to_migrations_already_on_main(self):
         root = Path(tempfile.mkdtemp())
@@ -70,24 +78,24 @@ class GuardHookTests(unittest.TestCase):
             return self.guard({"tool_name": "Edit", "tool_input": {"file_path": str(root / MIGRATIONS / name)}}, root)
 
         on_main = edit("V1__orders.sql")
-        self.assertEqual(on_main.returncode, 2)
-        self.assertIn("Write a new migration", on_main.stderr)
-        self.assertEqual(edit("V2__lines.sql").returncode, 0)
-        self.assertEqual(edit("V3__notes.sql").returncode, 0)
+        self.assertEqual(on_main.refused, True)
+        self.assertIn("Write a new migration", on_main.reason)
+        self.assertEqual(edit("V2__lines.sql").refused, False)
+        self.assertEqual(edit("V3__notes.sql").refused, False)
 
     def test_blocks_edits_to_the_archunit_freeze_record(self):
         record = Path("src/test/resources/archunit_store/stored.rules").resolve()
         for tool in ("Edit", "Write"):
             result = self.guard({"tool_name": tool, "tool_input": {"file_path": str(record)}})
-            self.assertEqual(result.returncode, 2, tool)
-            self.assertIn("frozen", result.stderr)
+            self.assertEqual(result.refused, True, tool)
+            self.assertIn("frozen", result.reason)
 
     def test_blocks_edits_to_the_module_boundary_record(self):
         record = Path("src/test/resources/modulith_store").resolve()
         for tool in ("Edit", "Write"):
             result = self.guard({"tool_name": tool, "tool_input": {"file_path": str(record)}})
-            self.assertEqual(result.returncode, 2, tool)
-            self.assertIn("module-boundary violations", result.stderr)
+            self.assertEqual(result.refused, True, tool)
+            self.assertIn("module-boundary violations", result.reason)
 
     def test_blocks_every_edit_to_a_modules_package_info_but_not_creating_one(self):
         root = Path(tempfile.mkdtemp())
@@ -100,46 +108,46 @@ class GuardHookTests(unittest.TestCase):
 
         self.assertEqual(self.guard({"tool_name": "Write", "tool_input": {
             "file_path": str(info), "content": '@ApplicationModule(allowedDependencies = "catalog")\npackage x;\n'}},
-            root).returncode, 0)
+            root).refused, False)
         info.write_text('@ApplicationModule(allowedDependencies = {"catalog", "shared"})\npackage com.acme.orders;\n')
         widened = edit('"catalog"', '"catalog", "billing"')
-        self.assertEqual(widened.returncode, 2)
-        self.assertIn("boundary rules", widened.stderr)
+        self.assertEqual(widened.refused, True)
+        self.assertIn("boundary rules", widened.reason)
         for old, new in (("@ApplicationModule(", "@ApplicationModule(type = Type.OPEN, "),
                          ("shared", "billing"),
                          ("})", ", Deps.BILLING})"),
                          ("package com.acme.orders;", "@NullMarked\npackage com.acme.orders;")):
             with self.subTest(old=old, new=new):
-                self.assertEqual(edit(old, new).returncode, 2)
-        self.assertEqual(self.bash(f"sed -i s/shared/billing/ {info.as_posix()}").returncode, 2)
+                self.assertEqual(edit(old, new).refused, True)
+        self.assertEqual(self.bash(f"sed -i s/shared/billing/ {info.as_posix()}").refused, True)
         info.write_text("@NullMarked\npackage com.acme.orders;\n")
-        self.assertEqual(edit("@NullMarked\n", "").returncode, 0)
+        self.assertEqual(edit("@NullMarked\n", "").refused, False)
 
     def test_blocks_edits_to_the_archunit_freeze_settings(self):
         settings = Path("src/test/resources/archunit.properties").resolve()
         result = self.guard({"tool_name": "Edit", "tool_input": {"file_path": str(settings)}})
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("store creation allowed", result.stderr)
+        self.assertEqual(result.refused, True)
+        self.assertIn("store creation allowed", result.reason)
 
     def test_blocks_edits_to_existing_rule_tests_but_not_new_ones(self):
         root = Path(tempfile.mkdtemp())
         rules = root / "src/test/java/com/acme/CodeRulesTests.java"
         result = self.guard({"tool_name": "Write", "tool_input": {"file_path": str(rules)}}, root)
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.refused, False)
         rules.parent.mkdir(parents=True)
         rules.write_text("class CodeRulesTests {}\n")
         for name in ("CodeRulesTests", "BuildSetupTests", "UnusedCodeTests", "ArchUnitTests", "LogLeakCheck"):
             path = rules.with_name(f"{name}.java")
             path.write_text("")
             result = self.guard({"tool_name": "Edit", "tool_input": {"file_path": str(path)}}, root)
-            self.assertEqual(result.returncode, 2, name)
-            self.assertIn(f"{name}.java holds the team's build rules", result.stderr)
+            self.assertEqual(result.refused, True, name)
+            self.assertIn(f"{name}.java holds the team's build rules", result.reason)
 
     def test_a_refusal_is_recorded_without_the_command(self):
         root = Path(tempfile.mkdtemp())
         git(root, "init", "-q")
         payload = {"session_id": "s9", "tool_name": "Bash", "tool_input": {"command": "git push --force origin secret-branch"}}
-        self.assertEqual(self.guard(payload, root).returncode, 2)
+        self.assertEqual(self.guard(payload, root).refused, True)
         lines = (root / ".git/harness/events.jsonl").read_text().splitlines()
         event = json.loads(lines[-1])
         self.assertEqual((event["hook"], event["session"], event["result"], event["rule"]),
@@ -149,7 +157,7 @@ class GuardHookTests(unittest.TestCase):
     def test_allowed_actions_record_nothing(self):
         root = Path(tempfile.mkdtemp())
         git(root, "init", "-q")
-        self.assertEqual(self.guard({"tool_name": "Bash", "tool_input": {"command": "./mvnw verify"}}, root).returncode, 0)
+        self.assertEqual(self.guard({"tool_name": "Bash", "tool_input": {"command": "./mvnw verify"}}, root).refused, False)
         self.assertFalse((root / ".git/harness/events.jsonl").exists())
 
     def test_blocks_bash_commands_that_write_protected_files(self):
@@ -160,24 +168,73 @@ class GuardHookTests(unittest.TestCase):
                         "rm -rf src/test/resources/archunit_store",
                         "echo 'cycle|a,b' >> src/test/resources/modulith_store"):
             result = self.bash(command)
-            self.assertEqual(result.returncode, 2, command)
-            self.assertIn("Blocked by the team harness", result.stderr)
+            self.assertEqual(result.refused, True, command)
+            self.assertIn("Blocked by the team harness", result.reason)
 
     def test_allows_bash_commands_that_only_read_protected_files(self):
         for command in ("cat src/test/resources/archunit_store/stored.rules 2>/dev/null",
                         "sed -n 1,40p src/test/java/com/acme/CodeRulesTests.java | grep -i transactional",
                         "git diff src/test/resources/archunit_store"):
-            self.assertEqual(self.bash(command).returncode, 0, command)
+            self.assertEqual(self.bash(command).refused, False, command)
 
     def test_blocks_maven_flags_that_record_violations_as_accepted(self):
         for command in ("./mvnw test -Darchunit.freeze.store.default.allowStoreCreation=true",
                         "./mvnw verify -Darchunit.freeze.refreeze=true",
                         "./mvnw test -Dtest=ModuleBoundariesTests -Dmodulith.store.record=true"):
-            self.assertEqual(self.bash(command).returncode, 2, command)
+            self.assertEqual(self.bash(command).refused, True, command)
+
+    def patch(self, body: str, project: Path) -> subprocess.CompletedProcess:
+        return self.guard({"tool_name": "apply_patch",
+                           "tool_input": {"command": f"*** Begin Patch\n{body}*** End Patch\n"}}, project)
+
+    def test_blocks_codex_patches_that_change_protected_files(self):
+        root = Path(tempfile.mkdtemp())
+        rules = root / "src/test/java/com/acme/CodeRulesTests.java"
+        rules.parent.mkdir(parents=True)
+        rules.write_text("class CodeRulesTests {}\n")
+        info = root / "src/main/java/com/acme/orders/package-info.java"
+        info.parent.mkdir(parents=True)
+        info.write_text('@ApplicationModule(allowedDependencies = "catalog")\npackage com.acme.orders;\n')
+        cases = {"update rule test": f"*** Update File: {rules.as_posix()}\n@@\n-class CodeRulesTests {{}}\n+x\n",
+                 "delete rule test": f"*** Delete File: {rules.as_posix()}\n",
+                 "update module rules": f"*** Update File: {info.as_posix()}\n@@\n-x\n+y\n",
+                 "move onto the record": "*** Update File: src/A.java\n*** Move to: src/test/resources/modulith_store\n",
+                 "update freeze record": "*** Update File: src/test/resources/archunit_store/stored.rules\n@@\n+x\n",
+                 "second file in the patch": "*** Add File: src/main/java/B.java\n+class B {}\n"
+                                             "*** Update File: src/test/resources/archunit.properties\n@@\n+x\n"}
+        for name, body in cases.items():
+            with self.subTest(name):
+                result = self.patch(body, root)
+                self.assertEqual(result.refused, True, result.reason)
+                self.assertIn("Blocked by the team harness", result.reason)
+
+    def test_allows_codex_patches_that_add_files_or_change_other_code(self):
+        root = Path(tempfile.mkdtemp())
+        for body in ("*** Add File: src/test/java/com/acme/billing/CodeRulesTests.java\n+class CodeRulesTests {}\n",
+                     "*** Add File: src/main/java/com/acme/orders/package-info.java\n+package com.acme.orders;\n",
+                     "*** Update File: src/main/java/com/acme/A.java\n@@\n-a\n+b\n"):
+            with self.subTest(body):
+                self.assertEqual(self.patch(body, root).refused, False)
+
+    def test_without_a_project_variable_a_session_in_a_subfolder_finds_the_repository(self):
+        root = Path(tempfile.mkdtemp())
+        backend = root / "backend"
+        (backend / MIGRATIONS).mkdir(parents=True)
+        git(root, "init", "-q", "-b", "main")
+        (backend / MIGRATIONS / "V1__orders.sql").write_text("create table orders (id bigint);\n")
+        git(root, "add", "-A")
+        git(root, "commit", "-qm", "orders")
+        env = {key: value for key, value in os.environ.items() if key != "CLAUDE_PROJECT_DIR"}
+        patch = f"*** Begin Patch\n*** Update File: {MIGRATIONS.as_posix()}/V1__orders.sql\n@@\n+x\n*** End Patch\n"
+        result = self.guard({"session_id": "c1", "tool_name": "apply_patch", "tool_input": {"command": patch}},
+                            env=env, cwd=backend)
+        self.assertEqual(result.refused, True, result.reason)
+        self.assertIn("Write a new migration", result.reason)
+        self.assertTrue((root / ".git/harness/events.jsonl").exists())
 
     def test_ignores_other_files(self):
         result = self.guard({"tool_name": "Write", "tool_input": {"file_path": str(Path("src/main/java/A.java").resolve())}})
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.refused, False)
 
 
 CHECK = HOOKS.parents[1] / ".github" / "harness" / "check-protected.sh"
@@ -309,6 +366,59 @@ class IntegrityCheckTests(unittest.TestCase):
         self.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True, text=True,
                                    check=True).stdout.strip()
 
+    HOOKS_REGISTERED = {"hooks": {
+        "PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit", "hooks": [
+            {"type": "command", "command": 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard.sh"'}]}],
+        "Stop": [{"hooks": [{"type": "command", "command": 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/verify-on-stop.sh"'}]}]}}
+    POM = ("<project>\n<!-- harness:begin plugins -->\n<arg>-Xep:NullAway:ERROR</arg>\n<!-- harness:end plugins -->\n"
+           "<version>1</version>\n</project>\n")
+    JVM_CONFIG = "--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED\n-Xmx1g\n"
+
+    def install_harness_files(self):
+        self.commit_as_base({".claude/settings.json": json.dumps(self.HOOKS_REGISTERED, indent=2),
+                             ".codex/hooks.json": json.dumps(self.HOOKS_REGISTERED, indent=2),
+                             ".claude/harness.lock": json.dumps({".github/workflows/verify.yml": "abc"}),
+                             ".github/workflows/verify.yml": "run: ./mvnw -B verify\n",
+                             ".github/workflows/ci.yml": "run: npm test\n",
+                             "pom.xml": self.POM,
+                             ".mvn/jvm.config": self.JVM_CONFIG})
+
+    def test_weakening_what_the_hooks_and_the_build_depend_on_fails(self):
+        narrowed = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+            {"type": "command", "command": 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/guard.sh"'}]}]}}
+        cases = {"settings without the Stop hook": {".claude/settings.json": json.dumps(narrowed)},
+                 "codex hooks deleted": {".codex/hooks.json": None},
+                 "codex hooks not JSON": {".codex/hooks.json": "{"},
+                 "verify workflow deleted": {".github/workflows/verify.yml": None},
+                 "verify workflow changed": {".github/workflows/verify.yml": "run: echo skipped\n"},
+                 "NullAway removed": {"pom.xml": self.POM.replace("<arg>-Xep:NullAway:ERROR</arg>\n", "")},
+                 "markers removed": {"pom.xml": "<project>\n<version>1</version>\n</project>\n"},
+                 "jvm option removed": {".mvn/jvm.config": "-Xmx1g\n"}}
+        for name, files in cases.items():
+            with self.subTest(name):
+                self.setUp()
+                self.install_harness_files()
+                result = self.check(files)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(f"::error file={next(iter(files))}::", result.stdout)
+
+    def test_ordinary_changes_to_settings_pom_and_workflows_pass(self):
+        self.install_harness_files()
+        own = json.loads(json.dumps(self.HOOKS_REGISTERED))
+        own["model"] = "opus"
+        own["hooks"]["PostToolUse"] = [{"hooks": [{"type": "command", "command": "python3 notify.py"}]}]
+        result = self.check({".claude/settings.json": json.dumps(own),
+                             ".codex/hooks.json": json.dumps(own),
+                             ".github/workflows/ci.yml": None,
+                             "pom.xml": self.POM.replace("<version>1</version>", "<version>2</version>"),
+                             ".mvn/jvm.config": self.JVM_CONFIG + "-Xss4m\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_a_verify_workflow_the_harness_did_not_write_is_the_teams(self):
+        self.commit_as_base({".github/workflows/verify.yml": "run: ./mvnw -B verify\n"})
+        result = self.check({".github/workflows/verify.yml": "run: ./mvnw verify\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
     def install_log_leak_check(self):
         self.commit_as_base({"src/test/java/com/acme/LogLeakCheck.java": "class LogLeakCheck {}\n",
                              EXTENSIONS: "com.acme.Other\ncom.acme.LogLeakCheck\n",
@@ -389,15 +499,21 @@ class StopHookFixture:
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "start")
 
-    def hook(self, *args: str, active: bool = False, session: str = "s1") -> subprocess.CompletedProcess:
-        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+    def hook(self, *args: str, active: bool = False, env: dict | None = None,
+             cwd: Path | None = None, session: str = "s1") -> SimpleNamespace:
+        """Runs the hook; it blocks with a block decision on stdout and exit 0, the form Claude Code and Codex share."""
+        env = env or dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
         folder = [self.folder] if self.folder else []
         payload = {"session_id": session, "stop_hook_active": active}
-        return subprocess.run([BASH, str(HOOKS / "verify-on-stop.sh"), *args, *folder], input=json.dumps(payload),
-                              capture_output=True, text=True, env=env)
+        result = subprocess.run([BASH, str(HOOKS / "verify-on-stop.sh"), *args, *folder], input=json.dumps(payload),
+                                capture_output=True, text=True, env=env, cwd=cwd)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout) if result.stdout.strip() else {}
+        blocked = output.get("decision") == "block"
+        return SimpleNamespace(blocked=blocked, reason=output.get("reason", ""), stdout=result.stdout)
 
     def start_session(self):
-        self.assertEqual(self.hook("--session-start").returncode, 0)
+        self.assertEqual(self.hook("--session-start").blocked, False)
 
     def stop(self, active: bool = False) -> subprocess.CompletedProcess:
         return self.hook(active=active)
@@ -434,13 +550,13 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
     def test_a_session_that_changes_no_code_is_not_checked(self):
         self.fail_with(self.error_in("B"))
         self.start_session()
-        self.assertEqual(self.stop().returncode, 0)
+        self.assertEqual(self.stop().blocked, False)
         self.assertEqual(self.checks_run(), 0)
 
     def test_without_a_recorded_session_start_the_first_stop_says_the_turn_was_not_checked(self):
         self.edit("A")
         result = self.stop()
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.blocked, False)
         self.assertIn("this turn's changes were not checked", json.loads(result.stdout)["systemMessage"])
         self.assertEqual(self.checks_run(), 0)
         self.assertEqual(self.results(), ["no-baseline"])
@@ -466,9 +582,9 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         self.start_session()
         self.edit("A")
         git(self.root, "commit", "-qam", "change")
-        self.assertEqual(self.stop().returncode, 0)
+        self.assertEqual(self.stop().blocked, False)
         self.assertEqual(self.checks_run(), 1, "a committed change was not checked")
-        self.assertEqual(self.stop().returncode, 0)
+        self.assertEqual(self.stop().blocked, False)
         self.assertEqual(self.checks_run(), 1, "code that passed was checked again")
 
     def test_blocks_on_errors_in_files_changed_in_this_session(self):
@@ -476,10 +592,10 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         self.edit("A")
         self.fail_with(self.error_in("A") + self.error_in("B", "[NullAway] already broken"))
         result = self.stop()
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("one/A.java:[3,9]", result.stderr)
-        self.assertNotIn("already broken", result.stderr)
-        self.assertEqual(self.stop(active=True).returncode, 0, "a second block on the same code would loop")
+        self.assertEqual(result.blocked, True)
+        self.assertIn("one/A.java:[3,9]", result.reason)
+        self.assertNotIn("already broken", result.reason)
+        self.assertEqual(self.stop(active=True).blocked, False, "a second block on the same code would loop")
 
     def test_blocks_on_archunit_violations_in_classes_changed_in_this_session(self):
         self.start_session()
@@ -489,16 +605,16 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
                        "[ERROR]   CodeRulesTests.codeLogsInsteadOfPrinting:123 Architecture Violation - Rule "
                        "'no classes should access standard streams' was violated (1 times):\n")
         result = self.stop()
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("Method <one.A.print()>", result.stderr)
-        self.assertNotIn("codeLogsInsteadOfPrinting:123", result.stderr, "Surefire's summary repeats the violation")
+        self.assertEqual(result.blocked, True)
+        self.assertIn("Method <one.A.print()>", result.reason)
+        self.assertNotIn("codeLogsInsteadOfPrinting:123", result.reason, "Surefire's summary repeats the violation")
 
     def test_does_not_block_on_errors_only_in_code_the_session_did_not_change(self):
         self.start_session()
         self.edit("A")
         self.fail_with(self.error_in("B", "[NullAway] already broken"))
         result = self.stop()
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.blocked, False)
         self.assertIn("could not be fully verified", json.loads(result.stdout)["systemMessage"])
 
     def test_a_file_with_the_same_name_in_another_package_is_not_the_sessions(self):
@@ -506,14 +622,14 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         self.edit("A")
         self.fail_with(self.error_in("A2", "[NullAway] already broken")
                        + "Method <two.A.print()> gets field <java.lang.System.out> in (A.java:3)\n")
-        self.assertEqual(self.stop().returncode, 0)
+        self.assertEqual(self.stop().blocked, False)
 
     def test_a_pom_change_does_not_make_every_failure_the_sessions(self):
         self.start_session()
         (self.project / "pom.xml").write_text("<project><!-- note --></project>\n")
         self.fail_with(self.error_in("B", "[NullAway] already broken"))
         result = self.stop()
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.blocked, False)
         self.assertIn("pom.xml", json.loads(result.stdout)["systemMessage"])
 
     def test_a_build_setup_failure_after_a_pom_change_is_the_sessions(self):
@@ -523,8 +639,8 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
                        "Expecting empty but was: [\"pom.xml: spring-boot-starter-flyway is on the test classpath "
                        "only, so the tests pass with it and the application runs without it\"]\n")
         result = self.stop()
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("spring-boot-starter-flyway is on the test classpath only", result.stderr)
+        self.assertEqual(result.blocked, True)
+        self.assertIn("spring-boot-starter-flyway is on the test classpath only", result.reason)
         self.assertEqual(self.events()[-1]["gates"], "build-setup")
 
     def test_formats_only_the_files_the_session_changed(self):
@@ -543,32 +659,32 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         self.edit("A")
         (self.project / "unformatted").write_text(SOURCES["A"] + "\n")
         result = self.stop()
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("Run ./mvnw spring-javaformat:apply", result.stderr)
-        self.assertIn(SOURCES["A"], result.stderr)
+        self.assertEqual(result.blocked, True)
+        self.assertIn("Run ./mvnw spring-javaformat:apply", result.reason)
+        self.assertIn(SOURCES["A"], result.reason)
         self.assertNotIn("spotless", self.log())
 
         (self.project / "unformatted").write_text(SOURCES["B"] + "\n")
-        self.assertEqual(self.stop().returncode, 0, "a file the session didn't change blocked the turn")
+        self.assertEqual(self.stop().blocked, False, "a file the session didn't change blocked the turn")
 
     def test_a_file_reformatted_by_the_check_is_not_the_sessions(self):
         self.start_session()
         self.edit("A")
         (self.project / "reformat-two").write_text("")
         self.fail_with(self.error_in("B", "[NullAway] already broken"))
-        self.assertEqual(self.stop().returncode, 0)
+        self.assertEqual(self.stop().blocked, False)
 
     def test_formatting_failure_blocks_and_is_not_recorded_as_passed(self):
         self.start_session()
         (self.project / "fail-format").write_text("")
         self.edit("A")
         result = self.stop()
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("spotless failed", result.stderr)
+        self.assertEqual(result.blocked, True)
+        self.assertIn("spotless failed", result.reason)
 
         (self.project / "fail-format").unlink()
         runs = self.checks_run()
-        self.assertEqual(self.stop().returncode, 0)
+        self.assertEqual(self.stop().blocked, False)
         self.assertEqual(self.checks_run(), runs + 1, "the failed run was cached as a pass")
 
     def test_each_stop_is_recorded_with_its_result(self):
@@ -642,7 +758,14 @@ class StopHookInSubfolderTests(StopHookFixture, unittest.TestCase):
         self.start_session()
         self.edit("A")
         self.fail_with(self.error_in("A"))
-        self.assertEqual(self.stop().returncode, 2)
+        self.assertEqual(self.stop().blocked, True)
+
+    def test_without_a_project_variable_a_session_started_in_the_subfolder_is_checked(self):
+        env = {key: value for key, value in os.environ.items() if key != "CLAUDE_PROJECT_DIR"}
+        self.assertEqual(self.hook("--session-start", env=env, cwd=self.project / "src").blocked, False)
+        self.edit("A")
+        self.fail_with(self.error_in("A"))
+        self.assertEqual(self.hook(env=env, cwd=self.project / "src").blocked, True)
 
 
 if __name__ == "__main__":
