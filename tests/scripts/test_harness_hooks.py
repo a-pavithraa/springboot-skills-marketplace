@@ -500,11 +500,11 @@ class StopHookFixture:
         git(self.root, "commit", "-qm", "start")
 
     def hook(self, *args: str, active: bool = False, env: dict | None = None,
-             cwd: Path | None = None) -> SimpleNamespace:
+             cwd: Path | None = None, session: str = "s1") -> SimpleNamespace:
         """Runs the hook; it blocks with a block decision on stdout and exit 0, the form Claude Code and Codex share."""
         env = env or dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
         folder = [self.folder] if self.folder else []
-        payload = {"session_id": "s1", "stop_hook_active": active}
+        payload = {"session_id": session, "stop_hook_active": active}
         result = subprocess.run([BASH, str(HOOKS / "verify-on-stop.sh"), *args, *folder], input=json.dumps(payload),
                                 capture_output=True, text=True, env=env, cwd=cwd)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -553,12 +553,30 @@ class StopHookTests(StopHookFixture, unittest.TestCase):
         self.assertEqual(self.stop().blocked, False)
         self.assertEqual(self.checks_run(), 0)
 
-    def test_without_a_recorded_session_start_the_first_stop_only_records_the_code(self):
-        self.assertEqual(self.stop().blocked, False)
-        self.assertEqual(self.checks_run(), 0)
+    def test_without_a_recorded_session_start_the_first_stop_says_the_turn_was_not_checked(self):
         self.edit("A")
+        result = self.stop()
+        self.assertEqual(result.blocked, False)
+        self.assertIn("this turn's changes were not checked", json.loads(result.stdout)["systemMessage"])
+        self.assertEqual(self.checks_run(), 0)
+        self.assertEqual(self.results(), ["no-baseline"])
+        self.edit("B")
         self.stop()
         self.assertEqual(self.checks_run(), 1)
+
+    def test_a_session_in_use_outlives_sessions_that_started_after_it(self):
+        self.start_session()
+        for n in range(19):
+            self.hook("--session-start", session=f"older{n}")
+        stamps = self.root / ".git/harness"
+        os.utime(stamps / "session-s1", (1000, 1000))
+        for n in range(19):
+            os.utime(stamps / f"session-older{n}", (2000 + n, 2000 + n))
+        self.stop()
+        for n in range(5):
+            self.hook("--session-start", session=f"newer{n}")
+        self.assertTrue((stamps / "session-s1").exists(), "a session still in use was pruned")
+        self.assertEqual(len(list(stamps.glob("session-*"))), 20)
 
     def test_committed_changes_are_checked_and_a_pass_is_remembered(self):
         self.start_session()

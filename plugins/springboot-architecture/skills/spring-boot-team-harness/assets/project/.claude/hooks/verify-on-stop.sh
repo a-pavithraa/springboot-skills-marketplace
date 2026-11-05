@@ -72,9 +72,18 @@ current=$(manifest)
 if $start || [ ! -f "$SESSION" ]; then
   printf '%s\n' "$current" > "$SESSION"
   ls -t "$STAMPS"/session-* 2> /dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
-  $start && record started
+  if $start; then
+    record started
+    exit 0
+  fi
+  # The session began before the hooks were installed, or its starting point was pruned: this turn's changes are
+  # unknown, so say so instead of passing them silently. Later turns compare with what this turn left.
+  record no-baseline
+  echo '{"systemMessage": "Harness: this session has no recorded starting point, so this turn'"'"'s changes were not checked. Later turns are. Run ./mvnw verify to check them now."}'
   exit 0
 fi
+# Pruning keeps the 20 most recently used session files, so a long session isn't pruned while it runs.
+touch "$SESSION"
 if [ "$(cat "$SESSION")" = "$current" ]; then
   record no-change
   exit 0
