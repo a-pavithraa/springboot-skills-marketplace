@@ -234,17 +234,64 @@ def patch_pom(pom: str, base_package: str, modules: bool, nullaway: str = "all",
     return pom
 
 
+VERSIONED = (("properties", re.compile(r"(<(?P<name>[\w.-]+\.version)>)(?P<version>[^<$]+)(</(?P=name)>)")),
+             ("rules-dependencies", re.compile(r"(<artifactId>(?P<name>[^<]+)</artifactId>\s*<version>)(?P<version>[^<$]+)"
+                                               r"(</version>)")))
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(number) for number in re.findall(r"\d+", version.split("-")[0]))
+
+
+def raised_versions(pom: str) -> tuple[str, list[str]]:
+    """Raise the versions the harness pinned in its own pom blocks to this release's, and name each one it raised.
+    A version the team raised past the harness's is kept."""
+    notes = []
+    for block, pattern in VERSIONED:
+        shipped = {match["name"]: match["version"]
+                   for match in pattern.finditer((ASSETS / "pom" / f"{block}.xml").read_text(encoding="utf-8"))}
+
+        def raise_one(match: re.Match) -> str:
+            wanted = shipped.get(match["name"])
+            if not wanted or not version_key(match["version"]) or version_key(match["version"]) >= version_key(wanted):
+                return match.group(0)
+            notes.append(f"{match['name']} {match['version']} -> {wanted}")
+            return match.group(1) + wanted + match.group(4)
+
+        pom = re.sub(rf"<!-- harness:begin {block} -->.*?<!-- harness:end {block} -->",
+                     lambda found: pattern.sub(raise_one, found.group(0)), pom, flags=re.S)
+    return pom, notes
+
+
+def owned_hook(hook: dict) -> bool:
+    return ".claude/hooks/" in str(hook.get("command", ""))
+
+
 def merge_settings(current: dict, wanted: dict) -> dict:
-    """Add the harness's permissions, hooks, marketplace and plugin to existing settings, changing nothing else."""
+    """Add the harness's permissions, marketplace and plugin to existing settings, and replace its hooks (the ones that
+    run a script under .claude/hooks/) with the template's, in place. The team's own entries stay as they are."""
     merged = json.loads(json.dumps(current))
     for kind, rules in wanted.get("permissions", {}).items():
         present = merged.setdefault("permissions", {}).setdefault(kind, [])
         present.extend(rule for rule in rules if rule not in present)
-    for event, groups in wanted.get("hooks", {}).items():
-        present = merged.setdefault("hooks", {}).setdefault(event, [])
-        commands = {hook.get("command") for group in present for hook in group.get("hooks", [])}
-        present.extend(group for group in groups
-                       if not all(hook["command"] in commands for hook in group["hooks"]))
+    hooks = merged.setdefault("hooks", {})
+    for event in list(hooks) + [event for event in wanted.get("hooks", {}) if event not in hooks]:
+        groups = hooks.get(event, [])
+        first_owned = next((i for i, group in enumerate(groups)
+                            if any(owned_hook(hook) for hook in group.get("hooks", []))), len(groups))
+        kept = []
+        for group in groups:
+            own = [hook for hook in group.get("hooks", []) if not owned_hook(hook)]
+            if len(own) == len(group.get("hooks", [])):
+                kept.append(group)
+            elif own:
+                kept.append({**group, "hooks": own})
+        # Every group before the first harness one is the team's and kept whole, so the harness's go back there.
+        kept[first_owned:first_owned] = wanted.get("hooks", {}).get(event, [])
+        if kept:
+            hooks[event] = kept
+        else:
+            hooks.pop(event, None)
     for name, entry in wanted.get("extraKnownMarketplaces", {}).items():
         present = merged.setdefault("extraKnownMarketplaces", {}).setdefault(name, {})
         for field, value in entry.items():
@@ -575,11 +622,14 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
     def at_root(relative: str | Path) -> str:
         return Path(os.path.relpath(root / relative, project)).as_posix()
 
-    patched = patch_pom(pom, base_package, modules, nullaway, observability)
+    patched, raised = raised_versions(patch_pom(pom, base_package, modules, nullaway, observability))
     if patched == pom:
         changes.keep("pom.xml", "harness already present")
     else:
         changes.write("pom.xml", patched, "patched")
+    if raised:
+        changes.lines.append(f"{'note':8} raised {', '.join(raised)}; run ./mvnw verify, since a newer checker can "
+                             "find new errors")
     if nullaway == "marked":
         marked, total = null_marked_packages(project, base_package)
         changes.lines.append(f"{'note':8} NullAway checks only @NullMarked packages: {marked} of {total} under "
