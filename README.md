@@ -28,7 +28,7 @@ It steers the agent at three points:
 
 Each failure message says how to fix it. On an existing codebase, `scripts/baseline.py` makes `verify` pass on day one: it marks the classes NullAway rejects today `@NullUnmarked`, records today's ArchUnit violations with `FreezingArchRule`, and records today's Spring Modulith boundary violations in `modulith_store`, keyed by module and type rather than line so the record survives edits. New classes get the full checks, and fixed violations drop out of the record. NullAway skips all of a class marked `@NullUnmarked`, including code added to it later, until the mark is removed. The Stop hook blocks only on errors in files the session changed.
 
-The harness also commits up to three project skills: `add-module` (named from the project's glossary, with its allowed dependencies declared up front), `move-code` (moves classes between modules with OpenRewrite `ChangeType` and `ChangePackage` recipes, since agents can't call IntelliJ's move refactoring) and `db-migration`. It also enables this plugin for every teammate through `enabledPlugins` and adds no MCP servers.
+The harness also commits up to three project skills: `add-module` (named from the project's glossary, with its allowed dependencies declared up front, and the rule for when one module calls another and when it publishes an event), `move-code` (moves classes between modules with OpenRewrite `ChangeType` and `ChangePackage` recipes, since agents can't call IntelliJ's move refactoring) and `db-migration`. It also enables this plugin for every teammate through `enabledPlugins` and adds no MCP servers.
 
 ### What each tool gets
 

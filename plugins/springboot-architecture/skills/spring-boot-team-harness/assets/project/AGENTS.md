@@ -62,7 +62,7 @@ When a request matches one of these, read the code it touches, then load its ski
 
 ## Modules
 
-Each direct subpackage of `{{BASE_PACKAGE}}` is a module. Its top-level package is its API; nested packages are internal. A module that declares `@ApplicationModule(allowedDependencies = ...)` in its `package-info.java` may depend only on those modules; add one there only when the user agrees the dependency belongs.
+Each direct subpackage of `{{BASE_PACKAGE}}` is a module. Its top-level package is its API; nested packages are internal. A module that declares `@ApplicationModule(allowedDependencies = ...)` in its `package-info.java` may depend only on those modules; add one there only when the user agrees the dependency belongs. When code in one module needs another, step 3 of the `add-module` skill says whether to call it or publish an event.
 
 Modules are named in the domain language of the project's glossary (`GLOSSARY.md` or `CONTEXT.md`): each owns a section of it, and is named after that business capability, not a vendor or a layer. A term the glossary lacks is agreed with the user and added there before code uses it.
 
