@@ -41,6 +41,7 @@ STAMPS="$(git rev-parse --git-dir)/harness"
 mkdir -p "$STAMPS"
 session=$(printf '%s' "$input" | grep -o '"session_id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
 SESSION="$STAMPS/session-${session:-unknown}"
+START="$STAMPS/start-${session:-unknown}"
 PASSED="$STAMPS/passed"
 FAILED="$STAMPS/failed"
 EVENTS="$STAMPS/events.jsonl"
@@ -85,7 +86,11 @@ manifest() {
 current=$(manifest)
 if $start || [ ! -f "$SESSION" ]; then
   printf '%s\n' "$current" > "$SESSION"
-  ls -t "$STAMPS"/session-* 2> /dev/null | tail -n +21 | while IFS= read -r old; do rm -f "$old"; done
+  # The commit the session starts from, so the file-size check still treats a file the session commits as new.
+  git rev-parse -q --verify HEAD > "$START" || rm -f "$START"
+  ls -t "$STAMPS"/session-* 2> /dev/null | tail -n +21 | while IFS= read -r old; do
+    rm -f "$old" "$STAMPS/start-${old##*/session-}"
+  done
   if $start; then
     record started
     exit 0
@@ -183,8 +188,9 @@ elif [ -n "$to_format" ]; then
 fi
 state=$(manifest | git hash-object --stdin)
 size_check="$(git rev-parse --show-toplevel)/.github/harness/check-file-size.sh"
-if [ -f "$size_check" ] && ! output=$(printf '%s\n' "$changed" | bash "$size_check" HEAD -); then
-  block "A file you changed is too large to read in one go. Split it, then finish:" "$output" file-size
+started=$(cat "$START" 2> /dev/null)
+if [ -f "$size_check" ] && ! output=$(printf '%s\n' "$changed" | bash "$size_check" "${started:-HEAD}" -); then
+  block "The file-size check failed on files you changed. Fix them as it says, then finish:" "$output" file-size
 fi
 if $GRADLE; then
   run_gates() { ./gradlew -q harnessCheck; }

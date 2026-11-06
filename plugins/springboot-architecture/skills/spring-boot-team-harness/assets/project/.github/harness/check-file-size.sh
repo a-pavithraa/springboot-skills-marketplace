@@ -2,6 +2,8 @@
 # Fails when a change leaves a source file larger than LIMIT bytes, about LIMIT/4 tokens. A file passes that size mostly
 # when one class does several jobs, and agents add to the file that is already there, so the check makes the split
 # happen when the file grows. Smaller files also cost fewer tokens to read and give an edit fewer similar blocks to hit.
+# It also fails a new numbered copy, such as OrderService2 next to OrderService: the name a split takes when it moves
+# code without grouping it.
 #
 # Usage: check-file-size.sh <base-commit>       checks the files a pull request adds or changes since <base-commit>
 #        check-file-size.sh <commit> - < files   checks the files listed on stdin, one per line, against <commit>
@@ -29,18 +31,37 @@ else
   files=$(git diff --name-only --diff-filter=AMR "$base" HEAD)
 fi
 
+numbered_copy() {
+  local name=${1##*/}
+  [[ ${name%.*} =~ ^(.*[^0-9])[0-9]+$ ]] && [ -f "$(dirname "$1")/${BASH_REMATCH[1]}.${name##*.}" ]
+}
+
 over=()
+named=()
 while IFS= read -r file; do
   file=${file%$'\r'}
   [ -n "$file" ] && [ -f "$file" ] && checked "$file" || continue
   size=$(wc -c < "$file" | tr -d ' ')
-  [ "$size" -gt "$LIMIT" ] || continue
-  before=$(git cat-file -s "$base:./$file" 2> /dev/null || echo 0)
-  [ "$size" -gt "$before" ] || continue
-  over+=("$file is $((size / 1000)) KB, about $((size / 4)) tokens.")
+  before=$(git cat-file -s "$base:./$file" 2> /dev/null)
+  if [ -z "$before" ] && numbered_copy "$file"; then
+    named+=("$file is a new numbered copy of a class next to it.")
+  fi
+  if [ "$size" -gt "$LIMIT" ] && [ "$size" -gt "${before:-0}" ]; then
+    over+=("$file is $((size / 1000)) KB, about $((size / 4)) tokens.")
+  fi
 done <<< "$files"
 
-[ ${#over[@]} -eq 0 ] && exit 0
+[ ${#over[@]} -eq 0 ] && [ ${#named[@]} -eq 0 ] && exit 0
+if [ ${#named[@]} -gt 0 ]; then
+  printf '%s\n' "${named[@]}"
+  cat << EOF
+
+A numbered copy collects code that has nothing in common but where it came from. Name the class for what it does
+(OrderReports, OrderCancellation). If its methods do different jobs, group them by job into classes named that way.
+EOF
+fi
+[ ${#over[@]} -eq 0 ] && exit 1
+[ ${#named[@]} -gt 0 ] && echo
 printf '%s\n' "${over[@]}"
 cat << EOF
 

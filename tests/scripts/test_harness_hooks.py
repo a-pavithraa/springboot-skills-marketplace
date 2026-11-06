@@ -508,7 +508,8 @@ class FileSizeCheckTests(unittest.TestCase):
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
-        self.write({"src/main/java/com/acme/Old.java": LARGE, "src/main/java/com/acme/A.java": "class A {}\n"})
+        self.write({"src/main/java/com/acme/Old.java": LARGE, "src/main/java/com/acme/A.java": "class A {}\n",
+                    "src/main/java/com/acme/A3.java": "class A3 {}\n"})
         git(self.root, "init", "-q", "-b", "main")
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "base")
@@ -547,6 +548,19 @@ class FileSizeCheckTests(unittest.TestCase):
                              "src/main/resources/db/migration/V3__seed.java": LARGE,
                              "frontend/package-lock.json": LARGE})
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_a_new_numbered_copy_fails_and_an_old_one_or_another_name_passes(self):
+        result = self.check({"src/main/java/com/acme/A2.java": "class A2 {}\n",
+                             "src/main/java/com/acme/A3.java": "class A3 { int x; }\n",
+                             "src/main/java/com/acme/Base64.java": "class Base64 {}\n",
+                             "src/main/java/com/acme/OrderHelper.java": "class OrderHelper {}\n",
+                             "app/order_utils.py": "x = 1\n"})
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("com/acme/A2.java is a new numbered copy", result.stdout)
+        self.assertIn("(OrderReports, OrderCancellation)", result.stdout)
+        for name in ("A3", "Base64", "OrderHelper", "order_utils"):
+            self.assertNotIn(name, result.stdout)
+        self.assertNotIn("The limit is", result.stdout)
 
     def test_files_on_stdin_are_checked_against_the_given_commit(self):
         self.write({"src/main/java/com/acme/New.java": LARGE})
@@ -852,10 +866,22 @@ class StopHookInSubfolderTests(StopHookFixture, unittest.TestCase):
         (self.project / SOURCES["A"]).write_text(LARGE, newline="\n")
         result = self.stop()
         self.assertEqual(result.blocked, True)
-        self.assertIn("too large to read in one go", result.reason)
+        self.assertIn("The file-size check failed", result.reason)
         self.assertIn(f"{SOURCES['A']} is 32 KB", result.reason)
         self.assertEqual(self.checks_run(), 0)
         self.assertEqual(self.events()[-1]["gates"], "file-size")
+
+    def test_a_file_the_session_committed_is_still_new_to_the_size_check(self):
+        (self.root / ".github/harness").mkdir(parents=True)
+        shutil.copy(SIZE_CHECK, self.root / ".github/harness")
+        self.start_session()
+        (self.project / "src/main/java/one/A2.java").write_text("package one;\n\nclass A2 {}\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "helper")
+        result = self.stop()
+        self.assertEqual(result.blocked, True)
+        self.assertIn("src/main/java/one/A2.java is a new numbered copy", result.reason)
+        self.assertEqual(self.checks_run(), 0)
 
     def test_without_a_project_variable_a_session_started_in_the_subfolder_is_checked(self):
         env = {key: value for key, value in os.environ.items() if key != "CLAUDE_PROJECT_DIR"}
