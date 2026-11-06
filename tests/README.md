@@ -30,7 +30,7 @@ To add a scenario, write the task and how it's scored in `baseline-scenarios.md`
 - `test_check_dashboards.py`: which empty panels and missing traces `check_dashboards.py` fails on.
 - `test_check_request.py`: what `check_request.py` passes and fails on: the sent trace id, failed spans, ERROR lines, a missing trace and a stack that's down.
 - `test_align_progen_project.py`: the edits that align a new progen project with the harness.
-- `test_apply_harness.py`: where the harness script puts each pom fragment, the files it adds or appends to (including `.codex/hooks.json`, merged into an existing one), idempotency, `--no-modules` and `--dry-run`.
+- `test_apply_harness.py`: where the harness script puts each pom fragment, the files it adds or appends to (including `.codex/hooks.json`, merged into an existing one), idempotency, a rerun raising the versions it pinned while keeping newer ones and replacing its own hook entries while keeping the team's, `--no-modules` and `--dry-run`.
 - `test_install.py`: the installer picks only the listed skills at the pinned commit, replaces only Codex folders it copied, turns auto-update on without overriding the user's choice, and every upstream entry is pinned to a full commit.
 - `test_baseline.py`: reading NullAway errors from Maven output (Windows and POSIX paths), and marking a class `@NullUnmarked` without disturbing its annotations or line endings.
 - `test_report.py`: the hook report counts checks, blocks by gate and fixes after a block, counts turns with no recorded starting point as not checked, leaves out old events, and skips damaged lines.

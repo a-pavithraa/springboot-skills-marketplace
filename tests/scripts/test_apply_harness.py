@@ -7,6 +7,7 @@ Run from the repository root:
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -596,6 +597,29 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual(pom_path.read_text(encoding="utf-8"), harnessed)
         self.assertTrue((root / "src/test/java/com/acme/orders/CodeRulesTests.java").exists())
 
+    def test_a_rerun_raises_the_versions_the_harness_pinned_and_keeps_newer_ones(self):
+        root = self.project(STANDARD)
+        self.run_script(root)
+        pom_path = root / "pom.xml"
+        shipped = pom_path.read_text(encoding="utf-8")
+        error_prone = re.search(r"<error-prone.version>([^<]+)<", shipped).group(1)
+        archunit = re.search(r"<artifactId>archunit</artifactId>\s*<version>([^<]+)<", shipped).group(1)
+        older = re.sub(r"(<artifactId>archunit</artifactId>\s*<version>)[^<]+", r"\g<1>1.0.0", shipped)
+        older = (older.replace(f"<error-prone.version>{error_prone}<", "<error-prone.version>2.1.0<")
+                 .replace("<nullaway.version>", "<nullaway.version>99.")
+                 .replace("<!-- harness:begin properties -->",
+                          "<team.version>0.1</team.version>\n    <!-- harness:begin properties -->"))
+        pom_path.write_text(older, encoding="utf-8")
+
+        result = self.run_script(root)
+        self.assertIn(f"raised error-prone.version 2.1.0 -> {error_prone}, archunit 1.0.0 -> {archunit}; run ./mvnw verify",
+                      result.stdout)
+        raised = pom_path.read_text(encoding="utf-8")
+        self.assertEqual(raised, older.replace("<error-prone.version>2.1.0<", f"<error-prone.version>{error_prone}<")
+                         .replace("<version>1.0.0<", f"<version>{archunit}<"))
+        self.assertIn("<team.version>0.1</team.version>", raised)
+        self.assertNotIn("raised", self.run_script(root).stdout)
+
     def test_hooks_are_added_and_ci_workflow_only_when_no_workflow_runs_mvnw(self):
         root = self.project(STANDARD)
         self.run_script(root)
@@ -838,6 +862,39 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertTrue(any(command.endswith('verify-on-stop.sh"') for command in stop), stop)
         self.assertIn("PreToolUse", hooks)
         self.assertIn("kept     .codex/hooks.json", self.run_script(root).stdout)
+
+    def test_a_rerun_replaces_the_harness_hooks_and_keeps_the_teams(self):
+        old = "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/"
+        team = {"type": "command", "command": "notify-send done"}
+        settings = {"hooks": {
+            "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": old + 'guard.sh"'},
+                                                        {"type": "command", "command": "audit.sh"}]}],
+            "SessionStart": [{"matcher": "startup", "hooks": [
+                {"type": "command", "command": old + 'verify-on-stop.sh" --session-start', "timeout": 30}]}],
+            "Stop": [{"hooks": [team]},
+                     {"hooks": [{"type": "command", "command": old + 'verify-on-stop.sh"', "timeout": 120}]}],
+            "PostToolUse": [{"hooks": [{"type": "command", "command": old + 'retired.sh"'}]}],
+        }}
+        codex = {"hooks": {"Stop": [{"hooks": [
+            {"type": "command", "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hooks/verify-on-stop.sh\"",
+             "timeout": 60}]}]}}
+        root = self.project(STANDARD, {".claude/settings.json": json.dumps(settings),
+                                       ".codex/hooks.json": json.dumps(codex)})
+        result = self.run_script(root)
+        self.assertIn("patched  .claude/settings.json", result.stdout)
+        template = json.loads((SKILL / "assets/project/.claude/settings.json").read_text(encoding="utf-8"))["hooks"]
+        hooks = json.loads((root / ".claude/settings.json").read_text(encoding="utf-8"))["hooks"]
+        self.assertEqual(hooks["Stop"], [{"hooks": [team]}] + template["Stop"])
+        self.assertEqual(hooks["SessionStart"], template["SessionStart"])
+        self.assertEqual(hooks["PreToolUse"],
+                         template["PreToolUse"] + [{"matcher": "Bash", "hooks": [{"type": "command", "command": "audit.sh"}]}])
+        self.assertNotIn("PostToolUse", hooks)
+        codex_template = json.loads((SKILL / "assets/project/.codex/hooks.json").read_text(encoding="utf-8"))["hooks"]
+        self.assertEqual(json.loads((root / ".codex/hooks.json").read_text(encoding="utf-8"))["hooks"], codex_template)
+
+        result = self.run_script(root)
+        self.assertIn("kept     .claude/settings.json", result.stdout)
+        self.assertIn("kept     .codex/hooks.json", result.stdout)
 
     def test_the_marketplace_updates_itself_and_an_older_entry_gains_auto_update(self):
         older = {"extraKnownMarketplaces": {"springboot-skills-marketplace": {
