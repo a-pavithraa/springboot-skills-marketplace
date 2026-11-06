@@ -1,0 +1,133 @@
+// The team harness's build gates. apply_harness.py owns this file and updates it on a rerun while nobody has edited
+// it; change a version or a rule by rerunning the harness, not here.
+buildscript {
+    repositories {
+        gradlePluginPortal()
+    }
+    dependencies {
+        classpath "net.ltgt.gradle:gradle-errorprone-plugin:5.2.0"
+        // spotless:begin
+        classpath "com.diffplug.spotless:spotless-plugin-gradle:8.11.0"
+        // spotless:end
+    }
+}
+
+apply plugin: net.ltgt.gradle.errorprone.ErrorPronePlugin
+
+dependencies {
+    implementation "org.jspecify:jspecify:1.0.1"
+    errorprone "com.google.errorprone:error_prone_core:2.51.0"
+    errorprone "com.uber.nullaway:nullaway:0.14.3"
+    // modules:begin
+    testImplementation platform("org.springframework.modulith:spring-modulith-bom:2.1.2")
+    testImplementation "org.springframework.modulith:spring-modulith-starter-test"
+    // modules:end
+    // archunit:begin
+    testImplementation "com.tngtech.archunit:archunit:1.5.1"
+    // archunit:end
+    // observability:begin
+    implementation "org.springframework.boot:spring-boot-starter-actuator"
+    implementation "org.springframework.boot:spring-boot-starter-opentelemetry"
+    implementation "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:2.28.1-alpha"
+    // observability:end
+    // datasource-observation:begin
+    implementation "net.ttddyy.observation:datasource-micrometer-spring-boot:2.3.0"
+    // datasource-observation:end
+}
+
+tasks.named("compileJava") {
+    // Error Prone needs it on JDK 21 (21.0.8 or later); JDK 25 does this by default.
+    options.compilerArgs += ["-XDaddTypeAnnotationsToSymbol=true"]
+    options.errorprone {
+        excludedPaths = ".*/build/generated/.*"
+        check("NullAway", net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+        option("{{NULLAWAY_OPTION}}", "{{NULLAWAY_VALUE}}")
+        option("NullAway:JSpecifyMode", "true")
+    }
+}
+// Tests routinely dereference response bodies, so NullAway checks main code only.
+tasks.named("compileTestJava") {
+    options.errorprone.enabled = false
+}
+
+// The Stop hook formats only the session's files: -PharnessFiles=a.java,b.java.
+def harnessFiles = providers.gradleProperty("harnessFiles").orNull
+// spotless:begin
+apply plugin: com.diffplug.gradle.spotless.SpotlessPlugin
+
+spotless {
+    java {
+        target(harnessFiles ? harnessFiles.split(",") as List : "src/*/java/**/*.java")
+        palantirJavaFormat("2.102.0")
+        removeUnusedImports()
+    }
+}
+// spotless:end
+// own-spotless:begin
+// The build's own Spotless formats; the harness narrows it to the session's files for the Stop hook only.
+if (harnessFiles) {
+    spotless {
+        java {
+            target(harnessFiles.split(",") as List)
+        }
+    }
+}
+// own-spotless:end
+
+// BuildSetupTests reads the dependencies this build declares from here, in Maven scope terms, since a Gradle build
+// file can't be read from Java.
+def declaredScopes = [api: "compile", implementation: "compile", compileOnly: "provided", runtimeOnly: "runtime",
+                      developmentOnly: "runtime", testImplementation: "test", testCompileOnly: "test",
+                      testRuntimeOnly: "test"]
+def declared = providers.provider {
+    declaredScopes.findAll { name, scope -> configurations.findByName(name) }.collectMany { name, scope ->
+        configurations.getByName(name).dependencies.withType(ExternalModuleDependency).collect { dependency ->
+            "${scope} ${dependency.group}:${dependency.name}".toString()
+        }
+    }.join("\n")
+}
+def declaredReport = layout.buildDirectory.file("harness/declared-dependencies.txt")
+def declaredDependencies = tasks.register("harnessDeclaredDependencies") {
+    inputs.property("declared", declared)
+    outputs.file(declaredReport)
+    doLast {
+        def report = declaredReport.get().asFile
+        report.parentFile.mkdirs()
+        report.text = declared.get() + "\n"
+    }
+}
+
+// The gates the Stop hook runs: the ones that need no Docker. A test class the project lacks is skipped.
+tasks.register("harnessCheck", Test) {
+    description = "Runs the harness's fast gates."
+    group = "verification"
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter {
+        failOnNoMatchingTests = false
+        ["CodeRulesTests", "ConfigurationKeysTests", "BuildSetupTests", "ModuleBoundariesTests", "ModularityTests",
+         "ArchUnitTests", "ArchitectureRulesTest"].each { includeTestsMatching("*.${it}") }
+    }
+}
+
+// Only baseline.py passes -Pharness.record=true: it records today's violations as accepted.
+def recordViolations = providers.gradleProperty("harness.record").map { it == "true" }.orElse(false)
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    dependsOn(declaredDependencies)
+    systemProperty "harness.buildFile", "{{BUILD_FILE}}"
+    systemProperty "harness.declaredDependencies", declaredReport.get().asFile.absolutePath
+    if (recordViolations.get()) {
+        systemProperty "archunit.freeze.store.default.allowStoreCreation", "true"
+        systemProperty "modulith.store.record", "true"
+    }
+    // The failure messages say how to fix each rule, so they must reach the console, also under -q.
+    testLogging {
+        events "failed"
+        exceptionFormat "full"
+        quiet {
+            events "failed"
+            exceptionFormat "full"
+        }
+    }
+}

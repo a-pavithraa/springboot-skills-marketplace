@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: {{MAVEN_DIR}}
+        working-directory: {{PROJECT_DIR}}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "{{BUILD_JDK}}"
-          cache: maven
-      - run: ./mvnw -B verify
+          cache: {{BUILD_TOOL}}
+      - run: {{CI_VERIFY}}

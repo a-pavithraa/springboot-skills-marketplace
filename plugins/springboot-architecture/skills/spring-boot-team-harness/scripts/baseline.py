@@ -4,7 +4,7 @@
 Usage:
     python3 baseline.py <project-dir> [--dry-run]
 
-Run it after apply_harness.py and the one-time formatting commit. It holds new code to the gates and records what
+Run it after apply_harness.py and the one-time formatting commit. It runs ./mvnw, or ./gradlew on a Gradle build. It holds new code to the gates and records what
 already fails:
 
 - NullAway: each class that fails today gets @NullUnmarked, so NullAway skips it while new and clean classes are checked.
@@ -28,7 +28,9 @@ import sys
 from pathlib import Path
 
 ANNOTATION = "@org.jspecify.annotations.NullUnmarked"
-NULLAWAY_ERROR = re.compile(r"^\[ERROR\] (?P<path>.+?\.java):\[\d+,\d+\] \[NullAway\]", re.M)
+# Maven prints "[ERROR] path:[line,column] [NullAway]", Gradle "path:line: error: [NullAway]".
+NULLAWAY_ERROR = re.compile(r"^(?:\[ERROR\] (?P<maven>.+?\.java):\[\d+,\d+\]|(?P<gradle>\S.*?\.java):\d+: error:) \[NullAway\]",
+                            re.M)
 TYPE_DECLARATION = re.compile(
     r"^(?:(?:public|protected|private|abstract|final|sealed|non-sealed|static|strictfp)\s+)*"
     r"(?:class|interface|enum|record)\s+\w", re.M)
@@ -38,8 +40,20 @@ RECORD_FLAG = "modulith.store.record=true"
 MODULITH_STORE = "src/test/resources/modulith_store"
 
 
+def gradle_build_file(project: Path) -> Path | None:
+    """The Gradle build file of a project without a pom, which apply_harness.py treats as a Gradle build."""
+    if (project / "pom.xml").exists():
+        return None
+    return next((project / name for name in ("build.gradle.kts", "build.gradle") if (project / name).exists()), None)
+
+
 def format_goal(project: Path) -> str:
-    """The goal that formats the project: apply_harness.py keeps Spring Java Format where the pom uses it."""
+    """The goal that formats the project: apply_harness.py keeps Spring Java Format where the build uses it."""
+    if gradle_build_file(project):
+        # apply_harness.py resolved the formatter, catalog aliases included, and configured Spotless only for it.
+        script = project / "gradle" / "harness.gradle"
+        text = script.read_text(encoding="utf-8") if script.exists() else ""
+        return "spotlessApply" if re.search(r"^\s*spotless\s*\{", text, re.M) else "format"
     pom = project / "pom.xml"
     text = re.sub(r"<!--.*?-->", "", pom.read_text(encoding="utf-8"), flags=re.S) if pom.exists() else ""
     if re.search(r"<artifactId>\s*spring-javaformat-maven-plugin\s*</artifactId>", text):
@@ -48,10 +62,10 @@ def format_goal(project: Path) -> str:
 
 
 def failing_files(output: str) -> set[Path]:
-    """Source files with NullAway errors in Maven's output. Windows paths arrive as /D:/..."""
+    """Source files with NullAway errors in the build's output. Maven prints Windows paths as /D:/..."""
     paths = set()
     for match in NULLAWAY_ERROR.finditer(output):
-        path = match.group("path")
+        path = match.group("maven") or match.group("gradle")
         paths.add(Path(path[1:] if re.match(r"/[A-Za-z]:/", path) else path))
     return paths
 
@@ -67,18 +81,41 @@ def mark(source: str) -> str | None:
     return source[:declaration.start()] + ANNOTATION + line_end + source[declaration.start():]
 
 
-def maven(project: Path, *args: str) -> tuple[int, str]:
-    command = [str(project / "mvnw.cmd")] if os.name == "nt" else ["./mvnw"]
-    result = subprocess.run([*command, "-q", "-B", *args], cwd=project, capture_output=True, text=True,
+def build(project: Path, *args: str) -> tuple[int, str]:
+    if gradle_build_file(project):
+        command = [str(project / "gradlew.bat")] if os.name == "nt" else ["./gradlew"]
+        command.append("-q")
+    else:
+        command = [str(project / "mvnw.cmd")] if os.name == "nt" else ["./mvnw"]
+        command += ["-q", "-B"]
+    result = subprocess.run([*command, *args], cwd=project, capture_output=True, text=True,
                             encoding="utf-8", errors="replace")
     return result.returncode, result.stdout + result.stderr
+
+
+def steps(project: Path) -> dict[str, tuple[str, ...]]:
+    """The build arguments for each step. gradle/harness.gradle turns -Pharness.record=true into both record flags,
+    since Gradle passes no -D to the test JVM; --rerun stops Gradle skipping a test run it thinks is up to date."""
+    if gradle_build_file(project):
+        return {"compile": ("compileJava",),
+                "rules": ("test", "--rerun", "--tests", "*.CodeRulesTests", "--tests", "*.UnusedCodeTests",
+                          "-Pharness.record=true"),
+                "modules": ("test", "--rerun", "--tests", "*.ModuleBoundariesTests", "-Pharness.record=true")}
+    return {"compile": ("compile",),
+            "rules": ("test", "-Dtest=CodeRulesTests,UnusedCodeTests",
+                      "-Darchunit.freeze.store.default.allowStoreCreation=true", "-Dsurefire.failIfNoSpecifiedTests=false"),
+            "modules": ("test", "-Dtest=ModuleBoundariesTests", f"-D{RECORD_FLAG}",
+                        "-Dsurefire.failIfNoSpecifiedTests=false")}
+
+
+def wrapper_and_verify(project: Path) -> tuple[str, str]:
+    return ("./gradlew", "./gradlew build") if gradle_build_file(project) else ("./mvnw", "./mvnw verify")
 
 
 def record_module_violations(project: Path):
     if not any((project / "src" / "test").rglob(BOUNDARY_TEST)):
         return
-    code, output = maven(project, "test", "-Dtest=ModuleBoundariesTests", f"-D{RECORD_FLAG}",
-                         "-Dsurefire.failIfNoSpecifiedTests=false")
+    code, output = build(project, *steps(project)["modules"])
     if code != 0:
         sys.exit("ERROR: ModuleBoundariesTests failed while recording today's module-boundary violations:\n"
                  + output[-3000:])
@@ -97,7 +134,7 @@ def main():
 
     marked: list[Path] = []
     for _ in range(MAX_ROUNDS):
-        code, output = maven(project, "compile")
+        code, output = build(project, *steps(project)["compile"])
         files = failing_files(output)
         if code == 0 or not files:
             break
@@ -125,19 +162,19 @@ def main():
     if code != 0:
         sys.exit("ERROR: the project still doesn't compile, for reasons other than NullAway:\n" + output[-3000:])
 
-    code, output = maven(project, "test", "-Dtest=CodeRulesTests,UnusedCodeTests",
-                         "-Darchunit.freeze.store.default.allowStoreCreation=true", "-Dsurefire.failIfNoSpecifiedTests=false")
+    code, output = build(project, *steps(project)["rules"])
     if code != 0:
         sys.exit("ERROR: the ArchUnit rule tests failed while recording today's violations:\n" + output[-3000:])
     print("ArchUnit: recorded today's violations in src/test/resources/archunit_store")
     record_module_violations(project)
     goal = format_goal(project)
-    code, output = maven(project, goal)
+    wrapper, verify = wrapper_and_verify(project)
+    code, output = build(project, goal)
     if code != 0:
         sys.exit(f"ERROR: {goal} failed, so the marked classes may not be formatted. The NullAway marks and the "
-                 f"ArchUnit record are in place; fix the formatter error, rerun ./mvnw {goal}, then commit:\n"
+                 f"ArchUnit record are in place; fix the formatter error, rerun {wrapper} {goal}, then commit:\n"
                  + output[-3000:])
-    print("\nNext: ./mvnw verify, then commit the marked classes, archunit_store and modulith_store.")
+    print(f"\nNext: {verify}, then commit the marked classes, archunit_store and modulith_store.")
 
 
 if __name__ == "__main__":

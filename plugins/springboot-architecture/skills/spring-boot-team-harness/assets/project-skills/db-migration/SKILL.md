@@ -12,4 +12,4 @@ Migrations live in `src/main/resources/db/migration`.
 3. Make destructive changes in two releases. To rename or drop a column, first add the new column and write to both, and drop the old one in a later migration once no running version reads it.
 4. Keep each migration to one purpose. Put data fixes in their own file, and make them safe to run on a database where the fix is already done.
 5. Don't let Hibernate create the schema: `spring.jpa.hibernate.ddl-auto` stays `validate` or `none`.
-6. Run `./mvnw verify`. If the project has Testcontainers integration tests, they apply every migration to a real database; if it has none, say that the migration is untested.
+6. Run `{{VERIFY}}`. If the project has Testcontainers integration tests, they apply every migration to a real database; if it has none, say that the migration is untested.

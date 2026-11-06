@@ -22,11 +22,34 @@ Don't move Java files by hand or with text edits: imports and references in othe
      #     newPackageName: {{BASE_PACKAGE}}.orders.pricing
      #     recursive: true
    ```
+<!-- maven:begin -->
 3. Preview, and read the patch in `target/rewrite/rewrite.patch` before applying it:
    ```bash
    ./mvnw -q org.openrewrite.maven:rewrite-maven-plugin:6.46.1:dryRun -Drewrite.configLocation=$TMPDIR/move.yml -Drewrite.activeRecipes=local.Move
    ```
 4. Apply it with the same command and goal `run` instead of `dryRun`.
+<!-- maven:end -->
+<!-- gradle:begin -->
+3. Write an init script next to the recipe, `$TMPDIR/rewrite.gradle`, so the build files stay unchanged:
+   ```groovy
+   initscript {
+       repositories { gradlePluginPortal(); mavenCentral() }
+       dependencies { classpath "org.openrewrite:plugin:7.39.0" }
+   }
+   rootProject {
+       plugins.apply(org.openrewrite.gradle.RewritePlugin)
+       rewrite {
+           activeRecipe("local.Move")
+           configFile = new File(System.getProperty("moveRecipe"))
+       }
+   }
+   ```
+   Preview, and read the patch in `build/reports/rewrite/rewrite.patch` before applying it:
+   ```bash
+   ./gradlew -q rewriteDryRun --init-script $TMPDIR/rewrite.gradle -DmoveRecipe=$TMPDIR/move.yml
+   ```
+4. Apply it with the same command and task `rewriteRun` instead of `rewriteDryRun`.
+<!-- gradle:end -->
 5. Find what the recipe can't see: `git grep -n '<old fully qualified name>'`. A class name inside a Java string literal is not updated. Change each hit only if it names the moved type.
-6. Run `./mvnw verify`. A compile error naming a type from the old package means the moved class used package-private code there: move that code with it (move the whole package instead), or make it reachable on purpose. The module-boundary test reports a move that crosses a module boundary.
+6. Run `{{VERIFY}}`. A compile error naming a type from the old package means the moved class used package-private code there: move that code with it (move the whole package instead), or make it reachable on purpose. The module-boundary test reports a move that crosses a module boundary.
 7. Commit the move on its own, with no other edits, so the review is mechanical and `git log --follow` keeps the file's history.

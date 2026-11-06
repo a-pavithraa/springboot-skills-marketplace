@@ -21,7 +21,7 @@ The settings are in `src/main/resources/application-observability-defaults.yml`,
 
 ```bash
 docker compose -f compose.observability.yml up -d
-./mvnw spring-boot:run -Dspring-boot.run.profiles=observability
+{{RUN_WITH_PROFILE}}
 ```
 
 Add the profile to any you already use. Then open <http://localhost:3000>, Dashboards, Project: Service health for requests and logs, JVM and resources for the process. The stack listens on this machine only. Metrics arrive every 10 seconds and rates need two samples, so panels take about 30 seconds to fill. The stack loses its data when the container is removed.

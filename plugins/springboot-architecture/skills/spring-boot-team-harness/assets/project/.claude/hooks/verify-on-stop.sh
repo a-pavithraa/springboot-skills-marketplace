@@ -8,7 +8,7 @@
 #
 # It blocks the turn only on errors in files this session changed, so the agent fixes its own mistakes and
 # never code it didn't touch. When the build fails only elsewhere, it tells the user the change couldn't be fully
-# verified. The full ./mvnw verify still runs in CI. folder is the Maven project, relative to the repository root.
+# verified. The full build still runs in CI. folder is the Maven or Gradle project, relative to the repository root.
 #
 # Each run appends one JSON line to .git/harness/events.jsonl (time, session, result, gates, seconds, number of changed
 # files; no paths or contents), which the harness's report.py summarises.
@@ -24,6 +24,19 @@ input=$(cat)
 git rev-parse --git-dir > /dev/null 2>&1 || exit 0
 
 FAST_TESTS="CodeRulesTests,ConfigurationKeysTests,BuildSetupTests,ModuleBoundariesTests,ModularityTests,ArchUnitTests,ArchitectureRulesTest"
+# gradle/harness.gradle holds the same gates for a Gradle build, and harnessCheck runs FAST_TESTS there.
+if [ ! -f pom.xml ] && { [ -f build.gradle ] || [ -f build.gradle.kts ]; }; then
+  GRADLE=true
+  VERIFY="./gradlew build"
+  BUILD_FILES="build.gradle build.gradle.kts settings.gradle settings.gradle.kts gradle/libs.versions.toml gradle/harness.gradle"
+  # How BuildSetupTests names the build file in its messages.
+  BUILD_FILE_LINE='build\.gradle(\.kts)?: '
+else
+  GRADLE=false
+  VERIFY="./mvnw verify"
+  BUILD_FILES="pom.xml"
+  BUILD_FILE_LINE='pom\.xml: '
+fi
 STAMPS="$(git rev-parse --git-dir)/harness"
 mkdir -p "$STAMPS"
 session=$(printf '%s' "$input" | grep -o '"session_id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
@@ -48,18 +61,19 @@ gates() {
   text=$(cat)
   {
     printf '%s\n' "$text" | grep -q '\[NullAway\]' && echo nullaway
-    printf '%s\n' "$text" | grep -qE 'was violated|^(Method|Field|Class|Constructor) <|CodeRulesTests' && echo rules
+    printf '%s\n' "$text" | grep -qE 'was violated|^[[:space:]]*(Method|Field|Class|Constructor) <|CodeRulesTests' && echo rules
     printf '%s\n' "$text" | grep -qE 'is defined by no dependency|is deprecated|ConfigurationKeysTests' && echo config-keys
-    printf '%s\n' "$text" | grep -qE 'pom\.xml: |lets Hibernate change the schema|writes Flyway|BuildSetupTests' && echo build-setup
+    printf '%s\n' "$text" | grep -qE "$BUILD_FILE_LINE|lets Hibernate change the schema|writes Flyway|BuildSetupTests" && echo build-setup
     printf '%s\n' "$text" | grep -qE 'ModuleBoundariesTests|ModularityTests|Modulith' && echo modules
-    printf '%s\n' "$text" | grep -v '\[NullAway\]' | grep -qE '\[ERROR\] .*\.java:\[[0-9]+' && echo compile
+    printf '%s\n' "$text" | grep -v '\[NullAway\]' | grep -qE '\[ERROR\] .*\.java:\[[0-9]+|\.java:[0-9]+: error:' && echo compile
   } | paste -sd, -
 }
 
-# One line per file under src plus pom.xml, committed or not: "<content hash> <path>".
+# One line per file under src plus the build files, committed or not: "<content hash> <path>".
 manifest() {
   local files
-  files=$(git ls-files -co --exclude-standard -- src pom.xml | sort -u | while IFS= read -r file; do
+  # shellcheck disable=SC2086 # BUILD_FILES is a list of paths without spaces.
+  files=$(git ls-files -co --exclude-standard -- src $BUILD_FILES | sort -u | while IFS= read -r file; do
     [ -f "$file" ] && printf '%s\n' "$file"
   done)
   [ -n "$files" ] || return 0
@@ -79,7 +93,7 @@ if $start || [ ! -f "$SESSION" ]; then
   # The session began before the hooks were installed, or its starting point was pruned: this turn's changes are
   # unknown, so say so instead of passing them silently. Later turns compare with what this turn left.
   record no-baseline
-  echo '{"systemMessage": "Harness: this session has no recorded starting point, so this turn'"'"'s changes were not checked. Later turns are. Run ./mvnw verify to check them now."}'
+  echo '{"systemMessage": "Harness: this session has no recorded starting point, so this turn'"'"'s changes were not checked. Later turns are. Run '"$VERIFY"' to check them now."}'
   exit 0
 fi
 # Pruning keeps the 20 most recently used session files, so a long session isn't pruned while it runs.
@@ -100,8 +114,10 @@ if printf '%s' "$input" | grep -q '"stop_hook_active" *: *true' && [ -f "$FAILED
   exit 0
 fi
 
+# Gradle indents test failures, and repeats compiler errors indented under "What went wrong".
 errors() {
-  grep -E '\[ERROR\]|was violated|^(Method|Field|Class|Constructor) <|is defined by no dependency|is deprecated|pom\.xml: |lets Hibernate change the schema|writes Flyway' \
+  sed 's/^[[:space:]]*//' \
+    | grep -E "\[ERROR\]|\.java:[0-9]+: error:|was violated|^(Method|Field|Class|Constructor) <|is defined by no dependency|is deprecated|$BUILD_FILE_LINE|lets Hibernate change the schema|writes Flyway" \
     | grep -vE 'Re-run Maven|-> \[Help|To see the full stack trace|^\[ERROR\] *$|^\[ERROR\] +[A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*:[0-9]+ ' \
     | awk '!seen[$0]++'
 }
@@ -136,7 +152,25 @@ session_unformatted() {
     printf '%s\n' "$1" | tr '\\' '/' | grep -F "$file"
   done
 }
-if [ -n "$to_format" ] && grep -Eq '<artifactId>[[:space:]]*spring-javaformat-maven-plugin' pom.xml 2> /dev/null; then
+# Gradle's Spotless takes the session's files by path, through the harness script's harnessFiles property.
+java_files=$(printf '%s\n' "$changed" | grep '\.java$' | while IFS= read -r file; do
+  [ -f "$file" ] && printf '%s\n' "$file"
+done | paste -sd, -)
+if $GRADLE; then
+  if [ -z "$java_files" ]; then
+    :
+  # apply_harness.py resolved the formatter, catalog aliases included, and configured Spotless only for it.
+  elif ! grep -Eqs '^[[:space:]]*spotless[[:space:]]*\{' gradle/harness.gradle; then
+    if ! output=$(./gradlew -q checkFormat 2>&1); then
+      mine=$(session_unformatted "$output")
+      [ -z "$mine" ] || block "Code isn't formatted. Run ./gradlew format, then finish:" "$mine" format
+    fi
+  else
+    output=$(./gradlew -q spotlessApply -PharnessFiles="$java_files" 2>&1) \
+      || block "Formatting with ./gradlew spotlessApply failed. Fix the cause, then finish:" \
+        "$(printf '%s\n' "$output" | errors)" format
+  fi
+elif [ -n "$to_format" ] && grep -Eq '<artifactId>[[:space:]]*spring-javaformat-maven-plugin' pom.xml 2> /dev/null; then
   # Spring Java Format formats the whole project or nothing, so the session's files are only checked.
   if ! output=$(./mvnw -q -B spring-javaformat:validate 2>&1); then
     mine=$(session_unformatted "$output")
@@ -148,7 +182,12 @@ elif [ -n "$to_format" ]; then
       format
 fi
 state=$(manifest | git hash-object --stdin)
-if output=$(./mvnw -q -B test -Dtest="$FAST_TESTS" -Dsurefire.failIfNoSpecifiedTests=false 2>&1); then
+if $GRADLE; then
+  run_gates() { ./gradlew -q harnessCheck; }
+else
+  run_gates() { ./mvnw -q -B test -Dtest="$FAST_TESTS" -Dsurefire.failIfNoSpecifiedTests=false; }
+fi
+if output=$(run_gates 2>&1); then
   printf '%s\n' "$state" > "$PASSED"
   rm -f "$FAILED"
   record passed "" "$count"
@@ -163,7 +202,7 @@ names() {
         class=$(printf '%s' "$file" | sed -E 's#^src/(main|test)/java/##; s#\.java$##; s#/#.#g')
         printf '%s\n<%s.\n<%s>\n<%s$\n' "$file" "$class" "$class" "$class" ;;
       *.java) printf '%s\n' "$file" ;;
-      pom.xml) printf 'pom.xml: \n' ;;
+      pom.xml | build.gradle | build.gradle.kts) printf '%s: \n' "$file" ;;
       *) printf '%s:\n' "${file##*/}" ;;
     esac
   done
@@ -177,9 +216,13 @@ if [ -n "$mine" ]; then
 fi
 printf '%s\n' "$state" > "$FAILED"
 record unverified "$(printf '%s\n' "$output" | gates)" "$count"
-if printf '%s\n' "$changed" | grep -qx 'pom.xml'; then
+# shellcheck disable=SC2086 # BUILD_FILES is a list of paths without spaces.
+build_change=$(printf '%s\n' "$changed" | grep -xF -f <(printf '%s\n' $BUILD_FILES) | head -1)
+if [ "$build_change" = pom.xml ]; then
   echo '{"systemMessage": "Harness: this session changed pom.xml and the build now fails only in files the session did not change. The change could not be fully verified: check whether the pom change caused it with ./mvnw verify."}'
+elif [ -n "$build_change" ]; then
+  echo '{"systemMessage": "Harness: this session changed '"$build_change"' and the build now fails only in files the session did not change. The change could not be fully verified: check whether that change caused it with '"$VERIFY"'."}'
 else
-  echo '{"systemMessage": "Harness: the build already fails on code this session did not change, so the change could not be fully verified. Run ./mvnw verify to see the failures."}'
+  echo '{"systemMessage": "Harness: the build already fails on code this session did not change, so the change could not be fully verified. Run '"$VERIFY"' to see the failures."}'
 fi
 exit 0
