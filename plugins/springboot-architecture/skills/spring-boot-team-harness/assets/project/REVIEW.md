@@ -11,7 +11,7 @@ Add a line each time a review misses a bug that one would have caught. -->
 
 ## Risk
 
-- High: security configuration, sign-in and access checks, database migrations, `pom.xml`, CI workflows.<!-- Add the packages where a bug is expensive. --> Read the callers and the tests of what changed, and check each rule above that the change touches.
+- High: security configuration, sign-in and access checks, database migrations, `{{BUILD_FILE}}`, CI workflows.<!-- Add the packages where a bug is expensive. --> Read the callers and the tests of what changed, and check each rule above that the change touches.
 - High: `management.tracing.sampling.probability` raised in shipped config (it can overwhelm the trace store), `server.shutdown=immediate` (it drops requests during deploys), and `include-parameter-values` turned on (it puts personal data in spans).
 - High: a log line, exception message or `addKeyValue` that holds personal data or a credential.<!-- observability:begin --> `LogLeakCheck` catches emails and credentials on tested paths; names, phone numbers and untested paths need a reader.<!-- observability:end -->
 - High: a `catch` that returns a default or a success response without logging, or a 5xx built by hand in a controller.<!-- failure-filter:begin --> `HandledFailureFilter` only sees exceptions that reach an `@ExceptionHandler`.<!-- failure-filter:end -->

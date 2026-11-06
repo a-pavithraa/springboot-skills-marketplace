@@ -33,7 +33,7 @@ if printf '%s' "$input" | grep -q '"tool_name" *: *"Bash"'; then
     && block "git reset --hard discards uncommitted work. Use git stash, or ask the user." reset-hard
   printf '%s' "$command" | grep -Eq 'git[[:space:]].*clean([[:space:]].*)?[[:space:]]-[a-zA-Z]*f' \
     && block "git clean -f deletes untracked files for good. Ask the user." clean-force
-  printf '%s' "$command" | grep -Eq 'allowStoreCreation=true|freeze\.refreeze=true|modulith\.store\.record=true' \
+  printf '%s' "$command" | grep -Eq 'allowStoreCreation=true|freeze\.refreeze=true|modulith\.store\.record=true|harness\.record=true' \
     && block "that setting records today's ArchUnit or Spring Modulith violations as accepted. Fix the violation instead; to record a baseline on purpose, ask the user to run the harness's baseline.py." archunit-record
   # Writing commands that name a protected file. Not exhaustive: the Harness integrity CI check is the backstop.
   printf '%s' "$command" | grep -Eq "archunit_store|modulith_store|archunit\.properties|package-info\.java|($rule_tests)\.java" \

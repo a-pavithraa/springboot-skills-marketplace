@@ -180,7 +180,8 @@ class GuardHookTests(unittest.TestCase):
     def test_blocks_maven_flags_that_record_violations_as_accepted(self):
         for command in ("./mvnw test -Darchunit.freeze.store.default.allowStoreCreation=true",
                         "./mvnw verify -Darchunit.freeze.refreeze=true",
-                        "./mvnw test -Dtest=ModuleBoundariesTests -Dmodulith.store.record=true"):
+                        "./mvnw test -Dtest=ModuleBoundariesTests -Dmodulith.store.record=true",
+                        "./gradlew harnessCheck -Pharness.record=true"):
             self.assertEqual(self.bash(command).refused, True, command)
 
     def patch(self, body: str, project: Path) -> subprocess.CompletedProcess:
@@ -412,6 +413,30 @@ class IntegrityCheckTests(unittest.TestCase):
                              ".github/workflows/ci.yml": None,
                              "pom.xml": self.POM.replace("<version>1</version>", "<version>2</version>"),
                              ".mvn/jvm.config": self.JVM_CONFIG + "-Xss4m\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    GRADLE_BUILD = "plugins { id 'java' }\n\napply from: \"gradle/harness.gradle\"\n"
+    KOTLIN_BUILD = "plugins { java }\n\napply(from = \"gradle/harness.gradle\")\n"
+
+    def test_weakening_the_gradle_gates_fails(self):
+        cases = {"script changed": {"gradle/harness.gradle": "// NullAway off\n"},
+                 "script deleted": {"gradle/harness.gradle": None},
+                 "groovy build stops applying it": {"build.gradle": "plugins { id 'java' }\n"},
+                 "kotlin build stops applying it": {"build.gradle.kts": "plugins { java }\n"}}
+        for name, files in cases.items():
+            with self.subTest(name):
+                self.setUp()
+                self.commit_as_base({"gradle/harness.gradle": "// gates\n", "build.gradle": self.GRADLE_BUILD,
+                                     "build.gradle.kts": self.KOTLIN_BUILD})
+                result = self.check(files)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(f"::error file={next(iter(files))}::", result.stdout)
+
+    def test_ordinary_changes_to_a_gradle_build_pass(self):
+        self.commit_as_base({"build.gradle": self.GRADLE_BUILD})
+        result = self.check({"build.gradle": self.GRADLE_BUILD.replace("plugins { id 'java' }",
+                                                                       "plugins { id 'java'; id 'jacoco' }"),
+                             "gradle/harness.gradle": "// gates\n"})
         self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_a_verify_workflow_the_harness_did_not_write_is_the_teams(self):
@@ -766,6 +791,104 @@ class StopHookInSubfolderTests(StopHookFixture, unittest.TestCase):
         self.edit("A")
         self.fail_with(self.error_in("A"))
         self.assertEqual(self.hook(env=env, cwd=self.project / "src").blocked, True)
+
+
+FAKE_GRADLEW = """#!/usr/bin/env bash
+echo "$*" >> mvnw.log
+case "$*" in
+  *spotlessApply*) [ -f fail-format ] && { echo "spotless failed"; exit 1; } ;;
+  *checkFormat*)
+    [ -f unformatted ] && { echo "Formatting violations found in the following files:"; sed 's|^| * /x/|' unformatted; exit 1; } ;;
+  *harnessCheck*) [ -f fail-tests ] && { cat fail-tests; exit 1; } ;;
+esac
+exit 0
+"""
+
+
+@unittest.skipUnless(BASH, "bash not found")
+class GradleStopHookTests(StopHookFixture, unittest.TestCase):
+    """The same hook on a Gradle build: gradle/harness.gradle's tasks, and Gradle's way of printing failures."""
+
+    def setUp(self):
+        super().setUp()
+        (self.project / "pom.xml").unlink()
+        (self.project / "mvnw").unlink()
+        (self.project / "build.gradle").write_text("plugins { id 'java' }\n")
+        (self.project / "gradle").mkdir()
+        (self.project / "gradle/harness.gradle").write_text("spotless {\n    java {}\n}\n")
+        gradlew = self.project / "gradlew"
+        gradlew.write_text(FAKE_GRADLEW, newline="\n")
+        gradlew.chmod(0o755)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "gradle")
+
+    def checks_run(self) -> int:
+        return self.log().count("harnessCheck")
+
+    def error_in(self, key: str, message: str = "[NullAway] returning @Nullable") -> str:
+        prefix = f"{self.folder}/" if self.folder else ""
+        return f"/x/{prefix}{SOURCES[key]}:3: error: {message}\n"
+
+    def test_formats_the_sessions_files_by_path_then_runs_the_fast_gates(self):
+        self.start_session()
+        self.edit("A")
+        self.assertEqual(self.stop().blocked, False)
+        calls = self.log().splitlines()
+        self.assertEqual(calls, [f"-q spotlessApply -PharnessFiles={SOURCES['A']}", "-q harnessCheck"])
+
+    def test_blocks_on_compiler_errors_in_files_changed_in_this_session(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with(self.error_in("A") + self.error_in("B", "[NullAway] already broken")
+                       + "\n* What went wrong:\nExecution failed for task ':compileJava'.\n"
+                       + "  " + self.error_in("A"))
+        result = self.stop()
+        self.assertEqual(result.blocked, True)
+        self.assertEqual(result.reason.count("one/A.java:3: error: [NullAway]"), 1, result.reason)
+        self.assertNotIn("already broken", result.reason)
+        self.assertEqual(self.events()[-1]["gates"], "nullaway")
+
+    def test_blocks_on_indented_archunit_violations_in_classes_changed_in_this_session(self):
+        self.start_session()
+        self.edit("A")
+        self.fail_with("CodeRulesTests > codeLogsInsteadOfPrinting() FAILED\n"
+                       "    java.lang.AssertionError: Architecture Violation [Priority: MEDIUM] - Rule 'no classes "
+                       "should access standard streams' was violated (1 times):\n"
+                       "    Method <one.A.print()> gets field <java.lang.System.out> in (A.java:3)\n")
+        result = self.stop()
+        self.assertEqual(result.blocked, True)
+        self.assertIn("Method <one.A.print()>", result.reason)
+
+    def test_a_build_setup_failure_after_a_build_file_change_is_the_sessions(self):
+        self.start_session()
+        (self.project / "build.gradle").write_text("plugins { id 'java' }\n// flyway in test scope\n")
+        self.fail_with("BuildSetupTests > bootDependenciesAreNotTestOnly() FAILED\n"
+                       "    Expecting empty but was: [\"build.gradle: spring-boot-starter-flyway is on the test "
+                       "classpath only, so the tests pass with it and the application runs without it\"]\n")
+        result = self.stop()
+        self.assertEqual(result.blocked, True)
+        self.assertIn("spring-boot-starter-flyway is on the test classpath only", result.reason)
+        self.assertEqual(self.events()[-1]["gates"], "build-setup")
+
+    def test_failures_elsewhere_name_the_gradle_build(self):
+        self.start_session()
+        (self.project / "build.gradle").write_text("plugins { id 'java'; id 'jacoco' }\n")
+        self.fail_with(self.error_in("B", "[NullAway] already broken"))
+        message = json.loads(self.stop().stdout)["systemMessage"]
+        self.assertIn("changed build.gradle", message)
+        self.assertIn("./gradlew build", message)
+
+    def test_on_spring_java_format_the_sessions_files_are_checked_not_formatted(self):
+        # Applied through a catalog alias: the harness's script, which leaves Spotless out, says which formatter.
+        (self.project / "build.gradle").write_text("plugins { alias(libs.plugins.spring.javaformat) }\n")
+        (self.project / "gradle/harness.gradle").write_text("apply plugin: net.ltgt.gradle.errorprone.ErrorPronePlugin\n")
+        self.start_session()
+        self.edit("A")
+        (self.project / "unformatted").write_text(SOURCES["A"] + "\n")
+        result = self.stop()
+        self.assertEqual(result.blocked, True)
+        self.assertIn("Run ./gradlew format", result.reason)
+        self.assertNotIn("spotless", self.log())
 
 
 if __name__ == "__main__":

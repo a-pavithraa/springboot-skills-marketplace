@@ -18,6 +18,7 @@
 #   - changes or deletes the harness hooks, this script or its workflow, or the verify workflow the harness added
 #   - unregisters a harness hook, or narrows when it runs, in .claude/settings.json or .codex/hooks.json
 #   - changes the harness's plugin block in a pom.xml (NullAway, Spotless), or removes a line from .mvn/jvm.config
+#   - changes or deletes gradle/harness.gradle, or stops a Gradle build file applying it
 #   - stops LogLeakCheck running, by unregistering it or turning off JUnit's extension autodetection
 
 set -u
@@ -70,6 +71,11 @@ except (ValueError, AttributeError, TypeError):
 # plugins_block <commit> <pom>: the plugins the harness added, between its markers; empty when there are none.
 plugins_block() {
   git show "$1:$2" 2> /dev/null | tr -d '\r' | sed -n '/<!-- harness:begin plugins -->/,/<!-- harness:end plugins -->/p'
+}
+
+# applies_harness <commit> <build-file>: true when a Gradle build file applies the harness's script.
+applies_harness() {
+  git show "$1:$2" 2> /dev/null | grep -Eq '^[[:space:]]*apply[[:space:](]+from[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']*gradle/harness\.gradle["'"'"']'
 }
 
 # harness_owned <commit> <path>: true when the harness wrote the file, as its lock records.
@@ -138,7 +144,7 @@ while IFS=$'\t' read -r status path; do
     .claude/hooks/* | .github/harness/* | .github/workflows/harness-integrity.yml)
       problem "$path" "is part of the harness's own enforcement." ;;
     .github/workflows/verify.yml | .github/workflows/harness-verify.yml)
-      harness_owned "$fork" "$path" && problem "$path" "runs ./mvnw verify on every pull request, so the gates hold for code nobody ran locally." ;;
+      harness_owned "$fork" "$path" && problem "$path" "runs the build on every pull request, so the gates hold for code nobody ran locally." ;;
     .claude/settings.json | .codex/hooks.json)
       [ -z "$(comm -23 <(hook_entries "$fork" "$path") <(hook_entries HEAD "$path"))" ] \
         || problem "$path" "unregisters a harness hook or narrows when it runs, so agents' changes go unchecked." ;;
@@ -146,6 +152,12 @@ while IFS=$'\t' read -r status path; do
       before=$(plugins_block "$fork" "$path")
       [ -z "$before" ] || [ "$before" = "$(plugins_block HEAD "$path")" ] \
         || problem "$path" "changes the harness's plugin block (NullAway, Spotless), which changes what the build accepts." ;;
+    gradle/harness.gradle | */gradle/harness.gradle)
+      [ "$status" = A ] || problem "$path" "holds the harness's build gates (NullAway, Spotless), so changing it changes what the build accepts." ;;
+    build.gradle | */build.gradle | build.gradle.kts | */build.gradle.kts)
+      if applies_harness "$fork" "$path" && ! applies_harness HEAD "$path"; then
+        problem "$path" "stops applying gradle/harness.gradle, which turns off NullAway and the formatter check."
+      fi ;;
     .mvn/jvm.config | */.mvn/jvm.config)
       [ -z "$(comm -23 <(git show "$fork:$path" 2> /dev/null | tr -d '\r' | sort -u) \
         <(git show "HEAD:$path" 2> /dev/null | tr -d '\r' | sort -u))" ] \

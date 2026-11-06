@@ -40,6 +40,11 @@ class BuildSetupTests {
                     "@ImportHttpServices"),
             "spring-boot-starter-webclient", List.of("WebClient.Builder", "@HttpExchange", "@ImportHttpServices"));
 
+    /** Set by the harness's Gradle script, which writes the build's declared dependencies there. */
+    private static final String DECLARED = System.getProperty("harness.declaredDependencies");
+
+    private static final String BUILD_FILE = System.getProperty("harness.buildFile", "pom.xml");
+
     private static final Set<String> SCHEMA_FROM_HIBERNATE = Set.of("update", "create", "create-drop", "create-only");
 
     @Test
@@ -50,8 +55,9 @@ class BuildSetupTests {
                         && !dependency.artifact().endsWith("-test")
                         && !TEST_ONLY.contains(dependency.artifact())
                         && !onlyTestsCallOverHttp(dependency.artifact()))
-                .map(dependency -> "pom.xml: " + dependency.artifact() + " is on the test classpath only, so the tests pass with it "
-                        + "and the application runs without it. Remove <scope>test</scope>")
+                .map(dependency -> BUILD_FILE + ": " + dependency.artifact() + " is on the test classpath only, so the tests pass with it "
+                        + "and the application runs without it. "
+                        + (DECLARED == null ? "Remove <scope>test</scope>" : "Declare it with implementation"))
                 .toList();
         assertThat(problems).isEmpty();
     }
@@ -61,7 +67,7 @@ class BuildSetupTests {
         List<String> problems = dependencies().stream()
                 .filter(dependency -> dependency.group().equals("org.springframework.boot")
                         && dependency.artifact().contains("-classic"))
-                .map(dependency -> "pom.xml: " + dependency.artifact() + " brings back Boot 3's all-in-one auto-configuration and "
+                .map(dependency -> BUILD_FILE + ": " + dependency.artifact() + " brings back Boot 3's all-in-one auto-configuration and "
                         + "hides which modules the application needs. Remove it and add the starter for the feature "
                         + "that stopped working, for example spring-boot-starter-flyway")
                 .toList();
@@ -80,7 +86,7 @@ class BuildSetupTests {
                         && (dependency.artifact().equals("spring-boot-starter-flyway")
                                 || dependency.artifact().equals("spring-boot-flyway")));
         assertThat(runs)
-                .as("pom.xml: src/main/resources/db/migration has migrations, but Boot 4 runs them only with "
+                .as(BUILD_FILE + ": src/main/resources/db/migration has migrations, but Boot 4 runs them only with "
                         + "spring-boot-starter-flyway; flyway-core alone never migrates. Add the starter")
                 .isTrue();
     }
@@ -123,8 +129,19 @@ class BuildSetupTests {
 
     private record Dependency(String group, String artifact, String scope) {}
 
-    /** The dependencies the pom declares itself; managed versions and profiles don't count. */
+    /** The dependencies the build declares itself; managed versions and profiles don't count. */
     private static List<Dependency> dependencies() throws Exception {
+        if (DECLARED != null) {
+            return Files.readAllLines(Path.of(DECLARED)).stream()
+                    .filter(line -> !line.isBlank())
+                    .map(line -> {
+                        String[] scopeAndModule = line.split(" ", 2);
+                        String[] module = scopeAndModule[1].split(":", 2);
+                        String scope = scopeAndModule[0].equals("compile") ? "" : scopeAndModule[0];
+                        return new Dependency(module[0], module[1], scope);
+                    })
+                    .toList();
+        }
         var factory = DocumentBuilderFactory.newInstance();
         factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);

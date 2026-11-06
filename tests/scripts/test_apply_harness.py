@@ -1005,5 +1005,218 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual((root / "pom.xml").read_text(encoding="utf-8"), STANDARD)
 
 
+GROOVY_BUILD = textwrap.dedent("""
+    plugins {
+        id 'java'
+        id 'org.springframework.boot' version '4.1.1'
+        id 'io.spring.dependency-management' version '1.1.7'
+    }
+
+    java { toolchain { languageVersion = JavaLanguageVersion.of(25) } }
+
+    dependencies {
+        implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    }
+    """).lstrip()
+
+KOTLIN_BUILD = textwrap.dedent("""
+    plugins {
+        java
+        id("org.springframework.boot") version "4.1.1"
+    }
+
+    java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+
+    dependencies {
+        implementation(libs.spring.boot.starter.data.jpa)
+        testImplementation(libs.archunit)
+    }
+    """).lstrip()
+
+
+class ApplyHarnessGradleTests(unittest.TestCase):
+
+    def project(self, build: str, name: str = "build.gradle", extra: dict[str, str] | None = None) -> Path:
+        root = Path(tempfile.mkdtemp())
+        files = {name: build, "settings.gradle": "rootProject.name = 'orders'\n",
+                 "src/main/java/com/acme/orders/OrdersApplication.java":
+                     "package com.acme.orders;\n\n@SpringBootApplication\nclass OrdersApplication {}\n"}
+        for relative, text in {**files, **(extra or {})}.items():
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).write_text(text, encoding="utf-8")
+        return root
+
+    def run_script(self, root: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(SCRIPT), str(root), *args], capture_output=True, text=True,
+                              encoding="utf-8")
+
+    def read(self, root: Path, relative: str) -> str:
+        return (root / relative).read_text(encoding="utf-8")
+
+    def test_writes_the_gate_script_and_applies_it_from_a_groovy_build(self):
+        root = self.project(GROOVY_BUILD)
+        result = self.run_script(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.read(root, "build.gradle").endswith('\napply from: "gradle/harness.gradle"\n'))
+        script = self.read(root, "gradle/harness.gradle")
+        self.assertIn('option("NullAway:AnnotatedPackages", "com.acme.orders")', script)
+        self.assertIn("spotless-plugin-gradle", script)
+        self.assertNotIn("own Spotless", script)
+        self.assertIn("spring-modulith-starter-test", script)
+        self.assertIn('systemProperty "harness.buildFile", "build.gradle"', script)
+        self.assertNotIn("{{", script)
+        self.assertNotIn(":begin", script)
+        self.assertFalse((root / ".mvn").exists())
+        self.assertFalse((root / "pom.xml").exists())
+        self.assertIn("Next: ./gradlew spotlessApply, then ./gradlew build", result.stdout)
+        self.assertIn("no Gradle wrapper here", result.stdout)
+
+    def test_kotlin_build_gets_the_kotlin_apply_line_and_reads_the_version_catalog(self):
+        catalog = ('[libraries]\nspring-boot-starter-data-jpa = { module = '
+                   '"org.springframework.boot:spring-boot-starter-data-jpa" }\n'
+                   'archunit = { module = "com.tngtech.archunit:archunit-junit5", version = "1.5.1" }\n')
+        root = self.project(KOTLIN_BUILD, "build.gradle.kts", {"gradle/libs.versions.toml": catalog})
+        self.assertEqual(self.run_script(root).returncode, 0)
+        self.assertTrue(self.read(root, "build.gradle.kts").endswith('\napply(from = "gradle/harness.gradle")\n'))
+        script = self.read(root, "gradle/harness.gradle")
+        self.assertNotIn("com.tngtech.archunit:archunit:", script)
+        self.assertIn("datasource-micrometer-spring-boot", script)
+        self.assertIn("Spring Boot 4.1.1 on Java 21", self.read(root, "AGENTS.md"))
+
+    def test_templates_name_the_gradle_commands(self):
+        root = self.project(GROOVY_BUILD)
+        self.run_script(root)
+        agents = self.read(root, "AGENTS.md")
+        self.assertIn("Run `./gradlew build` (`gradlew.bat build` on Windows)", agents)
+        self.assertIn("Run `./gradlew spotlessApply`", agents)
+        self.assertNotIn("mvnw", agents)
+        workflow = self.read(root, ".github/workflows/verify.yml")
+        self.assertIn("cache: gradle", workflow)
+        self.assertIn("- run: ./gradlew build", workflow)
+        allowed = json.loads(self.read(root, ".claude/settings.json"))["permissions"]["allow"]
+        self.assertEqual(allowed, ["Bash(./gradlew *)", "Bash(./gradlew.bat *)"])
+        move = self.read(root, ".claude/skills/move-code/SKILL.md")
+        self.assertIn("rewriteDryRun", move)
+        self.assertNotIn("rewrite-maven-plugin", move)
+        self.assertNotIn("<!--", move)
+        self.assertIn("./gradlew bootRun", self.read(root, "docs/observability.md"))
+        self.assertIn("`build.gradle`", self.read(root, "REVIEW.md"))
+
+    def test_a_rerun_changes_nothing(self):
+        root = self.project(GROOVY_BUILD)
+        self.run_script(root)
+        second = self.run_script(root)
+        self.assertEqual(second.returncode, 0)
+        self.assertNotRegex(second.stdout, r"(?m)^(added|patched|updated) ")
+        self.assertEqual(self.read(root, "build.gradle").count("gradle/harness.gradle"), 1)
+
+    def test_a_rerun_updates_the_script_nobody_edited_and_keeps_an_edited_one(self):
+        root = self.project(GROOVY_BUILD)
+        self.run_script(root)
+        script = root / "gradle/harness.gradle"
+        script.write_text(script.read_text(encoding="utf-8").replace("1.0.1", "1.0.0"), encoding="utf-8")
+        self.assertIn("kept     gradle/harness.gradle (edited since", self.run_script(root).stdout)
+
+        lock = json.loads(self.read(root, ".claude/harness.lock"))
+        edited = script.read_text(encoding="utf-8").replace("\r\n", "\n")
+        lock["gradle/harness.gradle"] = hashlib.sha256(edited.encode("utf-8")).hexdigest()
+        (root / ".claude/harness.lock").write_text(json.dumps(lock), encoding="utf-8")
+        self.assertIn("updated  gradle/harness.gradle", self.run_script(root).stdout)
+        self.assertIn("jspecify:1.0.1", script.read_text(encoding="utf-8"))
+
+    def test_marked_mode_is_kept_on_a_rerun_without_the_flag(self):
+        root = self.project(GROOVY_BUILD)
+        self.run_script(root, "--nullaway", "marked")
+        self.run_script(root)
+        script = self.read(root, "gradle/harness.gradle")
+        self.assertIn('option("NullAway:OnlyNullMarked", "true")', script)
+        self.assertNotIn("AnnotatedPackages", script)
+
+    def test_spring_java_format_keeps_spotless_out(self):
+        build = GROOVY_BUILD.replace("plugins {\n", "plugins {\n    id 'io.spring.javaformat' version '0.0.47'\n")
+        root = self.project(build)
+        result = self.run_script(root)
+        self.assertNotIn("spotless", self.read(root, "gradle/harness.gradle").lower())
+        self.assertIn("Run `./gradlew format`", self.read(root, "AGENTS.md"))
+        self.assertIn("Next: ./gradlew format", result.stdout)
+
+    def test_no_modules_and_no_observability_leave_their_dependencies_out(self):
+        root = self.project(GROOVY_BUILD)
+        self.run_script(root, "--no-modules", "--no-observability")
+        script = self.read(root, "gradle/harness.gradle")
+        self.assertNotIn("spring-modulith", script)
+        self.assertNotIn("opentelemetry", script)
+
+    def test_a_rerun_without_observability_keeps_the_installed_packs_dependencies(self):
+        root = self.project(GROOVY_BUILD)
+        self.run_script(root)
+        self.assertEqual(self.run_script(root, "--no-observability").returncode, 0)
+        self.assertIn("opentelemetry-logback-appender", self.read(root, "gradle/harness.gradle"))
+
+    def test_catalog_entries_the_build_does_not_use_count_as_absent(self):
+        catalog = ('[plugins]\nspotless = { id = "com.diffplug.spotless", version = "8.11.0" }\n'
+                   'errorprone = { id = "net.ltgt.errorprone", version = "5.2.0" }\n'
+                   '[libraries]\narchunit = { module = "com.tngtech.archunit:archunit", version = "1.5.1" }\n')
+        root = self.project(GROOVY_BUILD, extra={"gradle/libs.versions.toml": catalog})
+        result = self.run_script(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        script = self.read(root, "gradle/harness.gradle")
+        self.assertIn("SpotlessPlugin", script)
+        self.assertIn("com.tngtech.archunit:archunit:", script)
+
+    def test_catalog_aliases_the_build_applies_count_as_declared(self):
+        catalog = ('[plugins]\nspring-javaformat = { id = "io.spring.javaformat", version = "0.0.47" }\n'
+                   '[libraries]\narch-unit = { module = "com.tngtech.archunit:archunit", version = "1.5.1" }\n'
+                   '[bundles]\nrules = ["arch-unit"]\n')
+        build = (GROOVY_BUILD.replace("plugins {\n", "plugins {\n    alias(libs.plugins.spring.javaformat)\n")
+                 .replace("dependencies {\n", "dependencies {\n    testImplementation libs.bundles.rules\n"))
+        root = self.project(build, extra={"gradle/libs.versions.toml": catalog})
+        result = self.run_script(root)
+        script = self.read(root, "gradle/harness.gradle")
+        self.assertNotIn("spotless", script.lower())
+        self.assertNotIn("com.tngtech.archunit:archunit:", script)
+        self.assertIn("Next: ./gradlew format", result.stdout)
+
+    def test_stops_on_a_multi_project_build(self):
+        root = self.project(GROOVY_BUILD, extra={"settings.gradle": "rootProject.name = 'orders'\ninclude 'api'\n"})
+        result = self.run_script(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("single-project Gradle builds", result.stderr)
+        self.assertFalse((root / "gradle/harness.gradle").exists())
+
+    def test_stops_when_the_build_already_applies_error_prone(self):
+        build = GROOVY_BUILD.replace("plugins {\n", "plugins {\n    id 'net.ltgt.errorprone' version '5.2.0'\n")
+        result = self.run_script(self.project(build))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already applies Error Prone", result.stderr)
+
+    def test_a_commented_out_plugin_does_not_stop_it(self):
+        build = GROOVY_BUILD.replace("plugins {\n", "plugins {\n    // id 'net.ltgt.errorprone' version '5.2.0'\n")
+        self.assertEqual(self.run_script(self.project(build)).returncode, 0)
+
+    def test_keeps_the_builds_own_spotless_and_only_narrows_it_for_the_hook(self):
+        build = GROOVY_BUILD.replace("plugins {\n", "plugins {\n    id 'com.diffplug.spotless' version '8.11.0'\n")
+        root = self.project(build)
+        self.assertEqual(self.run_script(root).returncode, 0)
+        script = self.read(root, "gradle/harness.gradle")
+        self.assertNotIn("SpotlessPlugin", script)
+        self.assertNotIn("palantirJavaFormat", script)
+        self.assertIn("target(harnessFiles.split", script)
+        self.assertIn("Run `./gradlew spotlessApply`", self.read(root, "AGENTS.md"))
+
+    def test_stops_when_both_build_files_exist(self):
+        result = self.run_script(self.project(GROOVY_BUILD, extra={"pom.xml": STANDARD}))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("both pom.xml and build.gradle", result.stderr)
+
+    def test_keeps_a_workflow_that_already_runs_gradle(self):
+        ci = "jobs:\n  build:\n    steps:\n      - run: ./gradlew build\n"
+        root = self.project(GROOVY_BUILD, extra={".github/workflows/ci.yml": ci})
+        result = self.run_script(root)
+        self.assertIn("kept     .github/workflows/ci.yml (already runs Gradle in CI)", result.stdout)
+        self.assertFalse((root / ".github/workflows/verify.yml").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

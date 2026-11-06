@@ -117,8 +117,7 @@ def check_architecture_test(root: Path, build_text: str, report: Report):
              if re.search(r"com\.tngtech\.archunit|com\.enofex\.taikai", read(p))] \
         if (root / "src" / "test").is_dir() else []
     if not tests:
-        report.fail("No ArchUnit architecture test in src/test. Apply the team harness, or copy its "
-                    "CodeRulesTests.java for Gradle (Step 6 of SKILL.md).")
+        report.fail("No ArchUnit architecture test in src/test. Apply the team harness (Step 6 of SKILL.md).")
     elif not has_dependency:
         report.fail("An ArchUnit test exists, but the build file has no com.tngtech.archunit test dependency.")
     else:

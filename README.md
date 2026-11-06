@@ -1,18 +1,18 @@
 # Spring Boot Skills Marketplace
 
-Claude Code and Codex skills for Spring Boot 4 and Java 25. The main one, `spring-boot-team-harness`, gives every developer on a team the same agent setup and makes `./mvnw verify` fail on the mistakes agents make. The others create, migrate, test and review Spring Boot projects.
+Claude Code and Codex skills for Spring Boot 4 and Java 25. The main one, `spring-boot-team-harness`, gives every developer on a team the same agent setup and makes `./mvnw verify` (or `./gradlew build`) fail on the mistakes agents make. The others create, migrate, test and review Spring Boot projects.
 
 Every skill was trialled with and without it, and content that made no difference was cut. The results are [below](#trial-results).
 
 ## The team harness
 
-`scripts/apply_harness.py` adds the harness to a Maven project. It adds only what the project lacks, so it works on existing services, on a Maven project in a subfolder, and on top of what progen set up. `creating-springboot-projects` runs it as its last step. Rerun it after updating the plugin.
+`scripts/apply_harness.py` adds the harness to a Maven project or a single-project Gradle build (Groovy or Kotlin DSL). It adds only what the project lacks, so it works on existing services, on a project in a subfolder, and on top of what progen set up. On Gradle, the gates live in `gradle/harness.gradle`, which the build file applies with one line. The commands below are Maven's; on Gradle, `./gradlew build` runs the same gates. `creating-springboot-projects` runs it as its last step. Rerun it after updating the plugin.
 
 It steers the agent at three points:
 
 1. **Before it starts.** `AGENTS.md`, which both Claude Code and Codex read, describes the repository: modules, how to run and test it, conventions, and how to work (plan larger changes first, write a failing test first for bugs, review before the pull request). The agent drafts the repository-specific sections from the code, and the team corrects them.
 2. **Before it says it's done.** `AGENTS.md` tells the agent to run `./mvnw verify`. A Stop hook runs the gates that need no Docker when a turn ends with changed code, and sends any errors back to the agent. A PreToolUse hook refuses force-pushes, `git reset --hard`, `git clean -f`, edits to Flyway migrations already on `main`, edits to the rule tests and the ArchUnit and Spring Modulith violation records, the record flag `baseline.py` uses, and any edit to a module's `package-info.java`, so an agent can't weaken a rule to get its change through. The hook is advisory, so a CI check backs it up.
-3. **Before merge.** A CI workflow runs `./mvnw verify` on every pull request, unless one already runs `mvnw`. A second one fails a pull request that weakens a rule, adds to either violation record, widens or removes a module's `allowedDependencies` or opens the module, or edits an applied migration (narrowing a module's dependencies passes), whichever tool made the change; a maintainer accepts an intended change with the `harness-rule-change` label. A `REVIEW.md` at the repository root tells reviewers, the `code-reviewer` skill and Claude Code's GitHub review alike, what the code doesn't show: the team's own failure rules, which changes are high risk, and what not to report. In a trial, reviewers given the rules found a planted break of one in 6 of 6 reviews, against 0 of 6 without, at the same cost.
+3. **Before merge.** A CI workflow runs `./mvnw verify` on every pull request, unless one already runs `mvnw` (`./gradlew build` and `gradlew` on Gradle). A second one fails a pull request that weakens a rule, adds to either violation record, widens or removes a module's `allowedDependencies` or opens the module, or edits an applied migration (narrowing a module's dependencies passes), whichever tool made the change; a maintainer accepts an intended change with the `harness-rule-change` label. A `REVIEW.md` at the repository root tells reviewers, the `code-reviewer` skill and Claude Code's GitHub review alike, what the code doesn't show: the team's own failure rules, which changes are high risk, and what not to report. In a trial, reviewers given the rules found a planted break of one in 6 of 6 reviews, against 0 of 6 without, at the same cost.
 
 `./mvnw verify` fails on:
 

@@ -17,4 +17,12 @@ A small Spring Boot 4.1.1 project with two modules (`catalog`, marked `@NullMark
 tests/harness-sample/check.sh all      # or: marked
 ```
 
-It needs JDK 21.0.8 or later, Maven and Python 3, on Linux or macOS. On Windows, run `tests/harness-sample/check-in-docker.sh all` from Git Bash instead; it runs the same check in a Linux container. CI runs it on JDK 21 and 25 in both NullAway modes (`.github/workflows/harness-build.yml`).
+`check-gradle.sh` does the same on a Gradle build of the sample, in Groovy or Kotlin DSL: the build applies `gradle/harness.gradle` and passes clean; NullAway, `CodeRulesTests`, `ConfigurationKeysTests`, `ModuleBoundariesTests`, `BuildSetupTests` (reading the Gradle build's declared dependencies), `LogLeakCheck` and Spotless each fail on their planted mistake; a rerun changes nothing; the Stop hook formats only the session's files, blocks a self-invoked `@Async` method and lets the fix through; `baseline.py` records legacy code and new violations still fail; the integrity check refuses a change to `gradle/harness.gradle`; and the `move-code` skill's OpenRewrite init script previews a move.
+
+```bash
+tests/harness-sample/check-gradle.sh groovy      # or: kotlin
+```
+
+It needs JDK 25, Gradle 9 and Python 3; on Windows, run `tests/harness-sample/check-gradle-in-docker.sh groovy`.
+
+`check.sh` needs JDK 21.0.8 or later, Maven and Python 3, on Linux or macOS. On Windows, run `tests/harness-sample/check-in-docker.sh all` from Git Bash instead; it runs the same check in a Linux container. CI runs it on JDK 21 and 25 in both NullAway modes (`.github/workflows/harness-build.yml`).

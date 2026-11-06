@@ -81,7 +81,7 @@ class MainTests(unittest.TestCase):
             return 0, ""
 
         out = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")  # main() calls reconfigure, which StringIO lacks
-        with mock.patch.object(baseline, "maven", maven), mock.patch.object(sys, "argv", ["baseline.py", "."]), \
+        with mock.patch.object(baseline, "build", maven), mock.patch.object(sys, "argv", ["baseline.py", "."]), \
                 contextlib.redirect_stdout(out):
             try:
                 baseline.main()
@@ -125,6 +125,46 @@ class MainTests(unittest.TestCase):
             self.run_main(1)
         self.assertIn("spotless:apply failed", str(stopped.exception))
         self.assertIn("bad formatter config", str(stopped.exception))
+
+    def gradle_project(self, build: str = "plugins { id 'java' }\n", script: str = "spotless {\n}\n") -> Path:
+        project = Path(tempfile.mkdtemp())
+        (project / "build.gradle").write_text(build)
+        (project / "gradle").mkdir()
+        (project / "gradle/harness.gradle").write_text(script)
+        test = project / "src/test/java/com/acme/ModuleBoundariesTests.java"
+        test.parent.mkdir(parents=True)
+        test.write_text("class ModuleBoundariesTests {}\n")
+        return project
+
+    def test_on_gradle_it_runs_the_harness_tasks_and_records_through_the_harness_property(self):
+        with mock.patch.object(baseline.Path, "resolve", lambda self, project=self.gradle_project(): project):
+            calls, printed = self.run_main(0)
+        self.assertEqual(calls, [("compileJava",),
+                                 ("test", "--rerun", "--tests", "*.CodeRulesTests", "--tests", "*.UnusedCodeTests",
+                                  "-Pharness.record=true"),
+                                 ("test", "--rerun", "--tests", "*.ModuleBoundariesTests", "-Pharness.record=true"),
+                                 ("spotlessApply",)])
+        self.assertIn("Next: ./gradlew build", printed)
+
+    def test_on_gradle_with_spring_java_format_it_formats_with_its_task(self):
+        project = self.gradle_project("plugins { alias(libs.plugins.spring.javaformat) }\n",
+                                      script="dependencies {}\n")
+        with mock.patch.object(baseline.Path, "resolve", lambda self: project):
+            calls, _ = self.run_main(0)
+        self.assertEqual(calls[-1], ("format",))
+
+    def test_reads_gradle_nullaway_errors(self):
+        output = textwrap.dedent("""\
+            /home/ci/app/src/main/java/com/acme/Orders.java:7: error: [NullAway] dereferenced expression
+            D:\\app\\src\\main\\java\\com\\acme\\Users.java:22: error: [NullAway] passing @Nullable parameter
+            /home/ci/app/src/main/java/com/acme/Other.java:3: error: cannot find symbol
+
+            * What went wrong:
+              /home/ci/app/src/main/java/com/acme/Orders.java:7: error: [NullAway] dereferenced expression
+            """)
+        self.assertEqual(baseline.failing_files(output),
+                         {Path("/home/ci/app/src/main/java/com/acme/Orders.java"),
+                          Path("D:\\app\\src\\main\\java\\com\\acme\\Users.java")})
 
 
 if __name__ == "__main__":
