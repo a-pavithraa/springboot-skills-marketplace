@@ -53,7 +53,8 @@ ARCHUNIT = declares(r"taikai|archunit[\w-]*")
 WORKFLOW = ".github/workflows/verify.yml"
 HOOKS = (".claude/hooks/guard.sh", ".claude/hooks/verify-on-stop.sh")
 # The CI backstop for the guard hook: it runs for every tool, and its files don't depend on the project.
-INTEGRITY = (".github/workflows/harness-integrity.yml", ".github/harness/check-protected.sh")
+INTEGRITY = (".github/workflows/harness-integrity.yml", ".github/harness/check-protected.sh",
+             ".github/harness/check-file-size.sh")
 LOCK = ".claude/harness.lock"
 USES_JDBC = declares(r"spring-boot-starter-(?:jdbc|data-jpa|data-jdbc|jooq)")
 USES_TOMCAT = declares(r"spring-boot-starter-(?:web|webmvc)")

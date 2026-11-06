@@ -321,6 +321,14 @@ if bash .github/harness/check-protected.sh "$base" > out.log; then fail "integri
 elif grep -q "::error file=src/test/resources/modulith_store::" out.log; then pass "integrity check: refuses an addition to modulith_store"
 else fail "integrity check: failed for another reason"; cat out.log; fi
 rm -f out.log
+{ echo "package com.acme.shop.orders;"; echo "class Huge {"; for n in $(seq 1500); do echo "  int f$n = $n;"; done; echo "}"; } \
+  > src/main/java/com/acme/shop/orders/Huge.java
+git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm "add a file over the size limit"
+if bash .github/harness/check-file-size.sh "$base" > out.log; then fail "file-size check: accepted a 20 KB file"; cat out.log
+elif grep -q "orders/Huge.java is" out.log; then pass "file-size check: refuses a new file over the limit"
+else fail "file-size check: failed for another reason"; cat out.log; fi
+rm -f out.log
+git reset -q --hard HEAD~1
 
 echo
 perl -0pi -e 's|<artifactId>spring-boot-starter</artifactId>|<artifactId>spring-boot-starter-webmvc</artifactId>|' pom.xml
