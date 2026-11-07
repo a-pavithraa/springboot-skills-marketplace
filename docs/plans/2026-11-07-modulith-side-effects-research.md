@@ -110,6 +110,21 @@ Modulith gives no retry, no timeout, and no idempotency key. Those belong in the
 
 - The local clone is at tag 2.1.1. The client codebase in the related review uses Spring Modulith 2.1.0 (its pom). I did not diff 2.1.0 against 2.1.1 for the events code (open question 1).
 
+### F12. An after-commit listener writes only in a new transaction
+
+- A `@TransactionalEventListener` runs after the publisher's transaction commits (the default `AFTER_COMMIT` phase), on the publisher's thread. The finished transaction's resources are still bound there, so "any data access code triggered at this point will still 'participate' in the original transaction ... (with no commit following anymore!)". Spring's advice: "Use `PROPAGATION_REQUIRES_NEW` for any transactional operation that is called from here." Source: [`TransactionSynchronization.afterCommit` Javadoc](https://github.com/spring-projects/spring-framework/blob/main/spring-tx/src/main/java/org/springframework/transaction/support/TransactionSynchronization.java).
+- A listener in a phase other than `BEFORE_COMMIT` that carries `@Transactional` with any propagation except `REQUIRES_NEW` or `NOT_SUPPORTED` fails at startup: "@TransactionalEventListener method must not be annotated with @Transactional unless when declared as REQUIRES_NEW or NOT_SUPPORTED". Source: [`RestrictedTransactionalEventListenerFactory`](https://github.com/spring-projects/spring-framework/blob/main/spring-tx/src/main/java/org/springframework/transaction/annotation/RestrictedTransactionalEventListenerFactory.java). A listener with no `@Transactional` at all is not caught: its writes are silently not committed.
+- `@ApplicationModuleListener` already declares `@Transactional(propagation = REQUIRES_NEW)` and `@Async` (F1).
+
+| Listener | Thread | Transaction | Writes |
+|---|---|---|---|
+| `@EventListener` | publisher's | publisher's, still open | commit or roll back with the publisher |
+| `@TransactionalEventListener` alone | publisher's, after commit | the finished one | silently not committed |
+| + `@Transactional(REQUIRES_NEW)` | publisher's, after commit | a new one | committed, but the publisher waits |
+| `@ApplicationModuleListener` | another thread | a new one | committed, the publisher doesn't wait, and the registry tracks it |
+
+No ArchUnit rule is proposed for the silent case: a rule can't tell a listener that writes from one that only reads.
+
 ## 4. Agent shortcuts
 
 Each entry: the shortcut, the correct default, when the shortcut is fine, and a one-line rule for the agent.
