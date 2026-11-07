@@ -498,6 +498,80 @@ esac
 exit 0
 """
 
+SIZE_CHECK = HOOKS.parents[1] / ".github" / "harness" / "check-file-size.sh"
+LARGE = "class Big {}\n" + "// x\n" * 6400
+
+
+@unittest.skipUnless(BASH, "bash not found")
+class FileSizeCheckTests(unittest.TestCase):
+    """Source files stay small enough for an agent to read whole; old oversized files pass until a change grows them."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.write({"src/main/java/com/acme/Old.java": LARGE, "src/main/java/com/acme/A.java": "class A {}\n",
+                    "src/main/java/com/acme/A3.java": "class A3 {}\n"})
+        git(self.root, "init", "-q", "-b", "main")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "base")
+        self.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True, text=True,
+                                   check=True).stdout.strip()
+        git(self.root, "switch", "-qc", "feature")
+
+    def write(self, files: dict[str, str]):
+        for name, text in files.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(text, encoding="utf-8", newline="\n")
+
+    def check(self, files: dict[str, str]) -> subprocess.CompletedProcess:
+        self.write(files)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "change", "--allow-empty")
+        return subprocess.run([BASH, str(SIZE_CHECK), self.base], cwd=self.root, capture_output=True, text=True)
+
+    def test_a_new_file_over_the_limit_fails_and_says_how_to_split_it(self):
+        result = self.check({"src/main/java/com/acme/New.java": LARGE})
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("src/main/java/com/acme/New.java is 32 KB", result.stdout)
+        self.assertIn("not OrderHelper", result.stdout)
+        self.assertNotIn("Old.java", result.stdout)
+
+    def test_an_old_file_over_the_limit_passes_until_a_change_grows_it(self):
+        self.assertEqual(self.check({"src/main/java/com/acme/Old.java": LARGE.replace("Big", "Bag")}).returncode, 0)
+        result = self.check({"src/main/java/com/acme/Old.java": LARGE + "// more\n"})
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Old.java", result.stdout)
+
+    def test_small_files_generated_code_migrations_and_other_formats_pass(self):
+        result = self.check({"src/main/java/com/acme/A.java": "class A { int x; }\n",
+                             "target/generated-sources/Q.java": LARGE,
+                             "src/main/resources/db/migration/V2__data.sql": LARGE,
+                             "src/main/resources/db/migration/V3__seed.java": LARGE,
+                             "frontend/package-lock.json": LARGE})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_a_new_numbered_copy_fails_and_an_old_one_or_another_name_passes(self):
+        result = self.check({"src/main/java/com/acme/A2.java": "class A2 {}\n",
+                             "src/main/java/com/acme/A3.java": "class A3 { int x; }\n",
+                             "src/main/java/com/acme/Base64.java": "class Base64 {}\n",
+                             "src/main/java/com/acme/OrderHelper.java": "class OrderHelper {}\n",
+                             "app/order_utils.py": "x = 1\n"})
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("com/acme/A2.java is a new numbered copy", result.stdout)
+        self.assertIn("(OrderReports, OrderCancellation)", result.stdout)
+        for name in ("A3", "Base64", "OrderHelper", "order_utils"):
+            self.assertNotIn(name, result.stdout)
+        self.assertNotIn("The limit is", result.stdout)
+
+    def test_files_on_stdin_are_checked_against_the_given_commit(self):
+        self.write({"src/main/java/com/acme/New.java": LARGE})
+        listed = "src/main/java/com/acme/New.java\nsrc/main/java/com/acme/Old.java\nsrc/main/java/Gone.java\n"
+        result = subprocess.run([BASH, str(SIZE_CHECK), "HEAD", "-"], input=listed, cwd=self.root,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("New.java", result.stdout)
+        self.assertNotIn("Old.java", result.stdout)
+
+
 SOURCES = {"A": "src/main/java/one/A.java", "B": "src/main/java/two/B.java", "A2": "src/main/java/two/A.java"}
 
 
@@ -784,6 +858,30 @@ class StopHookInSubfolderTests(StopHookFixture, unittest.TestCase):
         self.edit("A")
         self.fail_with(self.error_in("A"))
         self.assertEqual(self.stop().blocked, True)
+
+    def test_blocks_on_a_file_it_grew_past_the_size_limit_before_running_the_gates(self):
+        (self.root / ".github/harness").mkdir(parents=True)
+        shutil.copy(SIZE_CHECK, self.root / ".github/harness")
+        self.start_session()
+        (self.project / SOURCES["A"]).write_text(LARGE, newline="\n")
+        result = self.stop()
+        self.assertEqual(result.blocked, True)
+        self.assertIn("The file-size check failed", result.reason)
+        self.assertIn(f"{SOURCES['A']} is 32 KB", result.reason)
+        self.assertEqual(self.checks_run(), 0)
+        self.assertEqual(self.events()[-1]["gates"], "file-size")
+
+    def test_a_file_the_session_committed_is_still_new_to_the_size_check(self):
+        (self.root / ".github/harness").mkdir(parents=True)
+        shutil.copy(SIZE_CHECK, self.root / ".github/harness")
+        self.start_session()
+        (self.project / "src/main/java/one/A2.java").write_text("package one;\n\nclass A2 {}\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "helper")
+        result = self.stop()
+        self.assertEqual(result.blocked, True)
+        self.assertIn("src/main/java/one/A2.java is a new numbered copy", result.reason)
+        self.assertEqual(self.checks_run(), 0)
 
     def test_without_a_project_variable_a_session_started_in_the_subfolder_is_checked(self):
         env = {key: value for key, value in os.environ.items() if key != "CLAUDE_PROJECT_DIR"}

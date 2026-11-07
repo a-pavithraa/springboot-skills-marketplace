@@ -27,3 +27,12 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HARNESS_RULE_CHANGE: ${{ contains(github.event.pull_request.labels.*.name, 'harness-rule-change') }}
+      - run: |
+          if git cat-file -e "$BASE:.github/harness/check-file-size.sh" 2> /dev/null; then
+            git show "$BASE:.github/harness/check-file-size.sh" > "$RUNNER_TEMP/check-file-size.sh"
+          else
+            cp .github/harness/check-file-size.sh "$RUNNER_TEMP/check-file-size.sh"
+          fi
+          bash "$RUNNER_TEMP/check-file-size.sh" "$BASE"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
