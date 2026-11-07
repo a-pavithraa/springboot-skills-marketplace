@@ -47,6 +47,7 @@ In Claude Code, a hook runs the gates that need no Docker whenever a turn ends w
   - Say each rule once, where it is enforced. A design decision longer than two sentences goes in the project's docs, with a one-line pointer in the code.
   - Never describe what the code does, what changed ("now", "instead of", "fixed"), or a ticket or plan. Write one or two sentences as one connected thought, and update or delete comments your change makes untrue.
 - When you change what an endpoint returns or accepts, add or update a full-API test for it (the whole app with Testcontainers; `writing-springboot-tests`), one request for the case you built and one it must refuse.
+- Before you edit, run `git status`. Changes this task didn't make belong to another session: work in a new worktree from `origin/main`, and don't switch branches, stash or commit in that checkout.
 - On a feature branch, when a change is finished and not committed, ask the user whether to commit it. Commit each logical step on its own, in the order a reviewer should read them, with a message that says what the step does and why. Each commit must compile and pass the gates the Stop hook runs. Run the full `{{VERIFY}}` before you open the pull request. Never commit on `main` or `master`, and don't push unless asked.
 - Before you open a pull request, review the branch's changes with the `code-reviewer` skill and write the description with the `pr` skill, if they are installed. In the review, search the repository's own code for code like what the branch adds, so a copy of existing logic shows up. Fix what the review finds, then review only the new changes; after two rounds, ask the user instead of starting a third. The description says how the change was tested, what could break, and how to revert it.
 
@@ -63,7 +64,7 @@ When a request matches one of these, read the code it touches, then load its ski
 
 ## Modules
 
-Each direct subpackage of `{{BASE_PACKAGE}}` is a module. Its top-level package is its API; nested packages are internal. A module that declares `@ApplicationModule(allowedDependencies = ...)` in its `package-info.java` may depend only on those modules; add one there only when the user agrees the dependency belongs.
+Each direct subpackage of `{{BASE_PACKAGE}}` is a module. Its top-level package is its API; nested packages are internal. A module that declares `@ApplicationModule(allowedDependencies = ...)` in its `package-info.java` may depend only on those modules; add one there only when the user agrees the dependency belongs. When code in one module needs another, step 3 of the `add-module` skill says whether to call it or publish an event.
 
 Modules are named in the domain language of the project's glossary (`GLOSSARY.md` or `CONTEXT.md`): each owns a section of it, and is named after that business capability, not a vendor or a layer. A term the glossary lacks is agreed with the user and added there before code uses it.
 
