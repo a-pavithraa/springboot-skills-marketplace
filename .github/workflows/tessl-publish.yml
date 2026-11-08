@@ -1,0 +1,25 @@
+name: Publish to Tessl
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - plugins/springboot-architecture/**
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: plugins/springboot-architecture
+    steps:
+      - uses: actions/checkout@v6
+      - uses: tesslio/setup-tessl@v2
+        with:
+          token: ${{ secrets.TESSL_TOKEN }}
+          version: "0.119.0"
+      - run: tessl plugin lint
+      - run: tessl plugin publish --bump patch

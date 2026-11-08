@@ -1,6 +1,6 @@
 ---
 name: db-migration
-description: Writes a Flyway database migration for this project following the team's rules for naming, editing and renaming, so migrations from different developers don't collide and deployed databases stay valid. Use whenever a change needs a new table, column, index or data fix, or the user mentions a schema change or migration.
+description: Writes a Flyway database migration for this project following the team's rules for naming, editing and renaming, so migrations from different developers don't collide and deployed databases stay valid. Use whenever a change needs a new table, column, field or index, an altered or renamed column, or a data fix, or the user mentions a schema change, ALTER TABLE or migration.
 ---
 
 # Write a database migration
@@ -12,4 +12,4 @@ Migrations live in `src/main/resources/db/migration`.
 3. Make destructive changes in two releases. To rename or drop a column, first add the new column and write to both, and drop the old one in a later migration once no running version reads it.
 4. Keep each migration to one purpose. Put data fixes in their own file, and make them safe to run on a database where the fix is already done.
 5. Don't let Hibernate create the schema: `spring.jpa.hibernate.ddl-auto` stays `validate` or `none`.
-6. Run `{{VERIFY}}`. If the project has Testcontainers integration tests, they apply every migration to a real database; if it has none, say that the migration is untested.
+6. Run `{{VERIFY}}`. If the project has Testcontainers integration tests, they apply every migration to a real database; if it has none, say that the migration is untested. If it fails, fix the new migration, never one already on the main branch, and run it again until it passes.
