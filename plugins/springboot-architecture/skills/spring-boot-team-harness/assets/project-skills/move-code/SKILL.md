@@ -1,6 +1,6 @@
 ---
 name: move-code
-description: Moves a Java class or package to another package in this project with OpenRewrite, so every import, fully qualified reference, Javadoc link, properties value and META-INF/services entry follows, the same way each time. Use when the user asks to move, relocate or repackage a class or package, to restructure code into modules, or when a fix would mean moving a type across modules.
+description: Moves a Java class or package to another package in this project with OpenRewrite, so every import, fully qualified reference, Javadoc link, properties value and META-INF/services entry follows, the same way each time. Use when the user asks to move, relocate or repackage a class or package, or to rename a package, to restructure code into modules, or when a fix would mean moving a type across modules.
 ---
 
 # Move a class or package

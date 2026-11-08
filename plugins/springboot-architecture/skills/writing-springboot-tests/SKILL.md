@@ -1,6 +1,6 @@
 ---
 name: writing-springboot-tests
-description: "Use when writing or adding tests for Spring Boot code at a service's edges: HTTP clients that call other services (WireMock: 4xx and 5xx responses, timeouts, retries), Kafka or RabbitMQ listeners (redelivery, poison messages, dead-letter topics), events published to other services, or full-API tests against real databases with Testcontainers; domain logic whose rules must hold for every input (calculations, value objects, state transitions, parsing and formatting), tested as properties over generated inputs; also when a Boot 4 test needs the right imports, slices or container wiring. Supplies verified Boot 4.1 templates and the framework traps that make such tests pass without proving anything. Not for reviewing existing tests (see code-reviewer) or Boot 3 to 4 test migration (see springboot-migration)."
+description: "Use when writing or adding tests or integration tests for Spring Boot code at a service's edges: HTTP clients that call other services (WireMock: 4xx and 5xx responses, timeouts, retries), Kafka or RabbitMQ listeners (redelivery, poison messages, dead-letter topics), events published to other services, or full-API tests against real databases with Testcontainers; domain logic whose rules must hold for every input (calculations, value objects, state transitions, parsing and formatting), tested as properties over generated inputs; also when a Boot 4 test needs the right imports, slices or container wiring. Supplies verified Boot 4.1 templates and the framework traps that make such tests pass without proving anything. Not for reviewing existing tests (see code-reviewer) or Boot 3 to 4 test migration (see springboot-migration)."
 ---
 
 # Writing Spring Boot Tests
@@ -22,7 +22,7 @@ Imports, starters and PIT: `../code-reviewer/references/testing/boot4-test-toolk
 
 ## Templates
 
-Verified on Spring Boot 4.1.1 with Postgres 18, Kafka 4.1 and WireMock 3.13. Take the mechanics (annotations, wiring, stubbing, polling) from them; take the cases from rule 1, not from the template.
+Take the mechanics (annotations, wiring, stubbing, polling) from them; take the cases from rule 1, not from the template.
 
 | Edge | Template |
 |------|----------|
