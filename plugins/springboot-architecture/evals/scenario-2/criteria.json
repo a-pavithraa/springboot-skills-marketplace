@@ -1,0 +1,56 @@
+{
+  "context": "Tests whether the agent sets up the Spring Boot team harness on an existing layered Maven project the way the skill prescribes: running apply_harness.py (previewed with --dry-run) instead of hand-writing files, passing --no-modules because the subpackages are layers, getting the hooks, gate tests, compiler gates and CI in place, drafting AGENTS.md with inferred conventions marked, and planning to record existing violations with baseline.py rather than suppressing them.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "Previewed before applying",
+      "description": "setup-report.md shows that apply_harness.py was run with --dry-run before it was run for real",
+      "max_score": 8
+    },
+    {
+      "name": "Layers are not treated as modules",
+      "description": "billing/ has no ModuleBoundariesTests test and no add-module skill, and setup-report.md says --no-modules was passed because controller, service, repository and domain are layers",
+      "max_score": 12
+    },
+    {
+      "name": "Hooks registered for both agents",
+      "description": "billing/.claude/settings.json registers a Stop (or SessionStart and Stop) hook and a PreToolUse hook, and billing/.codex/hooks.json registers hooks for Codex",
+      "max_score": 12
+    },
+    {
+      "name": "Gate tests added",
+      "description": "billing/src/test/java/com/example/billing/ contains CodeRulesTests, ConfigurationKeysTests and BuildSetupTests",
+      "max_score": 12
+    },
+    {
+      "name": "Compiler and format gates in the pom",
+      "description": "billing/pom.xml configures NullAway (through Error Prone) and Spotless",
+      "max_score": 10
+    },
+    {
+      "name": "CI runs verify",
+      "description": "billing/.github/workflows/ has a workflow that runs ./mvnw verify on pull requests",
+      "max_score": 8
+    },
+    {
+      "name": "AGENTS.md drafted with inferred conventions marked",
+      "description": "billing/AGENTS.md has Modules (or equivalent), Run and test, and Team conventions sections filled in from the code, and at least one convention is marked (inferred) for the team to confirm",
+      "max_score": 12
+    },
+    {
+      "name": "Existing violations recorded, not suppressed",
+      "description": "setup-report.md says that code already failing the gates is handled by running baseline.py (marking classes @NullUnmarked and recording violations), not by suppressing warnings, disabling gates or skipping tests; and no file in billing/ adds @SuppressWarnings, @Disabled or skipTests",
+      "max_score": 12
+    },
+    {
+      "name": "Wrapper and formatting next steps",
+      "description": "setup-report.md says the Maven wrapper must be added (./mvnw is missing) and that spotless:apply should be run and committed on its own",
+      "max_score": 8
+    },
+    {
+      "name": "Build not claimed",
+      "description": "setup-report.md does not claim ./mvnw verify passed; it says the build was not run",
+      "max_score": 6
+    }
+  ]
+}

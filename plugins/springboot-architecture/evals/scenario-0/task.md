@@ -2,22 +2,16 @@
 
 ## Problem/Feature Description
 
-The engineering team at Plenish Commerce has decided to extract their product catalogue into a dedicated microservice. The catalogue currently lives inside a monolithic codebase alongside checkout, inventory, and accounts — it handles basic CRUD operations for products and categories, with straightforward filtering and listing needs. The team is small (5 developers), and the new service is expected to be in active use for at least the next year or two before any significant architectural changes.
+The engineering team at Plenish Commerce is extracting their product catalogue into its own service. Today it lives inside a monolith alongside checkout, inventory and accounts, and does basic create, read, update and delete work for products and categories, with simple filtering and listing. The team is five developers, and they expect the service to run as it is for the next year or two.
 
-There's no existing project skeleton to start from. The team lead wants a solid foundation that follows the team's established Spring Boot 4 conventions: proper project structure, baseline dependencies, a scaffold recommendation document that can be reviewed by the rest of the team, and the core template files applied and filled in with the right package and domain names. The service should use a PostgreSQL database and Maven as the build tool.
+There is no project yet. The team lead wants a new Spring Boot service set up the way the team sets up new services, using PostgreSQL and Maven, and a short written recommendation the rest of the team can review before more code is written.
 
 ## Output Specification
 
-Produce the following in your working directory:
+Produce in your working directory:
 
-1. **`scaffold-recommendation.md`** — A project scaffold recommendation in the team's standard format, covering the recommended architecture pattern and reasoning, the project generator setup (generator choice, build tool, Java version, Spring Boot version, and core dependencies), which skill asset templates you would apply, and the next implementation steps.
+1. **`scaffold-recommendation.md`**: the recommended structure and why, how the project was generated and with which versions and dependencies, what was applied from the team's templates, and the next steps.
 
-2. **`product-catalogue/`** — A minimal project directory containing applied template files with all values filled in. At minimum, include:
-   - A `pom.xml` with the correct Spring Boot version, Java version, and baseline dependencies
-   - A sample controller file for the product domain (e.g., `ProductController.java`)
-   - A sample repository file (e.g., `ProductRepository.java`)
-   - A Flyway migration SQL file for a products table
+2. **`product-catalogue/`**: the project, with at least a `pom.xml`, a controller and a repository for products, and a database migration that creates the products table.
 
-3. **`check-report.md`** — A written report describing what `check_new_project.py` would validate and whether the generated project would pass each check, based on the files you've produced.
-
-All template files must be production-ready — no stub or unfinished values should remain in the output files.
+Leave no placeholder or unfinished value in the project files.
