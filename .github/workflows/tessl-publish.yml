@@ -22,4 +22,7 @@ jobs:
           token: ${{ secrets.TESSL_TOKEN }}
           version: "0.119.0"
       - run: tessl plugin lint
-      - run: tessl plugin publish --bump patch
+      - name: Publish as the marketplace's major.minor and this run's number
+        run: |
+          base=$(jq -r '.plugins[] | select(.name == "springboot-architecture") | .version' ../../.claude-plugin/marketplace.json | cut -d. -f1,2)
+          tessl plugin publish --version "$base.${{ github.run_number }}"
