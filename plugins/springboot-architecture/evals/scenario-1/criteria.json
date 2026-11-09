@@ -1,0 +1,76 @@
+{
+  "context": "Tests whether the agent writes Spring Boot 4 property-based tests using @ParameterizedTest + @MethodSource with a seeded SplittableRandom (not jqwik), includes boundary values and as(...) on assertions, and writes secured-route tests that sign in through the app's own JwtAuthenticationConverter role-mapping code using a Personas helper rather than raw jwt().authorities(). Also checks that a report is produced listing behavior covered, how tests were shown to fail, and contract clauses left untested.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "@ParameterizedTest usage",
+      "description": "OrderServicePropertyTest.java uses @ParameterizedTest on the discount test methods (not plain @Test)",
+      "max_score": 8
+    },
+    {
+      "name": "@MethodSource usage",
+      "description": "OrderServicePropertyTest.java uses @MethodSource to supply test arguments (not @ValueSource or @CsvSource alone)",
+      "max_score": 8
+    },
+    {
+      "name": "SplittableRandom usage",
+      "description": "The @MethodSource generator in OrderServicePropertyTest.java uses SplittableRandom with a fixed seed to generate inputs",
+      "max_score": 8
+    },
+    {
+      "name": "No jqwik import",
+      "description": "Neither test file imports any class from the net.jqwik package",
+      "max_score": 8
+    },
+    {
+      "name": "Boundary values in generator",
+      "description": "The generator in OrderServicePropertyTest.java explicitly includes boundary values (e.g. quantity 0 or 1, 9/10, 49/50, 99/100, or Integer.MAX_VALUE) rather than purely random values",
+      "max_score": 8
+    },
+    {
+      "name": "as(...) on assertions",
+      "description": "Assertions in OrderServicePropertyTest.java use .as(...) with the input values included in the message (e.g. assertThat(...).as(\"quantity=%d\", quantity)...)",
+      "max_score": 8
+    },
+    {
+      "name": "Personas helper present",
+      "description": "A Personas or similar helper class is present (Personas.java or inline in OrderRouteAccessTest.java) that wraps the app's JwtAuthenticationConverter or issues JWT tokens whose claims flow through the app's role-mapping code",
+      "max_score": 8
+    },
+    {
+      "name": "Personas used in route test",
+      "description": "OrderRouteAccessTest.java uses the Personas helper (e.g. personas.as(\"admin\") or Personas.admin()) rather than raw .with(jwt().authorities(...)) to sign into secured route tests",
+      "max_score": 8
+    },
+    {
+      "name": "Route access coverage",
+      "description": "OrderRouteAccessTest.java tests both GET /orders and POST /orders with at least: an authenticated user role, an authenticated admin role, and an unauthenticated request",
+      "max_score": 8
+    },
+    {
+      "name": "Contract-driven test cases",
+      "description": "The property tests cover each discount tier the Javadoc states (20% for quantity >= 100, 15% for >= 50, 10% for >= 10, 0% for quantity == 1) rather than only a single happy-path value",
+      "max_score": 8
+    },
+    {
+      "name": "Illegal argument tested",
+      "description": "At least one test asserts that calculateDiscount throws IllegalArgumentException for quantity <= 0, as specified in the Javadoc",
+      "max_score": 4
+    },
+    {
+      "name": "Report: tests listed",
+      "description": "test-report.md lists the tests added with their behavior and testing level (unit / property / integration)",
+      "max_score": 4
+    },
+    {
+      "name": "Report: how each test fails",
+      "description": "test-report.md names, for each test, the line of OrderService or SecurityConfig to break to make it fail, and says whether that failure was observed by running the test or not run; it does not claim test output it did not see",
+      "max_score": 6
+    },
+    {
+      "name": "Report: contract gap",
+      "description": "test-report.md points out that the Javadoc states no discount for quantities 2 to 9 (only quantity == 1 is 0%), or lists another clause left untested such as the unitPrice rule or the cap at price * quantity",
+      "max_score": 6
+    }
+  ]
+}

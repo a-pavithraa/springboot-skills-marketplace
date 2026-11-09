@@ -1,0 +1,66 @@
+{
+  "context": "Tests whether the agent correctly scaffolds a new Spring Boot 4 project by assessing constraints before choosing an architecture, using Java 25 and Spring Boot 4.1.x, applying the correct architecture for the given team/domain profile, resolving all template placeholders, using --no-modules when appropriate, documenting what check_new_project.py would verify, and producing the scaffold recommendation in the required format.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "Java 25 specified",
+      "description": "scaffold-recommendation.md specifies Java 25 as the Java version (not Java 17 or 21)",
+      "max_score": 10
+    },
+    {
+      "name": "Spring Boot 4.1.x version",
+      "description": "scaffold-recommendation.md or pom.xml specifies Spring Boot 4.1.x (not 3.x)",
+      "max_score": 8
+    },
+    {
+      "name": "Architecture fits constraints",
+      "description": "scaffold-recommendation.md selects 'layered' or 'package-by-module' architecture (not modular-monolith, tomato, or ddd-hexagonal) for a small team doing CRUD with 1-2 year lifespan",
+      "max_score": 10
+    },
+    {
+      "name": "Architecture reasoning present",
+      "description": "scaffold-recommendation.md includes a 'Why:' explanation for the architecture choice that references at least one of: domain complexity, team size, or expected lifespan",
+      "max_score": 7
+    },
+    {
+      "name": "Scaffold recommendation format",
+      "description": "scaffold-recommendation.md contains all four required sections: 'Recommended architecture', 'Initial setup', 'Assets to apply', and 'Next implementation steps'",
+      "max_score": 8
+    },
+    {
+      "name": "Generator chosen by availability",
+      "description": "scaffold-recommendation.md names progen if it is installed (checked with `command -v progen`), otherwise Spring Initializr, and says which it found",
+      "max_score": 5
+    },
+    {
+      "name": "Baseline dependencies included",
+      "description": "scaffold-recommendation.md or pom.xml includes at least four of: Spring Web MVC, Validation, Spring Data JPA, Flyway or Liquibase, database driver, Spring Boot Actuator, Testcontainers",
+      "max_score": 8
+    },
+    {
+      "name": "No unresolved placeholders",
+      "description": "No file in the product-catalogue/ directory contains any unresolved {{TOKEN}} placeholder strings (e.g. {{PACKAGE}}, {{MODULE}}, {{NAME}}, {{TABLE_NAME}})",
+      "max_score": 12
+    },
+    {
+      "name": "Flyway migration file present",
+      "description": "A Flyway SQL migration file exists under product-catalogue/ and contains a CREATE TABLE statement for products (or equivalent) with no unresolved placeholders",
+      "max_score": 7
+    },
+    {
+      "name": "Controller file produced",
+      "description": "A ProductController.java (or equivalent) file exists under product-catalogue/ with package declaration and no unresolved {{TOKEN}} strings",
+      "max_score": 7
+    },
+    {
+      "name": "--no-modules matches the architecture",
+      "description": "If the recommendation is 'layered', a produced file says to pass --no-modules to apply_harness.py; if it is 'package-by-module', no file tells the reader to pass --no-modules",
+      "max_score": 8
+    },
+    {
+      "name": "check_new_project.py checks covered",
+      "description": "check-report.md mentions at least three of these check categories: unresolved {{PLACEHOLDER}} tokens, Spring Boot version before 4.x, missing ArchUnit test or dependency, Boot 3 starter names, Testcontainers 1.x class names",
+      "max_score": 10
+    }
+  ]
+}
