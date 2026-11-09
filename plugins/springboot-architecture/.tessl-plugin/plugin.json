@@ -1,7 +1,6 @@
 {
   "name": "apavithraa/springboot-architecture",
   "description": "Skills for creating, testing, reviewing, migrating and guarding Spring Boot 4 projects with Java 25: project scaffolding with architecture patterns, Boot 4 test templates, code review, Boot 3 to 4 migration, and a team harness of build gates and agent hooks.",
-  "version": "2.3.0",
   "skills": [
     "skills/code-reviewer",
     "skills/creating-springboot-projects",
