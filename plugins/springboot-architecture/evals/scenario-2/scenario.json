@@ -1,0 +1,1 @@
+{ "description": "Setting up shared agent rules and build gates on an existing layered Spring Boot 4 repository", "include": ["./inputs"] }

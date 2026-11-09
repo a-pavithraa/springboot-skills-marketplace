@@ -1,65 +1,55 @@
 {
-  "context": "Tests whether the agent correctly scaffolds a new Spring Boot 4 project by assessing constraints before choosing an architecture, using Java 25 and Spring Boot 4.1.x, applying the correct architecture for the given team/domain profile, resolving all template placeholders, using --no-modules when appropriate, documenting what check_new_project.py would verify, and producing the scaffold recommendation in the required format.",
+  "context": "Tests whether the agent sets up a new Spring Boot 4 service the way the creating-springboot-projects skill prescribes, with details the task does not give: Java 25 and Boot 4.1.x, Boot 4 starter and Testcontainers 2 artifact names, an architecture chosen from the team's constraints, the skill's recommendation format, a generator chosen by checking for progen, the team harness with --no-modules for a layered project, and the project checked with check_new_project.py.",
   "type": "weighted_checklist",
   "checklist": [
     {
-      "name": "Java 25 specified",
-      "description": "scaffold-recommendation.md specifies Java 25 as the Java version (not Java 17 or 21)",
+      "name": "Java 25",
+      "description": "product-catalogue/pom.xml sets java.version to 25",
       "max_score": 10
     },
     {
-      "name": "Spring Boot 4.1.x version",
-      "description": "scaffold-recommendation.md or pom.xml specifies Spring Boot 4.1.x (not 3.x)",
-      "max_score": 8
-    },
-    {
-      "name": "Architecture fits constraints",
-      "description": "scaffold-recommendation.md selects 'layered' or 'package-by-module' architecture (not modular-monolith, tomato, or ddd-hexagonal) for a small team doing CRUD with 1-2 year lifespan",
+      "name": "Spring Boot 4.1.x",
+      "description": "product-catalogue/pom.xml uses spring-boot-starter-parent 4.1.x",
       "max_score": 10
     },
     {
-      "name": "Architecture reasoning present",
-      "description": "scaffold-recommendation.md includes a 'Why:' explanation for the architecture choice that references at least one of: domain complexity, team size, or expected lifespan",
-      "max_score": 7
-    },
-    {
-      "name": "Scaffold recommendation format",
-      "description": "scaffold-recommendation.md contains all four required sections: 'Recommended architecture', 'Initial setup', 'Assets to apply', and 'Next implementation steps'",
-      "max_score": 8
-    },
-    {
-      "name": "Generator chosen by availability",
-      "description": "scaffold-recommendation.md names progen if it is installed (checked with `command -v progen`), otherwise Spring Initializr, and says which it found",
-      "max_score": 5
-    },
-    {
-      "name": "Baseline dependencies included",
-      "description": "scaffold-recommendation.md or pom.xml includes at least four of: Spring Web MVC, Validation, Spring Data JPA, Flyway or Liquibase, database driver, Spring Boot Actuator, Testcontainers",
-      "max_score": 8
-    },
-    {
-      "name": "No unresolved placeholders",
-      "description": "No file in the product-catalogue/ directory contains any unresolved {{TOKEN}} placeholder strings (e.g. {{PACKAGE}}, {{MODULE}}, {{NAME}}, {{TABLE_NAME}})",
+      "name": "Boot 4 starter names",
+      "description": "product-catalogue/pom.xml uses spring-boot-starter-webmvc (not spring-boot-starter-web) and spring-boot-starter-flyway (not flyway-core alone)",
       "max_score": 12
     },
     {
-      "name": "Flyway migration file present",
-      "description": "A Flyway SQL migration file exists under product-catalogue/ and contains a CREATE TABLE statement for products (or equivalent) with no unresolved placeholders",
-      "max_score": 7
+      "name": "Testcontainers 2 and no H2",
+      "description": "product-catalogue/pom.xml uses Testcontainers 2 artifact names such as testcontainers-postgresql or testcontainers-junit-jupiter (not org.testcontainers:postgresql or junit-jupiter), and has no H2 dependency",
+      "max_score": 10
     },
     {
-      "name": "Controller file produced",
-      "description": "A ProductController.java (or equivalent) file exists under product-catalogue/ with package declaration and no unresolved {{TOKEN}} strings",
-      "max_score": 7
+      "name": "Architecture fits constraints",
+      "description": "scaffold-recommendation.md recommends 'layered' or 'package-by-module' (not a modular monolith, tomato or DDD-hexagonal) and explains why with the domain's complexity, the team's size or the expected lifespan",
+      "max_score": 10
     },
     {
-      "name": "--no-modules matches the architecture",
-      "description": "If the recommendation is 'layered', a produced file says to pass --no-modules to apply_harness.py; if it is 'package-by-module', no file tells the reader to pass --no-modules",
+      "name": "Recommendation format",
+      "description": "scaffold-recommendation.md has the four sections 'Recommended architecture', 'Initial setup', 'Assets to apply' and 'Next implementation steps'",
+      "max_score": 10
+    },
+    {
+      "name": "Generator chosen by availability",
+      "description": "scaffold-recommendation.md says whether progen was found (for example with command -v progen) and uses progen if it was, otherwise Spring Initializr",
       "max_score": 8
     },
     {
-      "name": "check_new_project.py checks covered",
-      "description": "check-report.md mentions at least three of these check categories: unresolved {{PLACEHOLDER}} tokens, Spring Boot version before 4.x, missing ArchUnit test or dependency, Boot 3 starter names, Testcontainers 1.x class names",
+      "name": "Team harness with the right module flag",
+      "description": "scaffold-recommendation.md says to apply the team harness (apply_harness.py), passing --no-modules if the recommendation is 'layered' and not passing it if it is 'package-by-module'",
+      "max_score": 12
+    },
+    {
+      "name": "Project checked",
+      "description": "scaffold-recommendation.md reports running check_new_project.py on product-catalogue/ and what it printed, or says it could not be run and why",
+      "max_score": 8
+    },
+    {
+      "name": "Controller returns no entity",
+      "description": "The product controller returns records or DTOs, not the JPA entity",
       "max_score": 10
     }
   ]
