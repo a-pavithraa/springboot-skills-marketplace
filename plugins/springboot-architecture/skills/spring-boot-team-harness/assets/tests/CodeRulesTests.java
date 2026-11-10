@@ -14,6 +14,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
 import static com.tngtech.archunit.library.freeze.FreezingArchRule.freeze;
 
+import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -45,6 +46,8 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
@@ -59,13 +62,19 @@ class CodeRulesTests {
 
     private static final String BASE_PACKAGE = "{{BASE_PACKAGE}}";
 
+    private static final Pattern PACKAGE = Pattern.compile("^\\s*package\\s+([\\w.]+)\\s*;", Pattern.MULTILINE);
+
+    private static final DescribedPredicate<JavaClass> HANDWRITTEN = handwritten();
+
     private static final JavaClasses MAIN = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
-            .importPackages(BASE_PACKAGE);
+            .importPackages(BASE_PACKAGE)
+            .that(HANDWRITTEN);
 
     private static final JavaClasses TESTS = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.ONLY_INCLUDE_TESTS)
-            .importPackages(BASE_PACKAGE);
+            .importPackages(BASE_PACKAGE)
+            .that(HANDWRITTEN);
 
     private static final boolean RECORDING = Boolean.getBoolean("archunit.freeze.store.default.allowStoreCreation");
 
@@ -117,7 +126,16 @@ class CodeRulesTests {
     /** Methods of this project that make a remote call, directly or through other methods of this project. */
     private static final Set<JavaMethod> REMOTE_CALLERS = remoteCallers();
 
-    private static final List<String> TO_ONE = List.of("jakarta.persistence.ManyToOne", "jakarta.persistence.OneToOne");
+    /**
+     * Spring Data repositories, @Repository classes, and this project's interfaces that one of them implements, so a
+     * hand-written repository interface with a JDBC or JPA implementation counts too.
+     */
+    private static final DescribedPredicate<JavaClass> REPOSITORIES = DescribedPredicate.describe(
+            "are repositories",
+            type -> repository(type) || (type.isInterface() && type.getPackageName().startsWith(BASE_PACKAGE)
+                    && type.getAllSubclasses().stream().anyMatch(CodeRulesTests::repository)));
+
+    private static final List<String> TO_ONE =List.of("jakarta.persistence.ManyToOne", "jakarta.persistence.OneToOne");
 
     /** Each of these maps an enum column its own way, so @Enumerated doesn't apply. */
     private static final List<String> CONVERTED = List.of(
@@ -178,8 +196,7 @@ class CodeRulesTests {
         frozenIfRecorded(noClasses()
                 .that(metaAnnotatedWith("org.springframework.stereotype.Controller"))
                 .should()
-                .dependOnClassesThat()
-                .areAssignableTo("org.springframework.data.repository.Repository")
+                .dependOnClassesThat(REPOSITORIES)
                 .because("business rules and transactions live in services. Call a service instead")
                 .allowEmptyShould(true))
                 .check(MAIN);
@@ -401,7 +418,7 @@ class CodeRulesTests {
                         + "ObjectMappers. Use tools.jackson.databind and tools.jackson.core; annotations stay in "
                         + "com.fasterxml.jackson.annotation")
                 .allowEmptyShould(true))
-                .check(new ClassFileImporter().importPackages(BASE_PACKAGE));
+                .check(new ClassFileImporter().importPackages(BASE_PACKAGE).that(HANDWRITTEN));
     }
 
     @Test
@@ -464,6 +481,47 @@ class CodeRulesTests {
                         .forEach(call -> events.add(SimpleConditionEvent.violated(call, call.getDescription())));
             }
         };
+    }
+
+    /**
+     * Leaves out classes compiled from target/generated-sources or build/generated, such as OpenAPI models and MapStruct
+     * mappers: the generator writes them, so its configuration is where they change. Their class files sit beside the
+     * team's and @Generated isn't kept in bytecode, so they're named from the generated source files.
+     */
+    private static DescribedPredicate<JavaClass> handwritten() {
+        Set<String> generated = Stream.of(Path.of("target/generated-sources"), Path.of("build/generated"))
+                .filter(Files::isDirectory)
+                .flatMap(CodeRulesTests::javaFiles)
+                .map(CodeRulesTests::className)
+                .collect(Collectors.toSet());
+        return DescribedPredicate.describe("are written by hand", type -> {
+            String name = type.getName();
+            return !generated.contains(name.contains("$") ? name.substring(0, name.indexOf('$')) : name);
+        });
+    }
+
+    private static Stream<Path> javaFiles(Path root) {
+        try (Stream<Path> files = Files.walk(root)) {
+            return files.filter(file -> file.toString().endsWith(".java")).toList().stream();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String className(Path source) {
+        String simpleName = source.getFileName().toString().replaceFirst("\\.java$", "");
+        try {
+            return PACKAGE.matcher(Files.readString(source)).results().findFirst()
+                    .map(found -> found.group(1) + "." + simpleName)
+                    .orElse(simpleName);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static boolean repository(JavaClass type) {
+        return type.isAssignableTo("org.springframework.data.repository.Repository")
+                || type.isMetaAnnotatedWith("org.springframework.stereotype.Repository");
     }
 
     private static ArchRule frozenIfRecorded(ArchRule rule) {

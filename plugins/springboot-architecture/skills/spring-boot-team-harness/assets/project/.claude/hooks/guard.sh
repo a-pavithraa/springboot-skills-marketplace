@@ -35,6 +35,10 @@ if printf '%s' "$input" | grep -q '"tool_name" *: *"Bash"'; then
     && block "git clean -f deletes untracked files for good. Ask the user." clean-force
   printf '%s' "$command" | grep -Eq 'allowStoreCreation=true|freeze\.refreeze=true|modulith\.store\.record=true|harness\.record=true' \
     && block "that setting records today's ArchUnit or Spring Modulith violations as accepted. Fix the violation instead; to record a baseline on purpose, ask the user to run the harness's baseline.py." archunit-record
+  # Skipping is fine for packaging a jar to run; a gate run that skips checks proves nothing.
+  printf '%s' "$command" | grep -Eq '(^|[[:space:]])(verify|install|build|check)([[:space:]]|$)' \
+    && printf '%s' "$command" | grep -Eq -- '-D(skipTests|maven\.test\.skip|jacoco\.skip|enforcer\.skip)(=true)?([^[:alnum:]._=-]|$)|(-x|--exclude-task)[[:space:]]+:?test([[:space:]]|$)' \
+    && block "that runs the gates with tests or checks skipped, so a pass proves nothing. Run it without the skip flag, and fix what fails." skip-checks
   # Writing commands that name a protected file. Not exhaustive: the Harness integrity CI check is the backstop.
   printf '%s' "$command" | grep -Eq "archunit_store|modulith_store|archunit\.properties|package-info\.java|($rule_tests)\.java" \
     && printf '%s' "$command" | grep -Eq '(^|[^0-9&])>|(^|[[:space:];&|])(sed|perl)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(-[a-zA-Z]*i|--in-place)|(^|[[:space:];&|])(tee|truncate|rm|mv|cp|python3?|node|ruby)([[:space:]]|$)' \

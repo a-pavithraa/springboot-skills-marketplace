@@ -8,7 +8,7 @@ SessionStart and Stop hook, for Claude Code and Codex. It records the code each 
 
 ## `.claude/hooks/guard.sh`
 
-PreToolUse hook, for Claude Code and Codex (which edits files with `apply_patch`; the hook reads each file the patch updates, deletes or moves to). Refuses `git push --force`, `git reset --hard`, `git clean -f`, edits to a Flyway migration that is already on the main branch, edits to the ArchUnit freeze record or `modulith_store`, any edit or shell write to a module's `package-info.java`, since telling a widening edit from a harmless one would take parsing Java (creating one for a new module passes), and edits to the rule tests (`CodeRulesTests`, `ConfigurationKeysTests`, `BuildSetupTests`, `ModuleBoundariesTests`, `LogLeakCheck`, and progen's `ArchUnitTests` and `ModularityTests`). A developer changes a rule by hand. It also refuses Bash commands that write to those files and the Maven flags that record violations as accepted (`allowStoreCreation=true`, `freeze.refreeze=true`, `modulith.store.record=true`). It is advisory, not a boundary: a command it doesn't recognise gets through, so `harness-integrity.yml` backs it up in CI.
+PreToolUse hook, for Claude Code and Codex (which edits files with `apply_patch`; the hook reads each file the patch updates, deletes or moves to). Refuses `git push --force`, `git reset --hard`, `git clean -f`, edits to a Flyway migration that is already on the main branch, edits to the ArchUnit freeze record or `modulith_store`, any edit or shell write to a module's `package-info.java`, since telling a widening edit from a harmless one would take parsing Java (creating one for a new module passes), and edits to the rule tests (`CodeRulesTests`, `ConfigurationKeysTests`, `BuildSetupTests`, `ModuleBoundariesTests`, `LogLeakCheck`, and progen's `ArchUnitTests` and `ModularityTests`). A developer changes a rule by hand. It also refuses Bash commands that write to those files and the Maven flags that record violations as accepted (`allowStoreCreation=true`, `freeze.refreeze=true`, `modulith.store.record=true`), and gate runs that skip checks: `verify` or `install` with `-DskipTests`, `-Dmaven.test.skip`, `-Djacoco.skip` or `-Denforcer.skip`, and Gradle `build` or `check` with `-x test`. Packaging without tests, as `./mvnw package -DskipTests`, passes. It is advisory, not a boundary: a command it doesn't recognise gets through, so `harness-integrity.yml` backs it up in CI.
 
 ## `scripts/report.py`
 
@@ -29,7 +29,7 @@ IntelliJ IDEA Ultimate's Spring Modulith plugin flags internal-type access and d
 ArchUnit rules for mistakes that compile and pass most tests:
 
 - a class calling its own `@Transactional`, `@Async`, `@Cacheable` or `@Retryable` method (the proxy is skipped)
-- controllers that start transactions, use repositories, or take or return JPA entities
+- controllers that start transactions, use repositories (Spring Data, `@Repository` classes, or an interface one of them implements), or take or return JPA entities
 - `@Retryable` or `@ConcurrencyLimit` with nothing switching them on
 - `@ManyToMany` fields that aren't a `Set` (with a `List`, removing one element rewrites every join row)
 - `@ManyToOne` and `@OneToOne` without `fetch = LAZY`
@@ -43,7 +43,7 @@ ArchUnit rules for mistakes that compile and pass most tests:
 - `@Autowired` fields, `System.out`, Jackson 2 (Boot 4 ignores it), Spring's deprecated nullness annotations
 - JUnit 4 tests (never run) and `@Disabled` tests
 
-Each failure message says how to fix it. It uses the project's ArchUnit or Taikai, and adds ArchUnit only when neither is declared.
+Each failure message says how to fix it. It uses the project's ArchUnit or Taikai, and adds ArchUnit only when neither is declared. It and `UnusedCodeTests` leave out classes generated into `target/generated-sources` or `build/generated`, such as OpenAPI models and MapStruct mappers.
 
 ## `.github/workflows/harness-integrity.yml`, `.github/harness/check-protected.sh`
 

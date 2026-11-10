@@ -56,6 +56,25 @@ STANDARD = pom("""
 """)
 
 
+MAPSTRUCT_COMPILER = """      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.mapstruct</groupId>
+              <artifactId>mapstruct-processor</artifactId>
+              <version>1.6.3</version>
+            </path>
+          </annotationProcessorPaths>
+          <compilerArgs>
+            <arg>-Amapstruct.defaultComponentModel=spring</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+"""
+
+
 def add_after(text: str, anchor: str, addition: str) -> str:
     """Insert addition after the first anchor; fail loudly if the anchor is missing."""
     assert anchor in text, anchor
@@ -134,11 +153,33 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual([p.text for p in project.findall("m:build/m:plugins/m:plugin/m:artifactId", NS)],
                          ["maven-compiler-plugin", "spotless-maven-plugin"])
 
-    def test_stops_when_the_pom_already_configures_the_compiler_plugin(self):
-        root = self.project(STANDARD.replace(
-            "<artifactId>spring-boot-maven-plugin</artifactId>",
-            "<artifactId>spring-boot-maven-plugin</artifactId>\n      </plugin>\n      <plugin>\n"
-            "        <artifactId>maven-compiler-plugin</artifactId>"))
+    def test_the_projects_compiler_plugin_moves_to_plugin_management_and_keeps_its_processors(self):
+        root = self.project(add_after(STANDARD, "<artifactId>spring-boot-maven-plugin</artifactId>\n    </plugin>\n",
+                                      MAPSTRUCT_COMPILER))
+        result = self.run_script(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("moved your maven-compiler-plugin to <pluginManagement>", result.stdout)
+        build = ET.fromstring((root / "pom.xml").read_text(encoding="utf-8")).find("m:build", NS)
+        managed = build.findall("m:pluginManagement/m:plugins/m:plugin", NS)
+        self.assertEqual([p.find("m:artifactId", NS).text for p in managed], ["maven-compiler-plugin"])
+        self.assertEqual(managed[0].find("m:configuration/m:annotationProcessorPaths/m:path/m:artifactId", NS).text,
+                         "mapstruct-processor")
+        compilers = [p for p in build.findall("m:plugins/m:plugin", NS)
+                     if p.find("m:artifactId", NS).text == "maven-compiler-plugin"]
+        self.assertEqual(len(compilers), 1)
+        self.assertEqual(compilers[0].find("m:configuration/m:compilerArgs", NS).get("combine.children"), "append")
+        self.assertEqual(compilers[0].find("m:configuration/m:annotationProcessorPaths", NS).get("combine.children"),
+                         "append")
+
+        result = self.run_script(root)
+        self.assertIn("kept     pom.xml (harness already present)", result.stdout)
+
+    def test_stops_when_the_compiler_plugin_is_both_configured_and_managed(self):
+        pom_text = add_after(STANDARD, "<artifactId>spring-boot-maven-plugin</artifactId>\n    </plugin>\n",
+                             MAPSTRUCT_COMPILER)
+        pom_text = add_after(pom_text, "<build>\n", "<pluginManagement>\n<plugins>\n" + MAPSTRUCT_COMPILER
+                             + "</plugins>\n</pluginManagement>\n")
+        root = self.project(pom_text)
         result = self.run_script(root)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("maven-compiler-plugin", result.stderr)
@@ -193,7 +234,7 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertEqual(pom_text.count("<artifactId>spring-modulith-starter-test</artifactId>"), 1)
         self.assertEqual(pom_text.count("<spotless.version>"), 1)
         self.assertIn("<artifactId>maven-compiler-plugin</artifactId>", pom_text)
-        self.assertFalse((root / "src/test/java/com/acme/orders/ModuleBoundariesTests.java").exists())
+        self.assertTrue((root / "src/test/java/com/acme/orders/ModuleBoundariesTests.java").exists())
 
     def test_a_project_on_spring_java_format_keeps_it_instead_of_getting_spotless(self):
         pom = add_after(STANDARD, "</plugin>\n", """      <plugin>
@@ -745,32 +786,34 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertIn("updated  src/test/java/com/acme/orders/CodeRulesTests.java", result.stdout)
         self.assertEqual(rules.read_text(encoding="utf-8"), current)
 
-    def test_agents_md_names_the_projects_own_boundary_test(self):
+    def test_a_projects_own_boundary_test_gets_the_harness_one_beside_it(self):
         root = self.project(STANDARD, {"src/test/java/com/acme/orders/ModularityTests.java":
                                        "class ModularityTests { Object m = ApplicationModules.of(Object.class); }\n"})
         result = self.run_script(root)
-        self.assertIn("already verifies module boundaries", result.stdout)
+        self.assertIn("added    src/test/java/com/acme/orders/ModuleBoundariesTests.java", result.stdout)
+        note = next(line for line in result.stdout.splitlines() if "ModularityTests.java" in line)
+        self.assertIn("unused allowedDependencies", note)
+        self.assertIn("verify()", note)
         agents = (root / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("| `ModularityTests` |", agents)
-        self.assertNotIn("ModuleBoundariesTests", agents)
+        self.assertIn("| `ModuleBoundariesTests` |", agents)
+        self.assertNotIn("| `ModularityTests` |", agents)
 
-    def test_a_rerun_corrects_an_older_row_that_named_the_wrong_boundary_test(self):
+    def test_a_rerun_corrects_an_older_row_that_named_the_projects_boundary_test(self):
         root = self.project(STANDARD, {"src/test/java/com/acme/orders/ModularityTests.java":
                                        "class ModularityTests { Object m = ApplicationModules.of(Object.class); }\n"})
         self.run_script(root)
         agents = root / "AGENTS.md"
-        agents.write_text(agents.read_text(encoding="utf-8").replace("| `ModularityTests` |", "| `ModuleBoundariesTests` |"),
+        agents.write_text(agents.read_text(encoding="utf-8").replace("| `ModuleBoundariesTests` |", "| `ModularityTests` |"),
                           encoding="utf-8")
 
         result = self.run_script(root)
         self.assertIn("patched  AGENTS.md", result.stdout)
-        self.assertIn("| `ModularityTests` |", agents.read_text(encoding="utf-8"))
+        self.assertIn("| `ModuleBoundariesTests` |", agents.read_text(encoding="utf-8"))
 
     def test_a_rerun_keeps_updating_the_harness_boundary_test(self):
         root = self.project(STANDARD)
         self.run_script(root)
         result = self.run_script(root)
-        self.assertNotIn("already verifies module boundaries", result.stdout)
         self.assertIn("kept     src/test/java/com/acme/orders/ModuleBoundariesTests.java (up to date)", result.stdout)
 
     def test_switching_to_no_modules_removes_the_module_files_nobody_edited(self):

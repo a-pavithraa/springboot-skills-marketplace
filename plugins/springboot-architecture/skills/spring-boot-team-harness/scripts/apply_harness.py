@@ -80,6 +80,7 @@ SAFE_EXPORT_LEVELS = {"INFO", "WARN", "ERROR", "OFF"}
 OTEL_THRESHOLD = re.compile(r"<filter\b[^>]*ThresholdFilter[^>]*>.*?<level>\s*(.*?)\s*</level>", re.S)
 AUTODETECTION = re.compile(r"^\s*junit\.jupiter\.extensions\.autodetection\.enabled\s*[=:]\s*(\S*)", re.M)
 EXPOSED_RISKS = {"*", "env", "configprops", "beans", "heapdump", "threaddump", "logfile", "loggers", "shutdown"}
+COMPILER_PLUGIN = re.compile(r"<artifactId>\s*maven-compiler-plugin\s*</artifactId>")
 HARNESS_PLUGINS = re.compile(r"<!-- harness:begin plugins -->.*?<!-- harness:end plugins -->", re.S)
 NULLAWAY_OPTION = re.compile(r"-XepOpt:NullAway:(?:AnnotatedPackages=\S+?|OnlyNullMarked=true)(?=\s|<)")
 NULL_MARKED = re.compile(r"^\s*@(?:org\.jspecify\.annotations\.)?NullMarked\b", re.M)
@@ -290,13 +291,57 @@ def gradle_value(text: str, patterns: tuple[str, ...], default: str) -> str:
     return default
 
 
+def declared_part(pom: str) -> str:
+    """What the build actually uses: managed versions and inactive profiles add nothing to the classpath."""
+    return re.sub(r"<!--.*?-->|<dependencyManagement>.*?</dependencyManagement>|"
+                  r"<pluginManagement>.*?</pluginManagement>|<profiles>.*?</profiles>", "", pom, flags=re.S)
+
+
+def configures_compiler(pom: str) -> bool:
+    return MARKER not in pom and bool(COMPILER_PLUGIN.search(declared_part(pom)))
+
+
+def compiler_plugin_managed(pom: str) -> str:
+    """Move the project's maven-compiler-plugin from <build><plugins> to <pluginManagement>. The harness's plugin
+    block appends its compiler arguments and processor paths to it there (combine.children="append"), so MapStruct
+    or Lombok settings stay as they are."""
+    found = plugin_span(pom, ("project", "build", "plugins", "plugin"))
+    if found is None or plugin_span(pom, ("project", "build", "pluginManagement", "plugins", "plugin")):
+        sys.exit(f"ERROR: pom.xml configures maven-compiler-plugin where the script can't merge it. Merge its part "
+                 f"of {ASSETS / 'pom' / 'plugins.xml'} by hand.")
+    start, end = found
+    block = "".join("  " + line if line.strip() else line for line in pom[start:end].splitlines(keepends=True))
+    pom = pom[:start] + pom[end:]
+    patched = insert_before_close(pom, ("project", "build", "pluginManagement", "plugins"), block)
+    if patched is None:
+        patched = insert_before_close(pom, ("project", "build", "pluginManagement"), wrap(block, "plugins", indent="      "))
+    if patched is None:
+        patched = insert_before_close(pom, ("project", "build"), wrap(block, "pluginManagement", "plugins", indent="    "))
+    return patched
+
+
+def plugin_span(pom: str, path: tuple[str, ...]) -> tuple[int, int] | None:
+    """The whole lines of the maven-compiler-plugin element at this path, or None."""
+    stack: list[tuple[str, int]] = []
+    for match in TAG.finditer(pom):
+        closing, name, self_closing = match.group(1), match.group(2), match.group(3)
+        if name is None or self_closing or name.startswith("?"):
+            continue
+        if not closing:
+            stack.append((name, match.start()))
+        elif stack and stack[-1][0] == name:
+            opened = stack.pop()[1]
+            if (tuple(tag for tag, _ in stack) + (name,) == path
+                    and COMPILER_PLUGIN.search(pom[opened:match.end()])):
+                end = pom.find("\n", match.end())
+                return pom.rfind("\n", 0, opened) + 1, len(pom) if end < 0 else end + 1
+    return None
+
+
 def patch_pom(pom: str, base_package: str, modules: bool, nullaway: str = "all", observability: bool = True) -> str:
-    # What the build actually uses: managed versions and inactive profiles add nothing to the classpath.
-    declared = re.sub(r"<!--.*?-->|<dependencyManagement>.*?</dependencyManagement>|"
-                      r"<pluginManagement>.*?</pluginManagement>|<profiles>.*?</profiles>", "", pom, flags=re.S)
-    if MARKER not in pom and re.search(r"<artifactId>\s*maven-compiler-plugin\s*</artifactId>", declared):
-        sys.exit(f"ERROR: pom.xml already configures maven-compiler-plugin. Merge its part of "
-                 f"{ASSETS / 'pom' / 'plugins.xml'} by hand.")
+    if configures_compiler(pom):
+        pom = compiler_plugin_managed(pom)
+    declared = declared_part(pom)
     # A rerun with another --nullaway switches the scope in place, in the harness's own plugins block only;
     # missing_items would skip the compiler plugin.
     pom = HARNESS_PLUGINS.sub(lambda block: NULLAWAY_OPTION.sub(lambda _: nullaway_scope(nullaway), block.group(0),
@@ -766,6 +811,11 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         if raised:
             changes.lines.append(f"{'note':8} raised {', '.join(raised)}; run ./mvnw verify, since a newer checker "
                                  "can find new errors")
+        if configures_compiler(pom):
+            changes.lines.append(f"{'note':8} moved your maven-compiler-plugin to <pluginManagement>; the harness's "
+                                 "plugin block appends Error Prone and NullAway to its arguments and processor paths. "
+                                 "Test compiles run without compilerArgs, yours included: add any a test needs to the "
+                                 "default-testCompile execution")
         format_name, format_apply = formatter(patched)
     if nullaway == "marked":
         marked, total = null_marked_packages(project, base_package)
@@ -789,8 +839,6 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         boot_version = pom_value(pom, r"<parent>.*?<version>([^<]+)</version>", "4")
         java_version = pom_value(pom, r"<java.version>([^<]+)</java.version>", "25")
     values = {
-        "{{BOUNDARY_TEST}}": (existing_boundary_test.stem if modules and existing_boundary_test
-                              else "ModuleBoundariesTests"),
         "{{PROJECT_NAME}}": project_name,
         "{{BOOT_VERSION}}": boot_version,
         "{{JAVA_VERSION}}": java_version,
@@ -832,8 +880,9 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
         # The NullAway row of a rerun with another --nullaway still names the old scope.
         updated = render(current).replace(f"| NullAway, at compile | {other_mode} ",
                                           f"| NullAway, at compile | {nullaway_checked(nullaway, base_package)} ")
-        # A harness from before October 2026 named its own boundary test even when it kept the project's.
-        updated = updated.replace("| `ModuleBoundariesTests` |", f"| `{values['{{BOUNDARY_TEST}}']}` |")
+        # A harness from before November 2026 skipped its boundary test when the project had one, and named that one.
+        if modules and existing_boundary_test:
+            updated = updated.replace(f"| `{existing_boundary_test.stem}` |", "| `ModuleBoundariesTests` |")
         if updated != current:
             changes.write("AGENTS.md", updated, "patched")
         elif not modules and "ModuleBoundariesTests" in current:
@@ -922,10 +971,13 @@ def apply(project: Path, base_package: str | None, dry_run: bool, modules: bool 
 
     test_dir = Path("src/test/java", *base_package.split("."))
     tests = ["ConfigurationKeysTests.java", "CodeRulesTests.java", "BuildSetupTests.java", "UnusedCodeTests.java"]
-    if modules and existing_boundary_test:
-        changes.keep(existing_boundary_test.relative_to(project).as_posix(), "already verifies module boundaries")
-    elif modules:
+    if modules:
         tests.append("ModuleBoundariesTests.java")
+        if existing_boundary_test:
+            changes.lines.append(
+                f"{'note':8} {existing_boundary_test.relative_to(project).as_posix()} also verifies modules. "
+                "ModuleBoundariesTests adds the violation record and the unused allowedDependencies check; remove "
+                "the other test's verify() call, and keep it only for Documenter or module tests")
     else:
         changes.disown((test_dir / "ModuleBoundariesTests.java").as_posix(),
                        render((ASSETS / "tests" / "ModuleBoundariesTests.java").read_text(encoding="utf-8"), True),

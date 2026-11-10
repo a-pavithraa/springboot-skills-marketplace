@@ -184,6 +184,15 @@ class GuardHookTests(unittest.TestCase):
                         "./gradlew harnessCheck -Pharness.record=true"):
             self.assertEqual(self.bash(command).refused, True, command)
 
+    def test_blocks_gate_runs_that_skip_tests_or_checks(self):
+        for command in ("./mvnw verify -DskipTests", "./mvnw -B verify -Dmaven.test.skip=true",
+                        "mvnw.cmd verify '-Djacoco.skip'", "./mvnw install -Denforcer.skip=true",
+                        "./gradlew build -x test", "./gradlew check --exclude-task :test"):
+            self.assertEqual(self.bash(command).refused, True, command)
+        for command in ("./mvnw package -DskipTests", "./mvnw verify -DskipTests=false", "./mvnw verify",
+                        "./gradlew bootJar -x test", "./mvnw verify -DskipTestsReport"):
+            self.assertEqual(self.bash(command).refused, False, command)
+
     def patch(self, body: str, project: Path) -> subprocess.CompletedProcess:
         return self.guard({"tool_name": "apply_patch",
                            "tool_input": {"command": f"*** Begin Patch\n{body}*** End Patch\n"}}, project)
