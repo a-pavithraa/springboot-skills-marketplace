@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,8 @@ class UnusedCodeTests {
 
     private static final String BASE_PACKAGE = "{{BASE_PACKAGE}}";
 
+    private static final Pattern PACKAGE = Pattern.compile("^\\s*package\\s+([\\w.]+)\\s*;", Pattern.MULTILINE);
+
     private static final JavaClasses MAIN = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
             .importPackages(BASE_PACKAGE);
@@ -46,6 +49,8 @@ class UnusedCodeTests {
 
     private static final Set<String> PRODUCTION =
             MAIN.stream().map(JavaClass::getName).collect(Collectors.toSet());
+
+    private static final DescribedPredicate<JavaClass> HANDWRITTEN = handwritten();
 
     private static final boolean RECORDING = Boolean.getBoolean("archunit.freeze.store.default.allowStoreCreation");
 
@@ -63,7 +68,8 @@ class UnusedCodeTests {
     @Test
     void productionMethodsAreNotThereOnlyForTests() {
         ArchRule rule = classes()
-                .that(DescribedPredicate.describe("are production classes", type -> PRODUCTION.contains(type.getName())))
+                .that(DescribedPredicate.describe("are production classes",
+                        type -> PRODUCTION.contains(type.getName()) && HANDWRITTEN.test(type)))
                 .should(notHaveMethodsOnlyTestsCall())
                 .because("nothing in production calls it. If this change is meant to call it, wire that up; "
                         + "otherwise test through the public behaviour and delete it. If the user asked for it and "
@@ -130,6 +136,43 @@ class UnusedCodeTests {
                 }
             }
         };
+    }
+
+    /**
+     * Leaves out classes compiled from target/generated-sources or build/generated, such as OpenAPI models and MapStruct
+     * mappers: the generator writes them, so its configuration is where they change. They still count as callers.
+     * Their class files sit beside the team's and @Generated isn't kept in bytecode, so they're named from the
+     * generated source files.
+     */
+    private static DescribedPredicate<JavaClass> handwritten() {
+        Set<String> generated = Stream.of(Path.of("target/generated-sources"), Path.of("build/generated"))
+                .filter(Files::isDirectory)
+                .flatMap(UnusedCodeTests::javaFiles)
+                .map(UnusedCodeTests::className)
+                .collect(Collectors.toSet());
+        return DescribedPredicate.describe("are written by hand", type -> {
+            String name = type.getName();
+            return !generated.contains(name.contains("$") ? name.substring(0, name.indexOf('$')) : name);
+        });
+    }
+
+    private static Stream<Path> javaFiles(Path root) {
+        try (Stream<Path> files = Files.walk(root)) {
+            return files.filter(file -> file.toString().endsWith(".java")).toList().stream();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String className(Path source) {
+        String simpleName = source.getFileName().toString().replaceFirst("\\.java$", "");
+        try {
+            return PACKAGE.matcher(Files.readString(source)).results().findFirst()
+                    .map(found -> found.group(1) + "." + simpleName)
+                    .orElse(simpleName);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private static boolean overridesAnother(JavaClass type, JavaMethod method) {

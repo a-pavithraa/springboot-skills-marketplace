@@ -63,6 +63,19 @@ fi
 perl -pi -e 's|return catalog|System.out.println(sku);\n        return catalog|' src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "CodeRulesTests: System.out" 'CodeRulesTests' test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false
 
+# A generator's output compiles beside the team's code; the rules name it from its source under target/generated-sources.
+printf 'package com.acme.shop.orders;\n\npublic class OrderDto {\n    public void print() {\n        System.out.println("dto");\n    }\n}\n' \
+  > src/main/java/com/acme/shop/orders/OrderDto.java
+mkdir -p target/generated-sources/openapi/com/acme/shop/orders
+cp src/main/java/com/acme/shop/orders/OrderDto.java target/generated-sources/openapi/com/acme/shop/orders/
+if "$MVN" -B test -Dtest=CodeRulesTests,UnusedCodeTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then
+  pass "CodeRulesTests: generated sources are left out"
+else
+  fail "CodeRulesTests: a rule fired on generated sources"; tail -40 out.log
+fi
+rm -rf target/generated-sources/openapi
+reset
+
 # One build with a mistake for each of the remaining code rules; every rule's test must fail.
 perl -0pi -e 's|(<dependencies>)|$1\n    <dependency><groupId>org.springframework</groupId><artifactId>spring-web</artifactId></dependency>\n    <dependency><groupId>org.springframework</groupId><artifactId>spring-tx</artifactId></dependency>\n    <dependency><groupId>jakarta.persistence</groupId><artifactId>jakarta.persistence-api</artifactId></dependency>|' pom.xml
 cat > src/main/java/com/acme/shop/orders/Shipping.java <<'JAVA'
@@ -155,10 +168,50 @@ class CatchAll {
     }
 }
 JAVA
+cat > src/main/java/com/acme/shop/orders/ParcelStore.java <<'JAVA'
+package com.acme.shop.orders;
+
+public interface ParcelStore {
+    int count();
+}
+JAVA
+cat > src/main/java/com/acme/shop/orders/JdbcParcelStore.java <<'JAVA'
+package com.acme.shop.orders;
+
+import org.springframework.stereotype.Repository;
+
+@Repository
+class JdbcParcelStore implements ParcelStore {
+    @Override
+    public int count() {
+        return 0;
+    }
+}
+JAVA
+cat > src/main/java/com/acme/shop/orders/ParcelController.java <<'JAVA'
+package com.acme.shop.orders;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+class ParcelController {
+    private final ParcelStore parcels;
+
+    ParcelController(ParcelStore parcels) {
+        this.parcels = parcels;
+    }
+
+    @GetMapping("/parcels/count")
+    int count() {
+        return parcels.count();
+    }
+}
+JAVA
 "$MVN" -B test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1 || true
 for rule in catchAllHandlersKeepTheExceptionServerSide httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls proxiedMethodsCanBeIntercepted \
     asyncAndSchedulingAreSwitchedOn oldCodeIsDeletedNotDeprecated servicesDontUseHttpTypes toOneAssociationsAreLazy \
-    enumColumnsAreStoredByName; do
+    enumColumnsAreStoredByName controllersDontUseRepositories; do
   if grep -q "CodeRulesTests.$rule" out.log; then pass "CodeRulesTests: $rule"; else fail "CodeRulesTests: $rule did not fail"; fi
 done
 for case in "RestClient.builder()" "which makes a remote call, inside a transaction"; do

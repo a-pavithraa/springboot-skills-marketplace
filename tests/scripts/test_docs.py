@@ -25,8 +25,7 @@ class DocsNameWhatShipsTests(unittest.TestCase):
     def test_every_gate_is_named_in_the_skill_and_the_agents_template(self):
         gates = sorted(p.stem for p in (HARNESS / "assets/tests").glob("*.java"))
         self.assert_named(gates, HARNESS / "SKILL.md")
-        # apply_harness.py fills in the project's own boundary test name.
-        self.assert_named(gates, HARNESS / "assets/project/AGENTS.md", {"ModuleBoundariesTests": "{{BOUNDARY_TEST}}"})
+        self.assert_named(gates, HARNESS / "assets/project/AGENTS.md")
 
     def test_every_hook_is_named_in_the_skill(self):
         hooks = sorted(p.name for p in (HARNESS / "assets/project/.claude/hooks").iterdir() if p.is_file())
