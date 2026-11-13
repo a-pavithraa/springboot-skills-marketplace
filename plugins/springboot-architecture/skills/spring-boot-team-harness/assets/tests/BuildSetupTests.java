@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -44,6 +45,8 @@ class BuildSetupTests {
     private static final String DECLARED = System.getProperty("harness.declaredDependencies");
 
     private static final String BUILD_FILE = System.getProperty("harness.buildFile", "pom.xml");
+
+    private static final Pattern SCHEDULED = Pattern.compile("@(?:[\\w.]+\\.)?Scheduled\\b");
 
     private static final Set<String> SCHEMA_FROM_HIBERNATE = Set.of("update", "create", "create-drop", "create-only");
 
@@ -127,6 +130,48 @@ class BuildSetupTests {
         assertThat(problems).isEmpty();
     }
 
+    /**
+     * Boot's scheduler has one thread, so one slow job delays the rest. With virtual threads it starts a thread per
+     * run, except for fixedDelay jobs, which Spring keeps on the one scheduler thread.
+     */
+    @Test
+    void scheduledJobsDontShareOneThread() throws IOException {
+        List<String> sources = mainSources();
+        long jobs = sources.stream().mapToLong(source -> SCHEDULED.matcher(source).results().count()).sum();
+        if (jobs < 2 || sources.stream().anyMatch(source -> source.contains("SchedulingConfigurer")
+                || source.contains("TaskScheduler") || source.contains("ScheduledExecutorService"))) {
+            return;
+        }
+        boolean pooled = false;
+        boolean virtual = false;
+        for (Path file : configFiles()) {
+            if (!file.startsWith(Path.of("src/main/resources"))) {
+                continue;
+            }
+            for (PropertySource<?> source : load(file)) {
+                if (!(source instanceof EnumerablePropertySource<?> enumerable)) {
+                    continue;
+                }
+                for (String key : enumerable.getPropertyNames()) {
+                    String canonical = key.toLowerCase().replaceAll("[-_]", "");
+                    String value = String.valueOf(enumerable.getProperty(key)).trim();
+                    pooled |= canonical.equals("spring.task.scheduling.pool.size") && value.matches("\\d+")
+                            && Integer.parseInt(value) > 1;
+                    virtual |= canonical.equals("spring.threads.virtual.enabled") && value.equalsIgnoreCase("true");
+                }
+            }
+        }
+        boolean fixedDelay = sources.stream().anyMatch(source -> source.contains("fixedDelay"));
+        assertThat(pooled || (virtual && !fixedDelay))
+                .as("src/main/java has " + jobs + " @Scheduled methods, and Boot runs them all on one scheduler "
+                        + "thread, so one slow job delays the rest. Set spring.task.scheduling.pool.size to the "
+                        + "number of jobs that may run at once"
+                        + (fixedDelay
+                                ? "; virtual threads don't help fixedDelay jobs"
+                                : ", or spring.threads.virtual.enabled=true"))
+                .isTrue();
+    }
+
     private record Dependency(String group, String artifact, String scope) {}
 
     /** The dependencies the build declares itself; managed versions and profiles don't count. */
@@ -192,6 +237,15 @@ class BuildSetupTests {
             return sources.filter(path -> path.toString().endsWith(".java"))
                     .map(BuildSetupTests::read)
                     .anyMatch(source -> source.contains("Flyway.configure(") || source.contains("new Flyway("));
+        }
+    }
+
+    private static List<String> mainSources() throws IOException {
+        if (!Files.isDirectory(Path.of("src/main/java"))) {
+            return List.of();
+        }
+        try (Stream<Path> sources = Files.walk(Path.of("src/main/java"))) {
+            return sources.filter(path -> path.toString().endsWith(".java")).map(BuildSetupTests::read).toList();
         }
     }
 

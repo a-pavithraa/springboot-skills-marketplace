@@ -4,7 +4,7 @@ A small Spring Boot 4.1.1 project with two modules (`catalog`, marked `@NullMark
 
 - `verify` passes on the clean project;
 - NullAway fails on a `return null` (in both modules, or with `marked` only in `catalog`);
-- `CodeRulesTests` fails on `System.out`, and each of its other recent rules fails on a mistake planted for it (one build for all of them); `ConfigurationKeysTests` on a misspelt key, `ModuleBoundariesTests` on use of another module's internal package, and Spotless on unformatted code.
+- `CodeRulesTests` fails on `System.out`, and each of its other recent rules fails on a mistake planted for it (one build for all of them); `ConfigurationKeysTests` on a misspelt key and on a stand-in placeholder default outside a local profile, `ModuleBoundariesTests` on use of another module's internal package and on an allowed dependency nothing uses (but not on one used only through a constant), `BuildSetupTests` on two `@Scheduled` jobs without a scheduler pool, and Spotless on unformatted code.
 - `UnusedCodeTests` lets through a setter only a test calls, and `BuildSetupTests` a test-only HTTP client starter unless main code builds a client with it;
 - `ConfigurationKeysTests` fails on Actuator endpoints exposed on the public port, `LogLeakCheck` on a logged email address, and `CodeRulesTests` on `printStackTrace` and a hand-built OpenTelemetry bean;
 - `HandledFailureFilter` logs sync and async handled failures on a real server, and its test fails on a filter that skips async dispatches;

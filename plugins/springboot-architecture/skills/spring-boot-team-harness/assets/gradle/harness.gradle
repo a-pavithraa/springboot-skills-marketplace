@@ -38,6 +38,8 @@ dependencies {
 tasks.named("compileJava") {
     // Error Prone needs it on JDK 21 (21.0.8 or later); JDK 25 does this by default.
     options.compilerArgs += ["-XDaddTypeAnnotationsToSymbol=true"]
+    // javac stops at 100 errors, which hides the rest of a codebase's NullAway findings.
+    options.compilerArgs += ["-Xmaxerrs", "100000"]
     options.errorprone {
         excludedPaths = ".*/build/generated/.*"
         check("NullAway", net.ltgt.gradle.errorprone.CheckSeverity.ERROR)

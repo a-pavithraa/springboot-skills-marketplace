@@ -6,7 +6,6 @@ import org.springframework.resilience.annotation.ConcurrencyLimit;
 import org.springframework.resilience.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -40,7 +39,7 @@ public class {{NAME}}Service {
             multiplier = 2
     )
     public Optional<{{NAME}}> getById(String id) {
-        LOG.info("Fetching by id: {} at {}", id, Instant.now());
+        LOG.info("Fetching by id: {}", id);
         return client.getById(id);
     }
 

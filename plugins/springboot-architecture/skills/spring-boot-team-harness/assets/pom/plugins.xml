@@ -8,6 +8,9 @@
             <arg>--should-stop=ifError=FLOW</arg>
             <!-- Error Prone needs it on JDK 21 (21.0.8 or later); JDK 25 does this by default. -->
             <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+            <!-- javac stops at 100 errors, which hides the rest of a codebase's NullAway findings. -->
+            <arg>-Xmaxerrs</arg>
+            <arg>100000</arg>
             <arg>-Xplugin:ErrorProne -XepExcludedPaths:.*/target/generated-sources/.* -Xep:NullAway:ERROR {{NULLAWAY_SCOPE}} -XepOpt:NullAway:JSpecifyMode=true</arg>
           </compilerArgs>
           <annotationProcessorPaths combine.children="append">

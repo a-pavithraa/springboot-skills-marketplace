@@ -26,6 +26,7 @@ import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.domain.JavaType;
+import com.tngtech.archunit.core.domain.properties.HasAnnotations;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -45,6 +46,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -134,6 +136,30 @@ class CodeRulesTests {
             "are repositories",
             type -> repository(type) || (type.isInterface() && type.getPackageName().startsWith(BASE_PACKAGE)
                     && type.getAllSubclasses().stream().anyMatch(CodeRulesTests::repository)));
+
+    /** @ControllerAdvice classes and the classes they extend, which hold handlers for them. */
+    private static final DescribedPredicate<JavaClass> CONTROLLER_ADVICE = DescribedPredicate.describe(
+            "are @ControllerAdvice classes",
+            type -> advice(type) || type.getAllSubclasses().stream().anyMatch(CodeRulesTests::advice));
+
+    /** A name that marks a class or bean as a stand-in for the real thing. */
+    private static final Pattern STAND_IN = Pattern.compile(
+            "^(?i:mock|fake|stub|inmemory|noop|dummy)(?=[A-Z0-9_]|$)|(?<=[a-z0-9])(Mock|Fake|Stub|InMemory|Noop|NoOp|Dummy)$");
+
+    private static final List<String> ON_A_PROPERTY = List.of(
+            "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty",
+            "org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty");
+
+    private static final Set<String> TIME_TYPES = Set.of("java.time.Instant", "java.time.LocalDate",
+            "java.time.LocalDateTime", "java.time.LocalTime", "java.time.ZonedDateTime", "java.time.OffsetDateTime");
+
+    private static final DescribedPredicate<JavaMethodCall> READS_THE_SYSTEM_CLOCK = DescribedPredicate.describe(
+            "the target reads the system clock",
+            call -> (call.getTargetOwner().getName().equals("java.time.Clock")
+                            && Set.of("systemUTC", "systemDefaultZone", "system").contains(call.getName()))
+                    || (TIME_TYPES.contains(call.getTargetOwner().getName())
+                            && call.getName().equals("now")
+                            && call.getTarget().getRawParameterTypes().isEmpty()));
 
     private static final List<String> TO_ONE =List.of("jakarta.persistence.ManyToOne", "jakarta.persistence.OneToOne");
 
@@ -279,6 +305,51 @@ class CodeRulesTests {
                 .because("the message of an unexpected exception holds internals and can hold personal data, and "
                         + "logging only the message drops the stack trace. Return a generic ProblemDetail, and "
                         + "keep the exception and its cause in the server log")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void exceptionHandlersLiveInControllerAdvice() {
+        frozenIfRecorded(methods()
+                .that()
+                .areMetaAnnotatedWith("org.springframework.web.bind.annotation.ExceptionHandler")
+                .should()
+                .beDeclaredInClassesThat(CONTROLLER_ADVICE)
+                .because("a handler in a controller maps every exception of its type to one status, so an upstream "
+                        + "outage reads as a client error and skips the application's own mapping. Move it to the "
+                        + "@RestControllerAdvice")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void standInsAreNotOnByDefault() {
+        frozenIfRecorded(classes()
+                .should(notBeOnWhenTheirPropertyIsMissingIfStandIns(JavaClass::getSimpleName))
+                .because("a deploy that forgets the property runs the stand-in in production. Remove "
+                        + "matchIfMissing = true, so the stand-in runs only where the property is set")
+                .allowEmptyShould(true))
+                .check(MAIN);
+        frozenIfRecorded(methods()
+                .that()
+                .areAnnotatedWith("org.springframework.context.annotation.Bean")
+                .should(notBeOnWhenTheirPropertyIsMissingIfStandIns(JavaMethod::getName))
+                .because("a deploy that forgets the property runs the stand-in in production. Remove "
+                        + "matchIfMissing = true, so the stand-in runs only where the property is set")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void timeComesFromAClock() {
+        frozenIfRecorded(noClasses()
+                .that()
+                .areNotMetaAnnotatedWith("org.springframework.context.annotation.Configuration")
+                .should()
+                .callMethodWhere(READS_THE_SYSTEM_CLOCK)
+                .because("a test can't set the time this code sees. Inject a java.time.Clock bean, declared in a "
+                        + "@Configuration class, and pass it to now(clock)")
                 .allowEmptyShould(true))
                 .check(MAIN);
     }
@@ -517,6 +588,29 @@ class CodeRulesTests {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static boolean advice(JavaClass type) {
+        return type.isMetaAnnotatedWith("org.springframework.web.bind.annotation.ControllerAdvice");
+    }
+
+    private static <T extends HasAnnotations<?>> ArchCondition<T> notBeOnWhenTheirPropertyIsMissingIfStandIns(
+            Function<T, String> name) {
+        return new ArchCondition<>("not be stand-ins that run when their property is missing") {
+            @Override
+            public void check(T item, ConditionEvents events) {
+                if (!STAND_IN.matcher(name.apply(item)).find()) {
+                    return;
+                }
+                ON_A_PROPERTY.stream()
+                        .flatMap(condition -> item.tryGetAnnotationOfType(condition).stream())
+                        .filter(annotation -> Boolean.TRUE.equals(
+                                annotation.tryGetExplicitlyDeclaredProperty("matchIfMissing").orElse(false)))
+                        .findFirst()
+                        .ifPresent(annotation -> events.add(SimpleConditionEvent.violated(item,
+                                item.getDescription() + " is a stand-in that runs when its property is missing")));
+            }
+        };
     }
 
     private static boolean repository(JavaClass type) {
