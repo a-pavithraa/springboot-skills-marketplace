@@ -135,6 +135,22 @@ class CodeRulesTests {
             type -> repository(type) || (type.isInterface() && type.getPackageName().startsWith(BASE_PACKAGE)
                     && type.getAllSubclasses().stream().anyMatch(CodeRulesTests::repository)));
 
+    /** @ControllerAdvice classes and the classes they extend, which hold handlers for them. */
+    private static final DescribedPredicate<JavaClass> CONTROLLER_ADVICE = DescribedPredicate.describe(
+            "are @ControllerAdvice classes",
+            type -> advice(type) || type.getAllSubclasses().stream().anyMatch(CodeRulesTests::advice));
+
+    private static final Set<String> TIME_TYPES = Set.of("java.time.Instant", "java.time.LocalDate",
+            "java.time.LocalDateTime", "java.time.LocalTime", "java.time.ZonedDateTime", "java.time.OffsetDateTime");
+
+    private static final DescribedPredicate<JavaMethodCall> READS_THE_SYSTEM_CLOCK = DescribedPredicate.describe(
+            "the target reads the system clock",
+            call -> (call.getTargetOwner().getName().equals("java.time.Clock")
+                            && Set.of("systemUTC", "systemDefaultZone", "system").contains(call.getName()))
+                    || (TIME_TYPES.contains(call.getTargetOwner().getName())
+                            && call.getName().equals("now")
+                            && call.getTarget().getRawParameterTypes().isEmpty()));
+
     private static final List<String> TO_ONE =List.of("jakarta.persistence.ManyToOne", "jakarta.persistence.OneToOne");
 
     /** Each of these maps an enum column its own way, so @Enumerated doesn't apply. */
@@ -279,6 +295,33 @@ class CodeRulesTests {
                 .because("the message of an unexpected exception holds internals and can hold personal data, and "
                         + "logging only the message drops the stack trace. Return a generic ProblemDetail, and "
                         + "keep the exception and its cause in the server log")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void exceptionHandlersLiveInControllerAdvice() {
+        frozenIfRecorded(methods()
+                .that()
+                .areMetaAnnotatedWith("org.springframework.web.bind.annotation.ExceptionHandler")
+                .should()
+                .beDeclaredInClassesThat(CONTROLLER_ADVICE)
+                .because("a handler in a controller maps every exception of its type to one status, so an upstream "
+                        + "outage reads as a client error and skips the application's own mapping. Move it to the "
+                        + "@RestControllerAdvice")
+                .allowEmptyShould(true))
+                .check(MAIN);
+    }
+
+    @Test
+    void timeComesFromAClock() {
+        frozenIfRecorded(noClasses()
+                .that()
+                .areNotMetaAnnotatedWith("org.springframework.context.annotation.Configuration")
+                .should()
+                .callMethodWhere(READS_THE_SYSTEM_CLOCK)
+                .because("a test can't set the time this code sees. Inject a java.time.Clock bean, declared in a "
+                        + "@Configuration class, and pass it to now(clock)")
                 .allowEmptyShould(true))
                 .check(MAIN);
     }
@@ -517,6 +560,10 @@ class CodeRulesTests {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static boolean advice(JavaClass type) {
+        return type.isMetaAnnotatedWith("org.springframework.web.bind.annotation.ControllerAdvice");
     }
 
     private static boolean repository(JavaClass type) {

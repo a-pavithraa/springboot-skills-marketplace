@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.PropertiesPropertySourceLoader;
@@ -36,6 +37,10 @@ class ConfigurationKeysTests {
             Set.of("*", "env", "configprops", "beans", "heapdump", "threaddump", "logfile", "loggers", "shutdown");
 
     private static final Set<String> LOCAL_PROFILES = Set.of("local", "dev", "test", "observability");
+
+    private static final Pattern PLACEHOLDER_DEFAULT = Pattern.compile("\\$\\{([^:${}]+):([^${}]*)}");
+
+    private static final Set<String> STAND_IN_DEFAULTS = Set.of("mock", "fake", "stub", "noop", "dummy", "changeme");
 
     private static final String[] METADATA_FILES = {
         "META-INF/spring-configuration-metadata.json", "META-INF/additional-spring-configuration-metadata.json"
@@ -97,6 +102,23 @@ class ConfigurationKeysTests {
             }
         }
         assertThat(problems).as("Actuator can leak secrets and internals").isEmpty();
+    }
+
+    @Test
+    void shippedConfigHasNoStandInDefaults() throws IOException {
+        List<String> problems = new ArrayList<>();
+        for (Resource file : configFiles()) {
+            if (isLocalProfile(file)) {
+                continue;
+            }
+            valuesIn(file).forEach((key, value) -> PLACEHOLDER_DEFAULT.matcher(value).results()
+                    .filter(placeholder -> STAND_IN_DEFAULTS.contains(placeholder.group(2).strip().toLowerCase()))
+                    .forEach(placeholder -> problems.add(file.getFilename() + ": " + key + " falls back to "
+                            + placeholder.group(2).strip() + " when " + placeholder.group(1) + " is unset, so a "
+                            + "deploy that forgets it runs on a stand-in. Remove the default, or move it to a local "
+                            + "profile")));
+        }
+        assertThat(problems).as("A shipped config file defaults to a stand-in").isEmpty();
     }
 
     /** Only says the ports differ. Whether the port is reachable depends on the deployment, which can't be read here. */

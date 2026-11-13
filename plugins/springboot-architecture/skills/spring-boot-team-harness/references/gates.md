@@ -16,7 +16,7 @@ Both hooks append one line per run to `.git/harness/events.jsonl`, capped at 200
 
 ## `ModuleBoundariesTests`
 
-Spring Modulith's checks: no use of another module's internal types, no cycles, no dependency that a module's `allowedDependencies` leave out. It also fails on what `verify()` lets through: a published class whose public constructor takes an internal type, and an `allowedDependencies` entry no code uses (the guard hook stops an agent widening the list, but an unused entry is already open to it).
+Spring Modulith's checks: no use of another module's internal types, no cycles, no dependency that a module's `allowedDependencies` leave out. It also fails on what `verify()` lets through: a published class whose public constructor takes an internal type, and an `allowedDependencies` entry no code uses (the guard hook stops an agent widening the list, but an unused entry is already open to it). An entry used only through a compile-time constant counts as used: javac copies the value in, but still names the constant's class in the class file.
 
 An `@ApplicationModuleTest` checks the module's boundaries again when it starts, without the record, so on an existing codebase set `verifyAutomatically = false` on module tests and leave the boundaries to this test.
 
@@ -39,6 +39,8 @@ ArchUnit rules for mistakes that compile and pass most tests:
 - proxy annotations on private, final or static methods
 - `@Async` or `@Scheduled` with nothing switching them on
 - services that throw `ResponseStatusException`, use the servlet API or return `ResponseEntity`
+- `@ExceptionHandler` methods outside a `@ControllerAdvice` or `@RestControllerAdvice` class (a handler in a controller maps every exception of its type to one status, bypassing the app's own mapping)
+- `Clock.systemUTC()`, `Clock.systemDefaultZone()`, `Clock.system(..)` or a no-argument `now()` on the `java.time` types outside `@Configuration` classes (inject a `Clock` bean, so a test can set the time)
 - `@Deprecated` code outside controllers (update the callers and delete it)
 - `@Autowired` fields, `System.out`, Jackson 2 (Boot 4 ignores it), Spring's deprecated nullness annotations
 - JUnit 4 tests (never run) and `@Disabled` tests

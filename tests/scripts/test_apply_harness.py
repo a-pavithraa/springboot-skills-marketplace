@@ -264,6 +264,8 @@ class ApplyHarnessTests(unittest.TestCase):
         boundaries = (root / "src/test/java/com/acme/orders/ModuleBoundariesTests.java").read_text(encoding="utf-8")
         self.assertIn("package com.acme.orders;", boundaries)
         self.assertIn("ApplicationModules.of(com.acme.orders.OrdersApplication.class)", boundaries)
+        build_setup = (root / "src/test/java/com/acme/orders/BuildSetupTests.java").read_text(encoding="utf-8")
+        self.assertIn('BASE_PACKAGE = "com.acme.orders";', build_setup)
         agents = (root / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("# orders", agents)
         self.assertIn("Spring Boot 4.1.1 on Java 25", agents)
@@ -539,6 +541,11 @@ class ApplyHarnessTests(unittest.TestCase):
         self.assertNotIn("OnlyNullMarked", text)
         self.assertIn("| NullAway, at compile | Code under `com.acme.orders` can pass",
                       (root / "AGENTS.md").read_text(encoding="utf-8"))
+
+    def test_the_compiler_reports_every_nullaway_error(self):
+        root = self.project(STANDARD)
+        self.assertEqual(self.run_script(root).returncode, 0)
+        self.assertRegex((root / "pom.xml").read_text(encoding="utf-8"), r"<arg>-Xmaxerrs</arg>\s*<arg>100000</arg>")
 
     def test_nullaway_marked_checks_only_null_marked_packages_and_reports_coverage(self):
         root = self.project(STANDARD, {
@@ -1167,6 +1174,11 @@ class ApplyHarnessGradleTests(unittest.TestCase):
         (root / ".claude/harness.lock").write_text(json.dumps(lock), encoding="utf-8")
         self.assertIn("updated  gradle/harness.gradle", self.run_script(root).stdout)
         self.assertIn("jspecify:1.0.1", script.read_text(encoding="utf-8"))
+
+    def test_the_compiler_reports_every_nullaway_error(self):
+        root = self.project(GROOVY_BUILD)
+        self.assertEqual(self.run_script(root).returncode, 0)
+        self.assertIn('"-Xmaxerrs", "100000"', self.read(root, "gradle/harness.gradle"))
 
     def test_marked_mode_is_kept_on_a_rerun_without_the_flag(self):
         root = self.project(GROOVY_BUILD)

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -14,7 +15,10 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.springframework.asm.ClassReader;
 import org.springframework.modulith.core.ApplicationModule;
 import org.springframework.modulith.core.ApplicationModules;
 import org.springframework.modulith.core.NamedInterface;
@@ -32,6 +36,7 @@ class ModuleBoundariesTests {
 
     private static final String STORE_PATH = "src/test/resources/modulith_store";
     private static final Path STORE = Path.of(STORE_PATH);
+    private static final int CONSTANT_CLASS = 7;
 
     @Test
     void modulesRespectTheirBoundaries() throws IOException {
@@ -74,11 +79,17 @@ class ModuleBoundariesTests {
         var unused = new TreeMap<String, String>();
         for (var module : modules) {
             var used = module.getDirectDependencies(modules).stream().toList();
+            var named = module.getBasePackage().stream()
+                    .flatMap(ModuleBoundariesTests::classesInConstantPool)
+                    .collect(Collectors.toSet());
             for (var allowed : module.getAllowedDependencies(modules)) {
                 var target = allowed.getTargetModule();
                 var namedInterface = allowed.getTargetNamedInterface();
                 if (used.stream().noneMatch(dependency -> dependency.getTargetModule().equals(target)
-                        && (namedInterface == null || namedInterface.contains(dependency.getTargetType())))) {
+                                && (namedInterface == null || namedInterface.contains(dependency.getTargetType())))
+                        && named.stream()
+                                .flatMap(name -> target.getType(name).stream())
+                                .noneMatch(type -> namedInterface == null || namedInterface.contains(type))) {
                     var entry = namedInterface == null || namedInterface.isUnnamed()
                             ? target.getIdentifier().toString()
                             : target.getIdentifier() + " :: " + namedInterface.getName();
@@ -89,6 +100,27 @@ class ModuleBoundariesTests {
             }
         }
         return unused;
+    }
+
+    // javac copies a compile-time constant into the class that reads it, so a module whose only use of another is
+    // such a constant has no dependency ArchUnit sees. javac still names the constant's class in the constant pool.
+    private static Stream<String> classesInConstantPool(JavaClass type) {
+        var source = type.getSource();
+        if (source.isEmpty()) {
+            return Stream.empty();
+        }
+        try (var in = source.get().getUri().toURL().openStream()) {
+            var reader = new ClassReader(in);
+            var buffer = new char[reader.getMaxStringLength()];
+            return IntStream.range(1, reader.getItemCount())
+                    .map(reader::getItem)
+                    .filter(offset -> offset > 0 && reader.readByte(offset - 1) == CONSTANT_CLASS)
+                    .mapToObj(offset -> reader.readUTF8(offset, buffer).replace('/', '.'))
+                    .toList()
+                    .stream();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private static void write(Set<String> keys) throws IOException {

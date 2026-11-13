@@ -208,20 +208,67 @@ class ParcelController {
     }
 }
 JAVA
+cat > src/main/java/com/acme/shop/orders/RefundController.java <<'JAVA'
+package com.acme.shop.orders;
+
+import java.time.Instant;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+class RefundController {
+    @GetMapping("/refunds/latest")
+    String latest() {
+        return Instant.now().toString();
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    String refused() {
+        return "refused";
+    }
+}
+JAVA
+cat > src/main/java/com/acme/shop/orders/ClockConfig.java <<'JAVA'
+package com.acme.shop.orders;
+
+import java.time.Clock;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+class ClockConfig {
+    @Bean
+    Clock clock() {
+        return Clock.systemUTC();
+    }
+}
+JAVA
 "$MVN" -B test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1 || true
 for rule in catchAllHandlersKeepTheExceptionServerSide httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls proxiedMethodsCanBeIntercepted \
     asyncAndSchedulingAreSwitchedOn oldCodeIsDeletedNotDeprecated servicesDontUseHttpTypes toOneAssociationsAreLazy \
-    enumColumnsAreStoredByName controllersDontUseRepositories; do
+    enumColumnsAreStoredByName controllersDontUseRepositories exceptionHandlersLiveInControllerAdvice \
+    timeComesFromAClock; do
   if grep -q "CodeRulesTests.$rule" out.log; then pass "CodeRulesTests: $rule"; else fail "CodeRulesTests: $rule did not fail"; fi
 done
 for case in "RestClient.builder()" "which makes a remote call, inside a transaction"; do
   if grep -qF "$case" out.log; then pass "CodeRulesTests: $case"; else fail "CodeRulesTests: no violation for $case"; fi
 done
+if grep -qF "ClockConfig" out.log; then fail "CodeRulesTests: the Clock bean in a @Configuration class was rejected"
+else pass "CodeRulesTests: a @Configuration class may build the Clock bean"; fi
 if ! grep -q "Tests run:" out.log; then tail -40 out.log; fi
 reset
 
 echo "spring.aplication.name=typo" >> src/main/resources/application.properties
 expect_failure "ConfigurationKeysTests: unknown key" 'spring\.aplication\.name' test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false
+
+printf 'payments.mode=${PAYMENTS_MODE:fake}\n' > src/main/resources/application-local.properties
+if "$MVN" -B test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then
+  pass "ConfigurationKeysTests: a stand-in default in a local profile is allowed"
+else fail "ConfigurationKeysTests: a stand-in default in a local profile was rejected"; tail -40 out.log; fi
+printf 'payments.mode=${PAYMENTS_MODE:fake}\n' >> src/main/resources/application.properties
+expect_failure "ConfigurationKeysTests: a stand-in default in shipped config" 'payments.mode falls back to fake' \
+  test -Dtest=ConfigurationKeysTests -Dsurefire.failIfNoSpecifiedTests=false
 
 mkdir -p src/main/java/com/acme/shop/catalog/internal
 printf 'package com.acme.shop.catalog.internal;\n\npublic class Discounts {\n    public static int percent() {\n        return 5;\n    }\n}\n' \
@@ -229,6 +276,21 @@ printf 'package com.acme.shop.catalog.internal;\n\npublic class Discounts {\n   
 perl -pi -e 's|return catalog|int unused = com.acme.shop.catalog.internal.Discounts.percent();\n        return catalog|' \
   src/main/java/com/acme/shop/orders/Orders.java
 expect_failure "ModuleBoundariesTests: use of another module's internal package" 'ModuleBoundariesTests|Violations' \
+  test -Dtest=ModuleBoundariesTests -Dsurefire.failIfNoSpecifiedTests=false
+
+# javac copies a constant into the class that reads it; the constant's class stays only in the constant pool.
+perl -0pi -e 's|(<dependencies>)|$1\n    <dependency><groupId>org.springframework.modulith</groupId><artifactId>spring-modulith-api</artifactId></dependency>|' pom.xml
+perl -0pi -e 's|(public class Catalog \{\n)|$1    public static final String CURRENCY = "EUR";\n\n|' src/main/java/com/acme/shop/catalog/Catalog.java
+mkdir -p src/main/java/com/acme/shop/billing
+printf '@org.springframework.modulith.ApplicationModule(allowedDependencies = "catalog")\npackage com.acme.shop.billing;\n' \
+  > src/main/java/com/acme/shop/billing/package-info.java
+printf 'package com.acme.shop.billing;\n\npublic class Invoices {\n    public String currency() {\n        return com.acme.shop.catalog.Catalog.CURRENCY;\n    }\n}\n' \
+  > src/main/java/com/acme/shop/billing/Invoices.java
+if "$MVN" -B test -Dtest=ModuleBoundariesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then
+  pass "ModuleBoundariesTests: an allowed dependency used only through a constant counts as used"
+else fail "ModuleBoundariesTests: an allowed dependency used only through a constant was reported unused"; tail -40 out.log; fi
+perl -pi -e 's|com\.acme\.shop\.catalog\.Catalog\.CURRENCY|"EUR"|' src/main/java/com/acme/shop/billing/Invoices.java
+expect_failure "ModuleBoundariesTests: an allowed dependency nothing uses" "allows a dependency on 'catalog' that no code uses" \
   test -Dtest=ModuleBoundariesTests -Dsurefire.failIfNoSpecifiedTests=false
 
 perl -0pi -e 's|(\n\}\s*)$|\n    public int size() {\n        return prices.size();\n    }$1|' src/main/java/com/acme/shop/catalog/Catalog.java
@@ -239,6 +301,46 @@ perl -0pi -e 's|(\n\}\s*)$|\n    public void setCurrency(String currency) {}$1|'
 printf 'package com.acme.shop;\n\nclass CatalogCurrencyTests {\n    @org.junit.jupiter.api.Test\n    void sets() {\n        new com.acme.shop.catalog.Catalog().setCurrency("EUR");\n    }\n}\n' > src/test/java/com/acme/shop/CatalogCurrencyTests.java
 if "$MVN" -B test -Dtest=UnusedCodeTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then pass "UnusedCodeTests: a setter only a test calls is allowed, since binding calls it"
 else fail "UnusedCodeTests: a setter only a test calls was rejected"; tail -40 out.log; fi
+reset
+
+jobs() {  # the annotation line of the second job
+  printf 'package com.acme.shop.orders;\n\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\nclass Jobs {\n    @Scheduled(fixedRate = 60000)\n    void prices() {}\n\n    %s\n    void stock() {}\n}\n' "$1" \
+    > src/main/java/com/acme/shop/orders/Jobs.java
+}
+build_setup() {
+  "$MVN" -B test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1
+}
+# A class that only names TaskScheduler in a comment and a string still leaves Boot's one thread in charge.
+jobs '@Scheduled(cron = "0 0 * * * *")'
+printf 'package com.acme.shop.orders;\n\n// Not a TaskScheduler.\nclass Notes {\n    String note = "TaskScheduler";\n}\n' > src/main/java/com/acme/shop/orders/Notes.java
+expect_failure "BuildSetupTests: two @Scheduled jobs on one scheduler thread, named" \
+  '2 @Scheduled jobs \(Jobs.prices\(\), Jobs.stock\(\)\), and Boot runs them all on one scheduler thread' \
+  test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false
+for setting in 'spring.task.scheduling.pool.size=2' 'spring.task.scheduling.pool.size=${JOBS_POOL:4}' \
+    'spring.threads.virtual.enabled=true'; do
+  jobs '@Scheduled(cron = "0 0 * * * *")'
+  printf '%s\n' "$setting" >> src/main/resources/application.properties
+  if build_setup; then pass "BuildSetupTests: two @Scheduled jobs with $setting"
+  else fail "BuildSetupTests: two @Scheduled jobs with $setting were rejected"; tail -40 out.log; fi
+  reset
+done
+jobs '@Scheduled(cron = "0 0 * * * *")'
+printf 'spring.task.scheduling.pool.size=${JOBS_POOL:1}\n' >> src/main/resources/application.properties
+expect_failure "BuildSetupTests: a pool size that defaults to 1" 'Boot runs them all on one scheduler thread' \
+  test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false
+jobs '@Scheduled(fixedDelay = 60000)'
+printf 'spring.threads.virtual.enabled=true\n' >> src/main/resources/application.properties
+expect_failure "BuildSetupTests: virtual threads with a fixedDelay job" "virtual threads don't help fixedDelay jobs \(Jobs.stock\(\)\)" \
+  test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false
+jobs '// @Scheduled(cron = "0 0 * * * *")'
+if build_setup; then pass "BuildSetupTests: a @Scheduled in a comment is not a job"
+else fail "BuildSetupTests: a @Scheduled in a comment counted as a job"; tail -40 out.log; fi
+reset
+jobs '@Scheduled(cron = "0 0 * * * *")'
+printf 'package com.acme.shop.orders;\n\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.scheduling.TaskScheduler;\nimport org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;\n\n@Configuration\nclass SchedulerConfig {\n    @Bean\n    TaskScheduler taskScheduler() {\n        return new ThreadPoolTaskScheduler();\n    }\n}\n' \
+  > src/main/java/com/acme/shop/orders/SchedulerConfig.java
+if build_setup; then pass "BuildSetupTests: the project's own TaskScheduler bean"
+else fail "BuildSetupTests: the project's own TaskScheduler bean was ignored"; tail -40 out.log; fi
 reset
 
 perl -0pi -e 's|(<dependencies>)|$1\n    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-restclient</artifactId><scope>test</scope></dependency>|' pom.xml
