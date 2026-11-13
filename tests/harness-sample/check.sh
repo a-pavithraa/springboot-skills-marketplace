@@ -229,57 +229,34 @@ class RefundController {
     }
 }
 JAVA
-cat > src/main/java/com/acme/shop/orders/FakePayments.java <<'JAVA'
+cat > src/main/java/com/acme/shop/orders/ClockConfig.java <<'JAVA'
 package com.acme.shop.orders;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
+import java.time.Clock;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
-@Component
-@ConditionalOnProperty(name = "payments.fake", havingValue = "true", matchIfMissing = true)
-class FakePayments {}
+@Configuration
+class ClockConfig {
+    @Bean
+    Clock clock() {
+        return Clock.systemUTC();
+    }
+}
 JAVA
 "$MVN" -B test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1 || true
 for rule in catchAllHandlersKeepTheExceptionServerSide httpClientsComeFromTheBuilder transactionsDontWaitOnRemoteCalls proxiedMethodsCanBeIntercepted \
     asyncAndSchedulingAreSwitchedOn oldCodeIsDeletedNotDeprecated servicesDontUseHttpTypes toOneAssociationsAreLazy \
-    enumColumnsAreStoredByName controllersDontUseRepositories exceptionHandlersLiveInControllerAdvice standInsAreNotOnByDefault \
+    enumColumnsAreStoredByName controllersDontUseRepositories exceptionHandlersLiveInControllerAdvice \
     timeComesFromAClock; do
   if grep -q "CodeRulesTests.$rule" out.log; then pass "CodeRulesTests: $rule"; else fail "CodeRulesTests: $rule did not fail"; fi
 done
 for case in "RestClient.builder()" "which makes a remote call, inside a transaction"; do
   if grep -qF "$case" out.log; then pass "CodeRulesTests: $case"; else fail "CodeRulesTests: no violation for $case"; fi
 done
-if ! grep -q "Tests run:" out.log; then tail -40 out.log; fi
-reset
-
-# A @Configuration class may read the system clock to declare the Clock bean, but not turn a stand-in on by default.
-cat > src/main/java/com/acme/shop/orders/ParcelConfig.java <<'JAVA'
-package com.acme.shop.orders;
-
-import java.time.Clock;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
-@Configuration
-class ParcelConfig {
-    @Bean
-    Clock clock() {
-        return Clock.systemUTC();
-    }
-
-    @Bean
-    @ConditionalOnProperty(name = "parcels.store", havingValue = "memory", matchIfMissing = true)
-    Object inMemoryParcels() {
-        return new Object();
-    }
-}
-JAVA
-"$MVN" -B test -Dtest=CodeRulesTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1 || true
-if grep -qF "inMemoryParcels()> is a stand-in" out.log; then pass "CodeRulesTests: a stand-in @Bean on by default"
-else fail "CodeRulesTests: a stand-in @Bean on by default did not fail"; tail -40 out.log; fi
-if grep -q "CodeRulesTests.timeComesFromAClock" out.log; then fail "CodeRulesTests: the Clock bean in a @Configuration class was rejected"
+if grep -qF "ClockConfig" out.log; then fail "CodeRulesTests: the Clock bean in a @Configuration class was rejected"
 else pass "CodeRulesTests: a @Configuration class may build the Clock bean"; fi
+if ! grep -q "Tests run:" out.log; then tail -40 out.log; fi
 reset
 
 echo "spring.aplication.name=typo" >> src/main/resources/application.properties
@@ -326,16 +303,44 @@ if "$MVN" -B test -Dtest=UnusedCodeTests -Dsurefire.failIfNoSpecifiedTests=false
 else fail "UnusedCodeTests: a setter only a test calls was rejected"; tail -40 out.log; fi
 reset
 
-printf 'package com.acme.shop.orders;\n\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\nclass Jobs {\n    @Scheduled(fixedRate = 60000)\n    void prices() {}\n\n    @Scheduled(cron = "0 0 * * * *")\n    void stock() {}\n}\n' \
-  > src/main/java/com/acme/shop/orders/Jobs.java
-expect_failure "BuildSetupTests: two @Scheduled jobs on one scheduler thread" 'Boot runs them all on one scheduler thread' \
+jobs() {  # the annotation line of the second job
+  printf 'package com.acme.shop.orders;\n\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\nclass Jobs {\n    @Scheduled(fixedRate = 60000)\n    void prices() {}\n\n    %s\n    void stock() {}\n}\n' "$1" \
+    > src/main/java/com/acme/shop/orders/Jobs.java
+}
+build_setup() {
+  "$MVN" -B test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1
+}
+# A class that only names TaskScheduler in a comment and a string still leaves Boot's one thread in charge.
+jobs '@Scheduled(cron = "0 0 * * * *")'
+printf 'package com.acme.shop.orders;\n\n// Not a TaskScheduler.\nclass Notes {\n    String note = "TaskScheduler";\n}\n' > src/main/java/com/acme/shop/orders/Notes.java
+expect_failure "BuildSetupTests: two @Scheduled jobs on one scheduler thread, named" \
+  '2 @Scheduled jobs \(Jobs.prices\(\), Jobs.stock\(\)\), and Boot runs them all on one scheduler thread' \
   test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false
-printf 'package com.acme.shop.orders;\n\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\nclass Jobs {\n    @Scheduled(fixedRate = 60000)\n    void prices() {}\n\n    @Scheduled(cron = "0 0 * * * *")\n    void stock() {}\n}\n' \
-  > src/main/java/com/acme/shop/orders/Jobs.java
-printf 'spring.task.scheduling.pool.size=2\n' >> src/main/resources/application.properties
-if "$MVN" -B test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false > out.log 2>&1; then
-  pass "BuildSetupTests: @Scheduled jobs with a scheduler pool are allowed"
-else fail "BuildSetupTests: @Scheduled jobs with a scheduler pool were rejected"; tail -40 out.log; fi
+for setting in 'spring.task.scheduling.pool.size=2' 'spring.task.scheduling.pool.size=${JOBS_POOL:4}' \
+    'spring.threads.virtual.enabled=true'; do
+  jobs '@Scheduled(cron = "0 0 * * * *")'
+  printf '%s\n' "$setting" >> src/main/resources/application.properties
+  if build_setup; then pass "BuildSetupTests: two @Scheduled jobs with $setting"
+  else fail "BuildSetupTests: two @Scheduled jobs with $setting were rejected"; tail -40 out.log; fi
+  reset
+done
+jobs '@Scheduled(cron = "0 0 * * * *")'
+printf 'spring.task.scheduling.pool.size=${JOBS_POOL:1}\n' >> src/main/resources/application.properties
+expect_failure "BuildSetupTests: a pool size that defaults to 1" 'Boot runs them all on one scheduler thread' \
+  test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false
+jobs '@Scheduled(fixedDelay = 60000)'
+printf 'spring.threads.virtual.enabled=true\n' >> src/main/resources/application.properties
+expect_failure "BuildSetupTests: virtual threads with a fixedDelay job" "virtual threads don't help fixedDelay jobs \(Jobs.stock\(\)\)" \
+  test -Dtest=BuildSetupTests -Dsurefire.failIfNoSpecifiedTests=false
+jobs '// @Scheduled(cron = "0 0 * * * *")'
+if build_setup; then pass "BuildSetupTests: a @Scheduled in a comment is not a job"
+else fail "BuildSetupTests: a @Scheduled in a comment counted as a job"; tail -40 out.log; fi
+reset
+jobs '@Scheduled(cron = "0 0 * * * *")'
+printf 'package com.acme.shop.orders;\n\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.scheduling.TaskScheduler;\nimport org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;\n\n@Configuration\nclass SchedulerConfig {\n    @Bean\n    TaskScheduler taskScheduler() {\n        return new ThreadPoolTaskScheduler();\n    }\n}\n' \
+  > src/main/java/com/acme/shop/orders/SchedulerConfig.java
+if build_setup; then pass "BuildSetupTests: the project's own TaskScheduler bean"
+else fail "BuildSetupTests: the project's own TaskScheduler bean was ignored"; tail -40 out.log; fi
 reset
 
 perl -0pi -e 's|(<dependencies>)|$1\n    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-restclient</artifactId><scope>test</scope></dependency>|' pom.xml

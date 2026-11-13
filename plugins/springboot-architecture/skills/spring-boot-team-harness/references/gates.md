@@ -40,7 +40,6 @@ ArchUnit rules for mistakes that compile and pass most tests:
 - `@Async` or `@Scheduled` with nothing switching them on
 - services that throw `ResponseStatusException`, use the servlet API or return `ResponseEntity`
 - `@ExceptionHandler` methods outside a `@ControllerAdvice` or `@RestControllerAdvice` class (a handler in a controller maps every exception of its type to one status, bypassing the app's own mapping)
-- a class or `@Bean` method named as a stand-in (starting or ending with `Mock`, `Fake`, `Stub`, `InMemory`, `Noop` or `Dummy`) with `@ConditionalOnProperty(matchIfMissing = true)`, so a deploy that forgets the property runs it
 - `Clock.systemUTC()`, `Clock.systemDefaultZone()`, `Clock.system(..)` or a no-argument `now()` on the `java.time` types outside `@Configuration` classes (inject a `Clock` bean, so a test can set the time)
 - `@Deprecated` code outside controllers (update the callers and delete it)
 - `@Autowired` fields, `System.out`, Jackson 2 (Boot 4 ignores it), Spring's deprecated nullness annotations

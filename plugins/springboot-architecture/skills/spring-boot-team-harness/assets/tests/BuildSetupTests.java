@@ -2,14 +2,28 @@ package {{TEST_PACKAGE}};
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaAnnotation;
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.importer.ImportOption;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -46,7 +60,27 @@ class BuildSetupTests {
 
     private static final String BUILD_FILE = System.getProperty("harness.buildFile", "pom.xml");
 
-    private static final Pattern SCHEDULED = Pattern.compile("@(?:[\\w.]+\\.)?Scheduled\\b");
+    private static final String BASE_PACKAGE = "{{BASE_PACKAGE}}";
+
+    private static final Pattern PACKAGE = Pattern.compile("^\\s*package\\s+([\\w.]+)\\s*;", Pattern.MULTILINE);
+
+    private static final DescribedPredicate<JavaClass> HANDWRITTEN = handwritten();
+
+    private static final JavaClasses MAIN = new ClassFileImporter()
+            .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+            .importPackages(BASE_PACKAGE)
+            .that(HANDWRITTEN);
+
+    private static final String SCHEDULED = "org.springframework.scheduling.annotation.Scheduled";
+
+    private static final String SCHEDULES = "org.springframework.scheduling.annotation.Schedules";
+
+    /** A bean of one of these types, or a SchedulingConfigurer, replaces Boot's one-thread scheduler. */
+    private static final List<String> OWN_SCHEDULERS = List.of(
+            "org.springframework.scheduling.TaskScheduler", "java.util.concurrent.ScheduledExecutorService");
+
+    /** A whole-value placeholder, with its default if it has one. */
+    private static final Pattern PLACEHOLDER = Pattern.compile("^\\$\\{[^:}]+(?::(.*))?}$");
 
     private static final Set<String> SCHEMA_FROM_HIBERNATE = Set.of("update", "create", "create-drop", "create-only");
 
@@ -136,10 +170,12 @@ class BuildSetupTests {
      */
     @Test
     void scheduledJobsDontShareOneThread() throws IOException {
-        List<String> sources = mainSources();
-        long jobs = sources.stream().mapToLong(source -> SCHEDULED.matcher(source).results().count()).sum();
-        if (jobs < 2 || sources.stream().anyMatch(source -> source.contains("SchedulingConfigurer")
-                || source.contains("TaskScheduler") || source.contains("ScheduledExecutorService"))) {
+        List<Job> jobs = MAIN.stream()
+                .flatMap(type -> type.getMethods().stream())
+                .flatMap(BuildSetupTests::jobsOf)
+                .sorted(Comparator.comparing(Job::name))
+                .toList();
+        if (jobs.size() < 2 || runsItsOwnScheduler()) {
             return;
         }
         boolean pooled = false;
@@ -154,22 +190,80 @@ class BuildSetupTests {
                 }
                 for (String key : enumerable.getPropertyNames()) {
                     String canonical = key.toLowerCase().replaceAll("[-_]", "");
-                    String value = String.valueOf(enumerable.getProperty(key)).trim();
-                    pooled |= canonical.equals("spring.task.scheduling.pool.size") && value.matches("\\d+")
-                            && Integer.parseInt(value) > 1;
-                    virtual |= canonical.equals("spring.threads.virtual.enabled") && value.equalsIgnoreCase("true");
+                    String value = String.valueOf(enumerable.getProperty(key));
+                    pooled |= canonical.equals("spring.task.scheduling.pool.size")
+                            && chosen(value, size -> size.matches("\\d+") && Integer.parseInt(size) > 1);
+                    virtual |= canonical.equals("spring.threads.virtual.enabled")
+                            && chosen(value, "true"::equalsIgnoreCase);
                 }
             }
         }
-        boolean fixedDelay = sources.stream().anyMatch(source -> source.contains("fixedDelay"));
-        assertThat(pooled || (virtual && !fixedDelay))
-                .as("src/main/java has " + jobs + " @Scheduled methods, and Boot runs them all on one scheduler "
-                        + "thread, so one slow job delays the rest. Set spring.task.scheduling.pool.size to the "
-                        + "number of jobs that may run at once"
-                        + (fixedDelay
-                                ? "; virtual threads don't help fixedDelay jobs"
-                                : ", or spring.threads.virtual.enabled=true"))
+        List<String> fixedDelay = jobs.stream().filter(Job::fixedDelay).map(Job::name).toList();
+        assertThat(pooled || (virtual && fixedDelay.isEmpty()))
+                .as("src/main/java has " + jobs.size() + " @Scheduled jobs ("
+                        + jobs.stream().map(Job::name).collect(Collectors.joining(", "))
+                        + "), and Boot runs them all on one scheduler thread, so one slow job delays the rest. Set "
+                        + "spring.task.scheduling.pool.size to the number of jobs that may run at once"
+                        + (fixedDelay.isEmpty()
+                                ? ", or spring.threads.virtual.enabled=true"
+                                : "; virtual threads don't help fixedDelay jobs (" + String.join(", ", fixedDelay)
+                                        + ")"))
                 .isTrue();
+    }
+
+    private record Job(JavaMethod method, JavaAnnotation<?> scheduled) {
+
+        String name() {
+            return method.getOwner().getSimpleName() + "." + method.getName() + "()";
+        }
+
+        boolean fixedDelay() {
+            return scheduled.tryGetExplicitlyDeclaredProperty("fixedDelay")
+                            .filter(delay -> !delay.equals(-1L))
+                            .isPresent()
+                    || scheduled.tryGetExplicitlyDeclaredProperty("fixedDelayString")
+                            .filter(delay -> !String.valueOf(delay).isEmpty())
+                            .isPresent();
+        }
+    }
+
+    /** One job per trigger: @Scheduled, each entry of @Schedules, or an annotation that carries @Scheduled. */
+    private static Stream<Job> jobsOf(JavaMethod method) {
+        return method.getAnnotations().stream().flatMap(annotation -> {
+            String type = annotation.getRawType().getName();
+            if (type.equals(SCHEDULED)) {
+                return Stream.of(new Job(method, annotation));
+            }
+            if (type.equals(SCHEDULES)) {
+                return annotation.get("value").filter(Object[].class::isInstance).stream()
+                        .flatMap(entries -> Arrays.stream((Object[]) entries))
+                        .filter(JavaAnnotation.class::isInstance)
+                        .map(entry -> new Job(method, (JavaAnnotation<?>) entry));
+            }
+            Optional<? extends JavaAnnotation<?>> carried = annotation.getRawType().tryGetAnnotationOfType(SCHEDULED);
+            return carried.stream().map(scheduled -> new Job(method, scheduled));
+        });
+    }
+
+    private static boolean runsItsOwnScheduler() {
+        return MAIN.stream().anyMatch(type ->
+                type.isAssignableTo("org.springframework.scheduling.annotation.SchedulingConfigurer")
+                        || type.getMethods().stream()
+                                .filter(method -> method.isAnnotatedWith("org.springframework.context.annotation.Bean"))
+                                .anyMatch(method -> OWN_SCHEDULERS.stream()
+                                        .anyMatch(method.getRawReturnType()::isAssignableTo)));
+    }
+
+    /**
+     * A literal that passes, or a placeholder whose default passes. A placeholder with no default stops the app from
+     * starting until it is set, so someone chose the value.
+     */
+    private static boolean chosen(String value, Predicate<String> enough) {
+        Matcher placeholder = PLACEHOLDER.matcher(value.strip());
+        if (placeholder.matches()) {
+            return placeholder.group(1) == null || enough.test(placeholder.group(1).strip());
+        }
+        return enough.test(value.strip());
     }
 
     private record Dependency(String group, String artifact, String scope) {}
@@ -240,15 +334,6 @@ class BuildSetupTests {
         }
     }
 
-    private static List<String> mainSources() throws IOException {
-        if (!Files.isDirectory(Path.of("src/main/java"))) {
-            return List.of();
-        }
-        try (Stream<Path> sources = Files.walk(Path.of("src/main/java"))) {
-            return sources.filter(path -> path.toString().endsWith(".java")).map(BuildSetupTests::read).toList();
-        }
-    }
-
     private static boolean hasFiles(Path directory) throws IOException {
         if (!Files.isDirectory(directory)) {
             return false;
@@ -277,6 +362,42 @@ class BuildSetupTests {
         PropertySourceLoader loader =
                 name.endsWith(".properties") ? new PropertiesPropertySourceLoader() : new YamlPropertySourceLoader();
         return loader.load(name, new FileSystemResource(file));
+    }
+
+    /**
+     * Leaves out classes compiled from target/generated-sources or build/generated, such as OpenAPI models and MapStruct
+     * mappers: the generator writes them, so its configuration is where they change. Their class files sit beside the
+     * team's and @Generated isn't kept in bytecode, so they're named from the generated source files.
+     */
+    private static DescribedPredicate<JavaClass> handwritten() {
+        Set<String> generated = Stream.of(Path.of("target/generated-sources"), Path.of("build/generated"))
+                .filter(Files::isDirectory)
+                .flatMap(BuildSetupTests::javaFiles)
+                .map(BuildSetupTests::className)
+                .collect(Collectors.toSet());
+        return DescribedPredicate.describe("are written by hand", type -> {
+            String name = type.getName();
+            return !generated.contains(name.contains("$") ? name.substring(0, name.indexOf('$')) : name);
+        });
+    }
+
+    private static Stream<Path> javaFiles(Path root) {
+        try (Stream<Path> files = Files.walk(root)) {
+            return files.filter(file -> file.toString().endsWith(".java")).toList().stream();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String className(Path source) {
+        String simpleName = source.getFileName().toString().replaceFirst("\\.java$", "");
+        try {
+            return PACKAGE.matcher(Files.readString(source)).results().findFirst()
+                    .map(found -> found.group(1) + "." + simpleName)
+                    .orElse(simpleName);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private static String read(Path path) {

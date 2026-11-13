@@ -264,6 +264,8 @@ class ApplyHarnessTests(unittest.TestCase):
         boundaries = (root / "src/test/java/com/acme/orders/ModuleBoundariesTests.java").read_text(encoding="utf-8")
         self.assertIn("package com.acme.orders;", boundaries)
         self.assertIn("ApplicationModules.of(com.acme.orders.OrdersApplication.class)", boundaries)
+        build_setup = (root / "src/test/java/com/acme/orders/BuildSetupTests.java").read_text(encoding="utf-8")
+        self.assertIn('BASE_PACKAGE = "com.acme.orders";', build_setup)
         agents = (root / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("# orders", agents)
         self.assertIn("Spring Boot 4.1.1 on Java 25", agents)
