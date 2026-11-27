@@ -8,6 +8,8 @@
 
 **Tech Stack:** Bash hooks (Git for Windows on Windows), Python 3 scripts and `unittest`, GitHub Actions, Markdown templates rendered by `apply_harness.py`.
 
+**Scope (decided 2026-11-27):** Tasks 1 to 3 are built, plus Task 5 as a `git log` command in the `REVIEW.md` Risk comment and an instruction in `SKILL.md` step 4, with no script. The text changes carry no phrase tests: `test_docs.py` checks that what ships is named, and leaves prose to review. `docs/known-gaps.md` and `docs/decisions/` are not harness conventions, so the text says "the description" and "the project's decision records" instead. The trace rule and the cap in `code-reviewer` apply to change reviews only, since its module, performance and comment passes list more than five findings by design. Every other task is out; the reasons are under "Not in this plan".
+
 **Spec:** `docs/plans/2026-11-14-ai-code-review-research.md` (sections §1.1 to §1.6, §2.3, §2.4, table §3). Each task names the table row it implements.
 
 ## Global Constraints
@@ -93,11 +95,12 @@ def test_the_agents_template_sends_every_reviewer_to_review_md_and_makes_the_fix
     self.assertIn("read `REVIEW.md` first", agents)
     self.assertIn("re-trace", agents)
     self.assertIn("frequency", agents)
+    self.assertIn("every finding you didn't fix", agents)
 ```
 
 - [ ] **Step 2: Run it.** Expected: FAIL on "read `REVIEW.md` first".
 
-- [ ] **Step 3: Edit `AGENTS.md`.** Add a bullet before the pull-request bullet: "Reviewers, people or agents, read `REVIEW.md` first. It says what to report, what to skip, and how." Rewrite the pull-request bullet's review sentences to: "Before you open a pull request, review the branch's changes with the `code-reviewer` skill (in a fresh subagent where the tool has one) and write the description with the `pr` skill, if they are installed. In the review, search the repository's own code for code like what the branch adds, so a copy of existing logic shows up. For each finding, re-trace it yourself: a reviewer's severity tag does not decide. Fix it when a normal user doing normal work would hit it, judged by frequency times harm; answer the rest in one line with the reason, and file a follow-up in `docs/known-gaps.md` rather than widening the change. Fix the class of bug, not one line. Then review only the new changes; after two rounds, ask the user instead of starting a third." Keep the sentence about the description.
+- [ ] **Step 3: Edit `AGENTS.md`.** Add a bullet before the pull-request bullet: "Reviewers, people or agents, read `REVIEW.md` first. It says what to report, what to skip, and how." Rewrite the pull-request bullet's review sentences to: "Before you open a pull request, review the branch's changes with the `code-reviewer` skill (in a fresh subagent where the tool has one) and write the description with the `pr` skill, if they are installed. In the review, search the repository's own code for code like what the branch adds, so a copy of existing logic shows up. For each finding, re-trace it yourself: a reviewer's severity tag does not decide. Fix it when a normal user doing normal work would hit it, judged by frequency times harm; answer the rest in one line with the reason, and file a follow-up in `docs/known-gaps.md` rather than widening the change. List every finding you didn't fix in the pull request description, each with its one-line reason, so a person sees what was waved off. Fix the class of bug, not one line. Then review only the new changes; after two rounds, ask the user instead of starting a third." Keep the sentence about the description.
 
 - [ ] **Step 4: Edit the `SKILL.md` table row `REVIEW.md`** to end: "Added only when missing; the team fills in the failures, one line each time a review misses a bug, and the risk packages from `scripts/hotspots.py` (Task 5)". Adjust once Task 5 names the script.
 
@@ -343,6 +346,12 @@ Spec row 10 and open questions 1 to 3. Output is a decision note, then either Ta
 ---
 
 ## Not in this plan, and why
+
+- Task 4, the replay: every planted mistake it picks (`System.out`, the self-invoked `@Async`, the logged email, the controller using a repository) is caught by the build or the Stop hook, and `REVIEW.md` tells reviewers not to report what the build fails on, so the answer key grades what the template says to skip. Three runs per case are too few when run-to-run variation matches the difference between prompts (spec §1.6). The real codebase's replay is the evidence for now; a replay worth running needs planted bugs no gate catches, such as the two Failures examples.
+- Task 5's script: it runs once at setup, so a `git log` command in the `REVIEW.md` Risk comment does the same job without a script to maintain.
+- Task 6, the pull request template: `AGENTS.md` and the `pr` skill already ask for the same sections, and `gh pr create --body` ignores the template.
+- Tasks 7 to 9, the triage gate: it decides how much one person reads before a commit lands, not a rule the codebase needs, and nothing in it is Spring Boot. In the harness it would hold commits for every developer and agent on a team. It fits better as user-level hooks for Claude Code and Codex. If built, its fingerprint must hash working-tree files that `git diff --raw` prints as `0000000`, as the mod's `fingerprintOf` does, or an edit after approval keeps the approval; and it should score only the index when something is staged and the command has no `-a`.
+- Tasks 10 and 11, Kiro: only worth the spike if the harness has Kiro users; Kiro reads `AGENTS.md` and CI applies to every tool.
 
 - Headless review from inside the hook and model-based classification (spec §2.4 layers 2 and 3): the harness adds no network calls today, and the learnings note says a second model agreeing proves nothing. Revisit after Task 8 has run on a real codebase for a month and `report.py` shows how often holds happen.
 - Checking for a review report file before releasing a hold: the hold is advisory and the human approves; add it only if `report.py` shows agents skipping the subagent review.
