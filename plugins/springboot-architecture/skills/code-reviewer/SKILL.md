@@ -9,7 +9,9 @@ description: "Use when asked to review, check or diagnose Spring Boot code: a pu
 
 - If the repository has a `REVIEW.md` at its root, read it first. Check the change against each rule it lists, and follow what it says to report and skip.
 - Review only code you have. If no files, diff, or module were given, ask for them.
-- Cite a file path and line for every finding. Mark findings in code the change didn't touch as pre-existing.
+- Cite a file path and line for every finding. Mark findings in code the change didn't touch as pre-existing; the author answers those, and doesn't fix them in this change.
+- When reviewing a change (a diff, branch or pull request), report a finding only when you can trace it from a supported entry point through the changed lines to a wrong result, and no earlier guard, type, constraint or caller rules it out. Zero findings is a valid review.
+- In a change review, report at most five findings, one per cause, most serious first.
 - Read the Java version from `pom.xml` or `build.gradle`. Boot 4 supports Java 17 and later, so Java 17 and 21 are not findings. Java 26 and 27 targets: `../creating-springboot-projects/references/java-version-policy.md`.
 - Recommend virtual threads, reactive code, or a new architecture only with evidence from the code: blocking I/O on request threads, a saturated pool, or a boundary that already leaks.
 - Use JSpecify as the null-safety baseline for new Boot 4 code. If the codebase is part way through moving to it, report the plan, not every legacy annotation.
@@ -94,6 +96,7 @@ Order findings by severity:
 ## Critical
 - **[Category]**: Issue summary
   - **File**: `path/to/File.java:123`
+  - **Trace** (change reviews): Entry point → what happens → the wrong result someone sees
   - **Impact**: What can fail, leak, or regress
   - **Fix**: Specific change to make
 
